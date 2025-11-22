@@ -35,7 +35,7 @@ RUN adduser --system --uid 1001 nextjs
 # Копируем только необходимые файлы
 COPY --from=builder /app/public ./public
 
-# Копируем standalone файлы если они есть, иначе используем обычную структуру
+# Копируем standalone файлы
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
@@ -46,6 +46,6 @@ EXPOSE 3000
 ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
 
-# Запуск приложения
-CMD ["npm", "start"]
+# Запуск приложения из standalone директории
+CMD ["node", "server.js"]
 
