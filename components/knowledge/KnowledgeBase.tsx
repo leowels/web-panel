@@ -133,7 +133,7 @@ export default function KnowledgeBase() {
     }
   }
 
-  const isAdmin = user?.roles?.some((r: any) => r.name === 'admin')
+  const isAdmin = user?.roles?.some((r) => r.name === 'admin') || false
 
   return (
     <div className="space-y-6">

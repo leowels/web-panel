@@ -4,11 +4,19 @@ import axios from 'axios'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
+interface Role {
+  id: number
+  name: string
+}
+
 interface User {
   id: number
   username: string
   email: string
   full_name: string | null
+  organization?: string | null
+  is_active?: boolean
+  roles?: Role[]  // API возвращает массив {id, name}
 }
 
 interface AuthState {

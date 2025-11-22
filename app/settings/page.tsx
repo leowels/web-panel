@@ -15,7 +15,7 @@ export default function SettingsPage() {
   }
 
   // Проверка прав на системные настройки
-  const isAdmin = user?.roles?.some((r: any) => r.name === 'admin') || false
+  const isAdmin = user?.roles?.some((r) => r.name === 'admin') || false
 
   return (
     <Layout>

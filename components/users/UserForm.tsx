@@ -79,7 +79,7 @@ export default function UserForm({ userId, onClose, onSuccess }: UserFormProps) 
         organization: user.organization || '',
         signature: user.signature || '',
         is_active: user.is_active,
-        role_ids: user.roles.map((r: any) => r.id),
+        role_ids: user.roles?.map((r) => r.id) || [],
       })
     } catch (error: any) {
       if (error.response?.status === 401) {
