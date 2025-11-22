@@ -70,7 +70,7 @@ export default function DocumentList({ onSelectDoc, selectedDoc }: DocumentListP
           <button
             onClick={async () => {
               try {
-                const newDoc = await createDocument('Новый документ', '', null)
+                const newDoc = await createDocument('Новый документ', '', undefined)
                 onSelectDoc(newDoc.id)
                 addNotification('Документ успешно создан', 'success')
               } catch (error: any) {
