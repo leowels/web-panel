@@ -7,7 +7,7 @@ import { useNotificationStore } from '@/store/notificationStore'
 import { format, parseISO } from 'date-fns'
 
 interface DocumentListProps {
-  onSelectDoc: (id: number) => void
+  onSelectDoc: (id: number | null) => void
   selectedDoc: number | null
 }
 
