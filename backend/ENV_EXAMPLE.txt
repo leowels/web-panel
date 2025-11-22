@@ -1,0 +1,22 @@
+# Database
+DATABASE_URL=sqlite+aiosqlite:///./rostekhnadzor.db
+
+# JWT Secret Key
+SECRET_KEY=your-secret-key-change-in-production
+
+# AI Configuration
+# Выберите провайдера: openai или timeweb
+AI_PROVIDER=openai
+
+# Для OpenAI
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
+# или используйте новую переменную
+AI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
+AI_MODEL=gpt-3.5-turbo
+
+# Для Timeweb Cloud AI (раскомментируйте и заполните)
+# AI_PROVIDER=timeweb
+# AI_API_KEY=tw_xxxxxxxxxxxxxxxxxxxxx
+# AI_BASE_URL=https://api.timeweb.cloud/ai/v1/agents/your-agent-id
+# AI_MODEL=gpt-3.5-turbo
+
