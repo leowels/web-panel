@@ -3,6 +3,8 @@ const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
   transpilePackages: ['react-beautiful-dnd'],
+  // Standalone режим для Docker
+  output: 'standalone',
   // Отключение кэширования в dev режиме
   onDemandEntries: {
     maxInactiveAge: 25 * 1000,
