@@ -11,7 +11,7 @@ interface Notification {
 
 interface NotificationStore {
   notifications: Notification[]
-  addNotification: (message: string, type?: NotificationType) => void
+  addNotification: (message: string | unknown[] | object | unknown, type?: NotificationType) => void
   removeNotification: (id: string) => void
   clearNotifications: () => void
 }
