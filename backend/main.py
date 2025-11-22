@@ -85,7 +85,7 @@ async def lifespan(app: FastAPI):
             admin = User(
                 username="admin",
                 email="admin@rostekhnadzor.ru",
-                hashed_password=get_password_hash("admin123"),
+                hashed_password=get_password_hash(os.getenv("ADMIN_PASSWORD", "admin123")),
                 full_name="Администратор",
                 is_active=True
             )

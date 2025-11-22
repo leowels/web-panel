@@ -166,7 +166,7 @@ export default function DefectsKanban({ theme }: DefectsKanbanProps) {
                               </span>
                             </div>
                             <div className={`text-sm mb-2 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
-                              {violation.description.substring(0, 60)}...
+                              {violation.description?.substring(0, 60) || ''}...
                             </div>
                             {violation.deadline && (
                               <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>

@@ -40,7 +40,7 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
     }
     
     const notification: Notification = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 11),
       message: messageStr,
       type,
       timestamp: Date.now(),
