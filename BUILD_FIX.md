@@ -27,3 +27,4 @@ addNotification: (message: string | unknown[] | object | unknown, type?: Notific
 ## Статус
 ✅ **ИСПРАВЛЕНО** - сборка должна проходить успешно.
 
+

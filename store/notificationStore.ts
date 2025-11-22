@@ -30,8 +30,8 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
         return JSON.stringify(item)
       }).join(', ')
     } else if (message && typeof message === 'object') {
-      if (message.msg) {
-        messageStr = message.msg
+      if ('msg' in message && typeof (message as { msg: unknown }).msg === 'string') {
+        messageStr = (message as { msg: string }).msg
       } else {
         messageStr = JSON.stringify(message)
       }
