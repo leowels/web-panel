@@ -1,5 +1,6 @@
 #!/bin/sh
-set -e
+# Не используем set -e, чтобы видеть все ошибки
+set +e
 
 echo "=========================================="
 echo "=== Запуск Backend на порту 8000 ==="
@@ -30,18 +31,25 @@ echo "PATH: $PATH"
 echo "Проверка доступности Python пакетов:"
 python -c "import sys; print('Python path:', sys.path)" || true
 
-# Запускаем Backend
+# Запускаем Backend с выводом логов
 echo "Запуск: python run.py"
-python run.py &
+# Запускаем в фоне, но перенаправляем вывод в stdout/stderr
+python run.py 2>&1 &
 BACKEND_PID=$!
 echo "Backend запущен с PID: $BACKEND_PID"
+
+# Выводим информацию о процессе
+ps aux | grep python | grep -v grep || echo "Процесс Python не найден"
 
 # Ждем немного и проверяем, что процесс запустился
 sleep 5
 
 if ! kill -0 $BACKEND_PID 2>/dev/null; then
     echo "ОШИБКА: Backend процесс завершился!"
-    echo "Проверьте логи выше на наличие ошибок"
+    echo "Попытка запуска Backend напрямую для диагностики..."
+    cd /app/backend
+    python run.py
+    echo "Backend завершился с кодом: $?"
     exit 1
 fi
 

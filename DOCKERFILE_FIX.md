@@ -51,3 +51,4 @@ error: failed to solve: failed to read dockerfile: open Dockerfile: no such file
 
 **После коммита и push сборка должна пройти успешно!** 🚀
 
+

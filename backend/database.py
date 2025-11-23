@@ -11,7 +11,28 @@ except ImportError:
     from models import Base
 
 # Получаем DATABASE_URL из переменных окружения
-_raw_db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./rostekhnadzor.db")
+# Поддержка двух вариантов:
+# 1. DATABASE_URL (полная строка подключения)
+# 2. POSTGRESQL_HOST, POSTGRESQL_PORT, POSTGRESQL_USER, POSTGRESQL_PASSWORD, POSTGRESQL_DBNAME (отдельные параметры)
+
+_raw_db_url = os.getenv("DATABASE_URL")
+
+# Если DATABASE_URL не задан, пробуем собрать из отдельных переменных
+if not _raw_db_url:
+    pg_host = os.getenv("POSTGRESQL_HOST")
+    pg_port = os.getenv("POSTGRESQL_PORT", "5432")
+    pg_user = os.getenv("POSTGRESQL_USER")
+    pg_password = os.getenv("POSTGRESQL_PASSWORD")
+    pg_dbname = os.getenv("POSTGRESQL_DBNAME")
+    
+    if pg_host and pg_user and pg_password and pg_dbname:
+        # URL-кодируем пароль для безопасности
+        from urllib.parse import quote_plus
+        encoded_password = quote_plus(pg_password)
+        _raw_db_url = f"postgresql://{pg_user}:{encoded_password}@{pg_host}:{pg_port}/{pg_dbname}?sslmode=require"
+    else:
+        # Fallback на SQLite для разработки
+        _raw_db_url = "sqlite+aiosqlite:///./rostekhnadzor.db"
 
 # Конвертируем postgresql:// в postgresql+asyncpg:// для SQLAlchemy async
 if _raw_db_url.startswith("postgresql://"):

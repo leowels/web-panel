@@ -57,3 +57,4 @@ NEXT_PUBLIC_API_URL=https://api.yourdomain.com
 Следующий шаг: настройте `.env` файл и деплойте! 🚀
 
 
+

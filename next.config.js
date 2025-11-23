@@ -5,6 +5,15 @@ const nextConfig = {
   transpilePackages: ['react-beautiful-dnd'],
   // Standalone режим для Docker
   output: 'standalone',
+  // Прокси для API запросов (если Backend на том же домене)
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: process.env.BACKEND_URL || 'http://localhost:8000/api/:path*',
+      },
+    ];
+  },
   // Отключение кэширования в dev режиме
   onDemandEntries: {
     maxInactiveAge: 25 * 1000,
