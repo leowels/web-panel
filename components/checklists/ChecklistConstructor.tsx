@@ -13,7 +13,7 @@ const Draggable = dynamic(() => import('react-beautiful-dnd').then(mod => mod.Dr
 
 type DropResult = import('react-beautiful-dnd').DropResult
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const API_URL = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '') : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
 
 interface ChecklistItem {
   id?: number

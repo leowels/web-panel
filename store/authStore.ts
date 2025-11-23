@@ -2,8 +2,12 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import axios from 'axios'
 
-// В production используем относительный путь для прокси Next.js
-const API_URL = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? '' : 'http://localhost:8000')
+// Используем относительный путь для прокси Next.js (в браузере)
+// В браузере window !== undefined, поэтому используем пустую строку
+// Next.js автоматически проксирует /api/* на Backend через rewrites
+const API_URL = typeof window !== 'undefined' 
+  ? (process.env.NEXT_PUBLIC_API_URL || '') 
+  : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
 
 interface Role {
   id: number

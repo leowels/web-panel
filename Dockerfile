@@ -15,9 +15,8 @@ RUN npm ci
 COPY . .
 
 # Build arguments для Next.js
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+# НЕ устанавливаем NEXT_PUBLIC_API_URL - используем относительный путь через прокси
 ARG BACKEND_URL=http://localhost:8000
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV BACKEND_URL=${BACKEND_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 
