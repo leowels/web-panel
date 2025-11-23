@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.full
+    ports:
+      - "3000:3000"
+      - "8000:8000"
+    environment:
+      # Backend
+      - SECRET_KEY=${SECRET_KEY}
+      - POSTGRESQL_HOST=${POSTGRESQL_HOST}
+      - POSTGRESQL_PORT=${POSTGRESQL_PORT:-5432}
+      - POSTGRESQL_USER=${POSTGRESQL_USER}
+      - POSTGRESQL_PASSWORD=${POSTGRESQL_PASSWORD}
+      - POSTGRESQL_DBNAME=${POSTGRESQL_DBNAME}
+      - BACKEND_PORT=${BACKEND_PORT:-8000}
+      - PORT=${PORT:-8000}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      # Frontend
+      - FRONTEND_PORT=${FRONTEND_PORT:-3000}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - BACKEND_URL=${BACKEND_URL:-http://localhost:8000}
+      - NODE_ENV=${NODE_ENV:-production}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
