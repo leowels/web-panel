@@ -1,22 +1,21 @@
 #!/bin/sh
-set -e
 
 echo "🚀 Запуск приложения..."
 
 # Функция для остановки процессов
 cleanup() {
     echo "🛑 Получен сигнал остановки, завершаем процессы..."
-    if [ ! -z "$BACKEND_PID" ]; then
+    if [ -n "$BACKEND_PID" ]; then
         kill $BACKEND_PID 2>/dev/null || true
     fi
-    if [ ! -z "$FRONTEND_PID" ]; then
+    if [ -n "$FRONTEND_PID" ]; then
         kill $FRONTEND_PID 2>/dev/null || true
     fi
     exit 0
 }
 
-# Обработка сигналов
-trap cleanup SIGTERM SIGINT
+# Обработка сигналов (совместимо с /bin/sh)
+trap cleanup TERM INT
 
 # Запуск Backend
 echo "📦 Запуск Backend на порту ${BACKEND_PORT:-8000}..."
