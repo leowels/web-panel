@@ -8,12 +8,14 @@
 SECRET_KEY=8E7ExQa6dqn-yERIMMHbA_IzLdvTJ6Vw1mLSslMoBp0
 
 # PostgreSQL настройки (ОБЯЗАТЕЛЬНО!)
-POSTGRESQL_HOST=be96b16b290a1cfbdf0595d0.twc1.net
+# Для подключения по приватной сети используйте IP адрес
+POSTGRESQL_HOST=192.168.0.4
 POSTGRESQL_PORT=5432
 POSTGRESQL_USER=gen_user
-POSTGRESQL_PASSWORD=ваш_пароль_от_бд
+POSTGRESQL_PASSWORD=4W;W%2M~kFb@:X
 POSTGRESQL_DBNAME=default_db
-POSTGRESQL_SSL=true
+# Для приватной сети SSL обычно не нужен
+POSTGRESQL_SSL=false
 
 # ============================================
 # ОПЦИОНАЛЬНЫЕ ПЕРЕМЕННЫЕ

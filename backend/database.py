@@ -59,10 +59,12 @@ if DATABASE_URL.startswith("postgresql+asyncpg://") or DATABASE_URL.startswith("
     # Проверяем, требуется ли SSL (по умолчанию для внешних БД - да)
     ssl_required = os.getenv("POSTGRESQL_SSL", "true").lower() == "true"
     if ssl_required:
-        # asyncpg требует ssl=True для SSL соединений (или ssl='require')
-        # Используем True для простого SSL, или можно использовать ssl.create_default_context()
         import ssl
-        connect_args = {"ssl": ssl.create_default_context()}
+        # Создаем SSL контекст без проверки сертификата (для self-signed сертификатов)
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        connect_args = {"ssl": ssl_context}
 
 engine = create_async_engine(DATABASE_URL, echo=False, connect_args=connect_args)
 async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

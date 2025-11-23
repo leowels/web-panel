@@ -1,10 +1,15 @@
 #!/bin/sh
 
-echo "🚀 Запуск приложения..."
+# Функция для вывода с временной меткой
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+log "🚀 Запуск приложения..."
 
 # Функция для остановки процессов
 cleanup() {
-    echo "🛑 Получен сигнал остановки, завершаем процессы..."
+    log "🛑 Получен сигнал остановки, завершаем процессы..."
     if [ -n "$BACKEND_PID" ]; then
         kill $BACKEND_PID 2>/dev/null || true
     fi
@@ -18,7 +23,7 @@ cleanup() {
 trap 'cleanup' 15 2
 
 # Запуск Backend
-echo "📦 Запуск Backend на порту ${BACKEND_PORT:-8000}..."
+log "📦 Запуск Backend на порту ${BACKEND_PORT:-8000}..."
 cd /app/backend
 export PORT=${BACKEND_PORT:-8000}
 python run.py > /proc/1/fd/1 2>&1 &
@@ -29,21 +34,21 @@ sleep 3
 
 # Проверка Backend
 if ! kill -0 $BACKEND_PID 2>/dev/null; then
-    echo "❌ Backend не запустился!"
+    log "❌ Backend не запустился!"
     exit 1
 fi
 
-echo "✅ Backend запущен (PID: $BACKEND_PID)"
+log "✅ Backend запущен (PID: $BACKEND_PID)"
 
 # Запуск Frontend
-echo "🎨 Запуск Frontend на порту ${FRONTEND_PORT:-3000}..."
+log "🎨 Запуск Frontend на порту ${FRONTEND_PORT:-3000}..."
 cd /app
 export PORT=${FRONTEND_PORT:-3000}
 export HOSTNAME="0.0.0.0"
 export NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
 # Проверяем наличие server.js
 if [ ! -f "server.js" ]; then
-    echo "❌ server.js не найден! Проверка содержимого /app:"
+    log "❌ server.js не найден! Проверка содержимого /app:"
     ls -la /app | head -20
     exit 1
 fi
@@ -55,15 +60,15 @@ sleep 2
 
 # Проверка Frontend
 if ! kill -0 $FRONTEND_PID 2>/dev/null; then
-    echo "❌ Frontend не запустился!"
+    log "❌ Frontend не запустился!"
     kill $BACKEND_PID 2>/dev/null || true
     exit 1
 fi
 
-echo "✅ Frontend запущен (PID: $FRONTEND_PID)"
-echo "🎉 Приложение запущено!"
-echo "   Frontend: http://0.0.0.0:${FRONTEND_PORT:-3000}"
-echo "   Backend:  http://0.0.0.0:${BACKEND_PORT:-8000}"
+log "✅ Frontend запущен (PID: $FRONTEND_PID)"
+log "🎉 Приложение запущено!"
+log "   Frontend: http://0.0.0.0:${FRONTEND_PORT:-3000}"
+log "   Backend:  http://0.0.0.0:${BACKEND_PORT:-8000}"
 
 # Ожидание завершения
 wait $BACKEND_PID $FRONTEND_PID

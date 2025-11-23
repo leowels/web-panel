@@ -3,7 +3,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import os
 import sys
+import logging
 from datetime import datetime
+
+# Настройка логирования с временными метками
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(levelname)s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 # Поддержка запуска как скрипта и как модуля
 try:
