@@ -47,7 +47,8 @@ ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
 ENV PATH=/home/appuser/.local/bin:$PATH
 
+# Рабочая директория - backend
 WORKDIR /app/backend
 
-# Запуск сервера
+# Запуск сервера (run.py уже настроен для работы из /app/backend)
 CMD ["python", "run.py"]

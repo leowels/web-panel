@@ -27,10 +27,19 @@ if __name__ == "__main__":
         is_development = os.getenv("ENVIRONMENT", "development").lower() != "production"
         reload_enabled = is_development and os.getenv("RELOAD", "false").lower() == "true"
         
-        # Запускаем uvicorn
-        # Используем просто "main:app" так как мы уже в директории backend
+        # Импортируем app напрямую для надежности
+        try:
+            from main import app
+        except ImportError:
+            # Если не получилось, пробуем через sys.path
+            import sys
+            if backend_dir not in sys.path:
+                sys.path.insert(0, backend_dir)
+            from main import app
+        
+        # Запускаем uvicorn с прямым объектом app
         uvicorn.run(
-            "main:app",
+            app,
             host="0.0.0.0",
             port=int(os.getenv("PORT", "8000")),
             reload=reload_enabled,
