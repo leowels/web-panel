@@ -132,6 +132,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Корневой endpoint (должен быть до регистрации роутеров для health checks)
+@app.get("/")
+async def root():
+    return {
+        "message": "Ростехнадзор Панель API",
+        "version": "1.0.0",
+        "status": "ok",
+        "docs": "/docs",
+        "health": "/api/health"
+    }
+
 # Подключение роутеров
 app.include_router(auth.router)
 app.include_router(users.router)
@@ -191,6 +202,27 @@ except (NameError, AttributeError):
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok", "version": "1.0.0"}
+
+@app.get("/api")
+async def api_root():
+    return {
+        "message": "API Root",
+        "endpoints": {
+            "health": "/api/health",
+            "auth": "/api/auth",
+            "users": "/api/users",
+            "equipment": "/api/equipment",
+            "documents": "/api/documents",
+            "knowledge": "/api/knowledge",
+            "inspections": "/api/inspections",
+            "violations": "/api/violations",
+            "acts": "/api/acts",
+            "checklists": "/api/checklists",
+            "settings": "/api/settings",
+            "audit": "/api/audit",
+            "files": "/api/files"
+        }
+    }
 
 if __name__ == "__main__":
     import uvicorn
