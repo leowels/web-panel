@@ -98,7 +98,7 @@ async def lifespan(app: FastAPI):
             logger.info("Создание пользователя admin...")
             admin = User(
                 username="admin",
-                email="admin@rostekhnadzor.ru",
+                email="admin@inspectorhub.ru",
                 hashed_password=get_password_hash(admin_password),
                 full_name="Администратор",
                 is_active=True
@@ -123,8 +123,8 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 app = FastAPI(
-    title="Ростехнадзор Панель API",
-    description="Корпоративная система управления для Ростехнадзора",
+    title="InspectorHub API",
+    description="Профессиональная система управления инспекциями и контролем",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -145,7 +145,7 @@ app.add_middleware(
 @app.get("/")
 async def root():
     return {
-        "message": "Ростехнадзор Панель API",
+        "message": "InspectorHub API",
         "version": "1.0.0",
         "status": "ok",
         "docs": "/docs",

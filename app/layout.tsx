@@ -3,8 +3,8 @@ import './globals.css'
 import { Providers } from './providers'
 
 export const metadata: Metadata = {
-  title: 'Панель управления Ростехнадзор',
-  description: 'Корпоративная система управления документами',
+  title: 'InspectorHub - Система управления инспекциями',
+  description: 'Профессиональная система управления инспекциями и контролем',
   manifest: '/manifest.json',
 }
 

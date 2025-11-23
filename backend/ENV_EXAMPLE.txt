@@ -1,5 +1,5 @@
 # Database
-DATABASE_URL=sqlite+aiosqlite:///./rostekhnadzor.db
+DATABASE_URL=sqlite+aiosqlite:///./inspectorhub.db
 
 # JWT Secret Key
 SECRET_KEY=your-secret-key-change-in-production

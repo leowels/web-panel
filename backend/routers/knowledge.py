@@ -374,14 +374,14 @@ async def ai_search_knowledge(
         # Использование ИИ для ранжирования
         context = "\n\n".join([f"{k.title}: {k.content[:200]}" for k in all_knowledge[:20]])
         
-        ai_prompt = f"""Найди наиболее релевантные документы из базы знаний Ростехнадзора для запроса: "{request.query}"
+        ai_prompt = f"""Найди наиболее релевантные документы из базы знаний инспекции для запроса: "{request.query}"
 
 Документы:
 {context}
 
 Верни только номера наиболее релевантных документов (первые 5)."""
         
-        system_prompt = "Ты помощник для поиска в базе знаний Ростехнадзора."
+        system_prompt = "Ты помощник для поиска в базе знаний инспекции."
         
         ai_response = ai_client.generate_text(
             prompt=ai_prompt,

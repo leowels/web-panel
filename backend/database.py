@@ -33,7 +33,7 @@ if not _raw_db_url:
         _raw_db_url = f"postgresql://{pg_user}:{encoded_password}@{pg_host}:{pg_port}/{pg_dbname}"
     else:
         # Fallback на SQLite для разработки
-        _raw_db_url = "sqlite+aiosqlite:///./rostekhnadzor.db"
+        _raw_db_url = "sqlite+aiosqlite:///./inspectorhub.db"
 
 # Конвертируем postgresql:// в postgresql+asyncpg:// для SQLAlchemy async
 if _raw_db_url.startswith("postgresql://"):

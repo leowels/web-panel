@@ -1,7 +1,7 @@
 {
-  "name": "Панель управления Ростехнадзор",
-  "short_name": "Ростехнадзор",
-  "description": "Корпоративная система управления документами",
+  "name": "InspectorHub - Система управления инспекциями",
+  "short_name": "InspectorHub",
+  "description": "Профессиональная система управления инспекциями и контролем",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

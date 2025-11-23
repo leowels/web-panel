@@ -29,8 +29,8 @@ export default function Header({ user, onAIClick }: HeaderProps) {
                 </svg>
               </div>
               <div>
-                <span className="text-lg font-bold text-gray-900 tracking-tight">Ростехнадзор</span>
-                <p className="text-xs text-gray-500 font-medium">Система управления</p>
+                <span className="text-lg font-bold text-gray-900 tracking-tight">InspectorHub</span>
+                <p className="text-xs text-gray-500 font-medium">Система управления инспекциями</p>
               </div>
             </div>
           </div>

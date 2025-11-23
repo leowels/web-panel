@@ -25,7 +25,7 @@ except ImportError:
 
 async def update_role_permissions():
     # Используем DATABASE_URL из database.py или переменную окружения
-    db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./rostekhnadzor.db")
+    db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./inspectorhub.db")
     engine = create_async_engine(db_url, echo=True)
     
     async with AsyncSession(engine) as session:
