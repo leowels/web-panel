@@ -50,10 +50,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Установка runtime зависимостей
+# Установка runtime зависимостей (включая Node.js для Frontend)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
+    gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Копируем Python пакеты из builder

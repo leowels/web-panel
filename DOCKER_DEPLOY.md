@@ -51,7 +51,7 @@ docker run -d \
   - `BACKEND_URL` - URL Backend
 
 ### Переменные окружения:
-См. `TIMEWEB_ENV_VARS.txt` или `backend/ENV_BACKEND.txt`
+См. `ENV_DOCKER.txt` - **ОБЯЗАТЕЛЬНО укажите SECRET_KEY!**
 
 ## ✅ Проверка
 

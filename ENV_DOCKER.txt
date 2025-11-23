@@ -1,0 +1,37 @@
+# Переменные окружения для Docker контейнера (Frontend + Backend)
+
+# ============================================
+# ОБЯЗАТЕЛЬНЫЕ ПЕРЕМЕННЫЕ
+# ============================================
+
+# Секретный ключ для JWT (ОБЯЗАТЕЛЬНО!)
+SECRET_KEY=8E7ExQa6dqn-yERIMMHbA_IzLdvTJ6Vw1mLSslMoBp0
+
+# PostgreSQL настройки (ОБЯЗАТЕЛЬНО!)
+POSTGRESQL_HOST=be96b16b290a1cfbdf0595d0.twc1.net
+POSTGRESQL_PORT=5432
+POSTGRESQL_USER=gen_user
+POSTGRESQL_PASSWORD=ваш_пароль_от_бд
+POSTGRESQL_DBNAME=default_db
+
+# ============================================
+# ОПЦИОНАЛЬНЫЕ ПЕРЕМЕННЫЕ
+# ============================================
+
+# Порты
+BACKEND_PORT=8000
+FRONTEND_PORT=3000
+
+# Окружение
+ENVIRONMENT=production
+
+# CORS (укажите домен Frontend после деплоя!)
+CORS_ORIGINS=http://localhost:3000,https://your-domain.com
+
+# Админ пароль
+ADMIN_PASSWORD=ваш_сильный_пароль_для_админа
+
+# AI (если используется)
+AI_API_URL=ваш_ai_api_url
+AI_API_KEY=ваш_ai_api_key
+

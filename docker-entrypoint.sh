@@ -15,7 +15,7 @@ cleanup() {
 }
 
 # Обработка сигналов (совместимо с /bin/sh)
-trap cleanup TERM INT
+trap 'cleanup' 15 2
 
 # Запуск Backend
 echo "📦 Запуск Backend на порту ${BACKEND_PORT:-8000}..."
