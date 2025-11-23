@@ -1,51 +1,80 @@
-# Dockerfile для Next.js приложения
-FROM node:18-alpine AS base
+# Dockerfile для полного приложения (Frontend + Backend)
+FROM node:18-alpine AS frontend-base
 
-# Установка зависимостей
-FROM base AS deps
+# Установка зависимостей Frontend
+FROM frontend-base AS frontend-deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
-
-# Копируем package файлы
 COPY package.json package-lock.json* ./
 RUN npm ci
 
-# Сборка приложения
-FROM base AS builder
+# Сборка Frontend
+FROM frontend-base AS frontend-builder
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=frontend-deps /app/node_modules ./node_modules
 COPY . .
-
-# Переменные окружения для сборки
 ENV NEXT_TELEMETRY_DISABLED 1
-
-# Собираем приложение
 RUN npm run build
 
+# Backend builder
+FROM python:3.11-slim AS backend-builder
+WORKDIR /app/backend
+
+# Установка системных зависимостей для компиляции
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    python3-dev \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Установка Python зависимостей
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
 # Production образ
-FROM base AS runner
+FROM python:3.11-slim AS runner
 WORKDIR /app
 
-ENV NODE_ENV production
-ENV NEXT_TELEMETRY_DISABLED 1
+# Установка runtime зависимостей
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+# Копируем Python пакеты из builder (до создания пользователя)
+COPY --from=backend-builder /root/.local /root/.local
+RUN chown -R appuser:appuser /root/.local 2>/dev/null || true
 
-# Копируем только необходимые файлы
-COPY --from=builder /app/public ./public
+# Копируем Frontend
+COPY --from=frontend-builder /app/public ./public
+COPY --from=frontend-builder /app/.next/standalone ./
+COPY --from=frontend-builder /app/.next/static ./.next/static
 
-# Копируем standalone файлы
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# Копируем Backend (сохраняем структуру)
+COPY backend/ ./backend/
+RUN ls -la /app/backend/ || true
 
-USER nextjs
+# Скрипт запуска обоих сервисов (копируем до создания пользователя)
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
-EXPOSE 3000
+# Создаем пользователя
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+# Копируем Python пакеты в домашнюю директорию пользователя
+RUN cp -r /root/.local /home/appuser/.local 2>/dev/null || true && \
+    chown -R appuser:appuser /home/appuser/.local 2>/dev/null || true
+USER appuser
 
-ENV PORT 3000
-ENV HOSTNAME "0.0.0.0"
+# Порты
+EXPOSE 3000 8000
 
-# Запуск приложения из standalone директории
-CMD ["node", "server.js"]
+# Переменные окружения
+ENV PYTHONUNBUFFERED=1
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+ENV PATH=/home/appuser/.local/bin:$PATH
 
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["/app/docker-entrypoint.sh"]
