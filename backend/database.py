@@ -10,7 +10,16 @@ except ImportError:
     # Если не получилось, пробуем абсолютные (для прямого запуска)
     from models import Base
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./rostekhnadzor.db")
+# Получаем DATABASE_URL из переменных окружения
+_raw_db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./rostekhnadzor.db")
+
+# Конвертируем postgresql:// в postgresql+asyncpg:// для SQLAlchemy async
+if _raw_db_url.startswith("postgresql://"):
+    DATABASE_URL = _raw_db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+elif _raw_db_url.startswith("postgresql+asyncpg://"):
+    DATABASE_URL = _raw_db_url
+else:
+    DATABASE_URL = _raw_db_url
 
 # Предупреждение о SQLite в production
 if DATABASE_URL.startswith("sqlite") and os.getenv("ENVIRONMENT") == "production":
