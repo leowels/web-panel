@@ -46,11 +46,19 @@ cd /app
 export PORT=${FRONTEND_PORT:-3000}
 export HOSTNAME="0.0.0.0"
 export NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-# Проверяем наличие server.js
+# Проверяем наличие server.js и структуру
 if [ ! -f "server.js" ]; then
     log "❌ server.js не найден! Проверка содержимого /app:"
     ls -la /app | head -20
+    log "Проверка .next директории:"
+    ls -la .next 2>/dev/null || echo ".next не найден"
     exit 1
+fi
+# Проверяем наличие статических файлов
+if [ ! -d ".next/static" ]; then
+    log "⚠️ .next/static не найден, проверяем структуру:"
+    find . -name "*.js" -type f | head -10
+    find . -name "static" -type d | head -5
 fi
 node server.js > /proc/1/fd/1 2>&1 &
 FRONTEND_PID=$!

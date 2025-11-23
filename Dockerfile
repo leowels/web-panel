@@ -66,9 +66,13 @@ COPY --from=backend-builder /root/.local /root/.local
 COPY backend/ ./backend/
 
 # Копируем Frontend (standalone)
+# В standalone режиме Next.js создает структуру с server.js в корне
 COPY --from=frontend-builder /app/public ./public
 COPY --from=frontend-builder /app/.next/standalone ./
+# Статические файлы должны быть в .next/static относительно server.js
 COPY --from=frontend-builder /app/.next/static ./.next/static
+# Также копируем .next/static в standalone/.next/static (на случай если server.js в standalone/)
+RUN mkdir -p ./.next && cp -r ./.next/static ./.next/ 2>/dev/null || true
 
 # Копируем entrypoint скрипт
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
