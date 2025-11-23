@@ -91,11 +91,15 @@ async def lifespan(app: FastAPI):
         result = await session.execute(select(User).where(User.username == "admin"))
         admin = result.scalar_one_or_none()
         
+        admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
+        logger = logging.getLogger(__name__)
+        
         if not admin:
+            logger.info("Создание пользователя admin...")
             admin = User(
                 username="admin",
                 email="admin@rostekhnadzor.ru",
-                hashed_password=get_password_hash(os.getenv("ADMIN_PASSWORD", "admin123")),
+                hashed_password=get_password_hash(admin_password),
                 full_name="Администратор",
                 is_active=True
             )
@@ -109,6 +113,9 @@ async def lifespan(app: FastAPI):
             user_role = UserRole(user_id=admin.id, role_id=role.id)
             session.add(user_role)
             await session.commit()
+            logger.info(f"✓ Пользователь admin создан. Пароль: {'установлен из ADMIN_PASSWORD' if os.getenv('ADMIN_PASSWORD') else 'admin123 (по умолчанию)'}")
+        else:
+            logger.info("Пользователь admin уже существует")
     
     yield
     

@@ -53,6 +53,9 @@ async def login(
     db: AsyncSession = Depends(get_db)
 ):
     """Вход в систему"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     result = await db.execute(
         select(User)
         .options(selectinload(User.roles).selectinload(UserRole.role))
@@ -60,7 +63,16 @@ async def login(
     )
     user = result.scalar_one_or_none()
     
-    if not user or not verify_password(user_data.password, user.hashed_password):
+    if not user:
+        logger.warning(f"Попытка входа с несуществующим username: {user_data.username}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    if not verify_password(user_data.password, user.hashed_password):
+        logger.warning(f"Неверный пароль для пользователя: {user_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
