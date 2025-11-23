@@ -11,7 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Копируем и устанавливаем зависимости
-COPY requirements.txt .
+COPY backend/requirements.txt ./backend/requirements.txt
+WORKDIR /app/backend
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Production образ (минимальный)
@@ -28,10 +29,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /root/.local /root/.local
 
 # Копируем код приложения
-COPY . .
+COPY backend/ ./backend/
 
 # Создаем пользователя для безопасности
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+# Копируем пакеты в доступное место для пользователя
+RUN cp -r /root/.local /home/appuser/.local 2>/dev/null || true && \
+    chown -R appuser:appuser /home/appuser/.local 2>/dev/null || true
+
 USER appuser
 
 # Порт
@@ -40,8 +45,9 @@ EXPOSE 8000
 # Переменные окружения
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
-ENV PATH=/root/.local/bin:$PATH
+ENV PATH=/home/appuser/.local/bin:$PATH
+
+WORKDIR /app/backend
 
 # Запуск сервера
 CMD ["python", "run.py"]
-
