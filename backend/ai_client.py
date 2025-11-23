@@ -39,6 +39,11 @@ class AIClient:
         # Настройка для Timeweb Cloud
         # Timeweb Cloud агенты используют OpenAI-совместимый API
         # URL должен быть указан в настройках (из раздела "OpenAI URL" в панели агента)
+        
+        # Автоматически определяем Timeweb по URL, даже если провайдер указан как "openai"
+        if self.base_url and ("timeweb.cloud" in self.base_url.lower() or "agent.timeweb" in self.base_url.lower()):
+            self.provider = "timeweb"
+        
         if self.provider == "timeweb":
             # Если base_url не указан, пробуем получить из переменных окружения
             if not self.base_url:
@@ -92,8 +97,14 @@ class AIClient:
         messages.append({"role": "user", "content": prompt})
         
         try:
+            # Проверяем, является ли это Timeweb Cloud API (по URL или провайдеру)
+            is_timeweb = (
+                self.provider == "timeweb" or 
+                (self.base_url and ("timeweb.cloud" in self.base_url.lower() or "agent.timeweb" in self.base_url.lower()))
+            )
+            
             # Для Timeweb Cloud используем прямой HTTP запрос с max_completion_tokens
-            if self.provider == "timeweb":
+            if is_timeweb:
                 return self._generate_via_timeweb_http(messages, max_tokens, temperature)
             
             # Для OpenAI и других провайдеров используем стандартный клиент
