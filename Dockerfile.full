@@ -41,16 +41,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Копируем Python пакеты из builder
-COPY --from=backend-builder /root/.local /home/appuser/.local
+# Копируем Python пакеты из builder (до создания пользователя)
+COPY --from=backend-builder /root/.local /root/.local
+RUN chown -R appuser:appuser /root/.local 2>/dev/null || true
 
 # Копируем Frontend
 COPY --from=frontend-builder /app/public ./public
 COPY --from=frontend-builder /app/.next/standalone ./
 COPY --from=frontend-builder /app/.next/static ./.next/static
 
-# Копируем Backend
+# Копируем Backend (сохраняем структуру)
 COPY backend/ ./backend/
+RUN ls -la /app/backend/ || true
 
 # Скрипт запуска обоих сервисов (копируем до создания пользователя)
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
@@ -58,6 +60,9 @@ RUN chmod +x /app/docker-entrypoint.sh
 
 # Создаем пользователя
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+# Копируем Python пакеты в домашнюю директорию пользователя
+RUN cp -r /root/.local /home/appuser/.local 2>/dev/null || true && \
+    chown -R appuser:appuser /home/appuser/.local 2>/dev/null || true
 USER appuser
 
 # Порты
