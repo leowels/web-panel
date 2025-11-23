@@ -1,9 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
 import os
 import sys
 import logging
+import httpx
 from datetime import datetime
 
 # Настройка логирования с временными метками
@@ -223,6 +225,52 @@ async def api_root():
             "files": "/api/files"
         }
     }
+
+# Проксирование всех не-API запросов на Frontend (если основной порт 8000)
+# Это временное решение, если нельзя изменить основной порт в Timeweb Cloud
+@app.get("/{path:path}")
+@app.post("/{path:path}")
+@app.put("/{path:path}")
+@app.delete("/{path:path}")
+@app.patch("/{path:path}")
+async def proxy_to_frontend(request: Request, path: str):
+    """Проксирование всех не-API запросов на Frontend"""
+    # Если это API запрос, возвращаем 404 (должен обрабатываться роутерами выше)
+    if path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not Found")
+    
+    # Проксируем на Frontend (порт 3000)
+    frontend_port = os.getenv("FRONTEND_PORT", "3000")
+    frontend_url = f"http://localhost:{frontend_port}/{path}"
+    
+    # Добавляем query параметры
+    if request.query_params:
+        frontend_url += f"?{str(request.query_params)}"
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Получаем тело запроса
+            body = await request.body()
+            
+            # Делаем запрос к Frontend
+            response = await client.request(
+                method=request.method,
+                url=frontend_url,
+                headers={k: v for k, v in request.headers.items() if k.lower() not in ["host", "content-length"]},
+                content=body if body else None,
+                follow_redirects=False
+            )
+            
+            # Возвращаем ответ от Frontend
+            return StreamingResponse(
+                iter([response.content]),
+                status_code=response.status_code,
+                headers=dict(response.headers),
+                media_type=response.headers.get("content-type", "text/html")
+            )
+    except httpx.RequestError as e:
+        logging.getLogger(__name__).error(f"Error proxying to frontend: {e}")
+        raise HTTPException(status_code=502, detail="Frontend unavailable")
 
 if __name__ == "__main__":
     import uvicorn
