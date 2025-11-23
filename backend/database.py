@@ -29,7 +29,8 @@ if not _raw_db_url:
         # URL-кодируем пароль для безопасности
         from urllib.parse import quote_plus
         encoded_password = quote_plus(pg_password)
-        _raw_db_url = f"postgresql://{pg_user}:{encoded_password}@{pg_host}:{pg_port}/{pg_dbname}?sslmode=require"
+        # Не добавляем sslmode в URL - asyncpg не поддерживает это
+        _raw_db_url = f"postgresql://{pg_user}:{encoded_password}@{pg_host}:{pg_port}/{pg_dbname}"
     else:
         # Fallback на SQLite для разработки
         _raw_db_url = "sqlite+aiosqlite:///./rostekhnadzor.db"
@@ -51,7 +52,19 @@ if DATABASE_URL.startswith("sqlite") and os.getenv("ENVIRONMENT") == "production
         UserWarning
     )
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+# Настройка SSL для PostgreSQL (если требуется)
+connect_args = {}
+if DATABASE_URL.startswith("postgresql+asyncpg://") or DATABASE_URL.startswith("postgresql://"):
+    # Для asyncpg SSL настраивается через connect_args
+    # Проверяем, требуется ли SSL (по умолчанию для внешних БД - да)
+    ssl_required = os.getenv("POSTGRESQL_SSL", "true").lower() == "true"
+    if ssl_required:
+        # asyncpg требует ssl=True для SSL соединений (или ssl='require')
+        # Используем True для простого SSL, или можно использовать ssl.create_default_context()
+        import ssl
+        connect_args = {"ssl": ssl.create_default_context()}
+
+engine = create_async_engine(DATABASE_URL, echo=False, connect_args=connect_args)
 async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 async def get_db():

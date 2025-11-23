@@ -13,6 +13,7 @@ POSTGRESQL_PORT=5432
 POSTGRESQL_USER=gen_user
 POSTGRESQL_PASSWORD=ваш_пароль_от_бд
 POSTGRESQL_DBNAME=default_db
+POSTGRESQL_SSL=true
 
 # ============================================
 # ОПЦИОНАЛЬНЫЕ ПЕРЕМЕННЫЕ
