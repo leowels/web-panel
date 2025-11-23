@@ -114,12 +114,6 @@ export default function LoginPage() {
             </a>
           </p>
         </div>
-
-        <div className="mt-8 pt-6 border-t border-gray-200">
-          <p className="text-xs text-center text-gray-500">
-            По умолчанию: admin / admin123
-          </p>
-        </div>
       </div>
     </div>
   )
