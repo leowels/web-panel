@@ -252,20 +252,36 @@ async def proxy_to_frontend(request: Request, path: str):
             # Получаем тело запроса
             body = await request.body()
             
-            # Делаем запрос к Frontend
+            # Подготавливаем заголовки (убираем проблемные)
+            headers = {}
+            for k, v in request.headers.items():
+                k_lower = k.lower()
+                # Убираем заголовки, которые могут вызвать проблемы
+                if k_lower not in ["host", "content-length", "accept-encoding", "connection", "transfer-encoding"]:
+                    headers[k] = v
+            
+            # Делаем запрос к Frontend БЕЗ сжатия (чтобы избежать проблем с декодированием)
             response = await client.request(
                 method=request.method,
                 url=frontend_url,
-                headers={k: v for k, v in request.headers.items() if k.lower() not in ["host", "content-length"]},
+                headers=headers,
                 content=body if body else None,
                 follow_redirects=False
             )
+            
+            # Подготавливаем заголовки ответа
+            response_headers = {}
+            for k, v in response.headers.items():
+                k_lower = k.lower()
+                # Убираем заголовки сжатия, так как мы уже получили распакованный контент
+                if k_lower not in ["content-encoding", "transfer-encoding", "connection"]:
+                    response_headers[k] = v
             
             # Возвращаем ответ от Frontend
             return StreamingResponse(
                 iter([response.content]),
                 status_code=response.status_code,
-                headers=dict(response.headers),
+                headers=response_headers,
                 media_type=response.headers.get("content-type", "text/html")
             )
     except httpx.RequestError as e:
