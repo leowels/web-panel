@@ -1,0 +1,17 @@
+# Переменные окружения для Frontend (Next.js)
+# ВАЖНО: Замените URL на реальный URL вашего Backend!
+
+# ============================================
+# BUILD ARGUMENTS (указываются при сборке!)
+# ============================================
+# В Timeweb Cloud эти переменные должны быть указаны как Build Arguments:
+NEXT_PUBLIC_API_URL=https://backend-xxxxx.twc1.net
+BACKEND_URL=https://backend-xxxxx.twc1.net
+
+# ============================================
+# ОБЫЧНЫЕ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ
+# ============================================
+NODE_ENV=production
+PORT=3000
+NEXT_TELEMETRY_DISABLED=1
+

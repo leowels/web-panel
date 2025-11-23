@@ -10,7 +10,26 @@
 - **ИИ**: OpenAI API
 - **PWA**: Service Worker, Manifest
 
-## Быстрый старт
+## 🚀 Деплой
+
+Проект готов к деплою с отдельными контейнерами для Frontend и Backend.
+
+**📖 Подробные инструкции:**
+- `DEPLOYMENT_GUIDE.md` - полное руководство по деплою
+- `QUICK_DEPLOY.md` - быстрый старт
+- `DEPLOY_CHECKLIST.md` - чеклист перед деплоем
+
+**📝 Файлы с переменными окружения:**
+- `backend/ENV_BACKEND.txt` - для Backend
+- `ENV_FRONTEND.txt` - для Frontend
+
+**🐳 Dockerfile:**
+- `Dockerfile.frontend` - для Frontend (Next.js)
+- `backend/Dockerfile` - для Backend (FastAPI)
+
+---
+
+## Быстрый старт (локально)
 
 ### Backend
 
@@ -21,11 +40,11 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 # Создайте .env файл
-cp .env.example .env
-# Отредактируйте .env и добавьте OPENAI_API_KEY (опционально)
+cp ENV_EXAMPLE.txt .env
+# Отредактируйте .env и добавьте SECRET_KEY, DATABASE_URL и другие переменные
 
 # Запустите сервер
-python main.py
+python run.py
 ```
 
 Backend будет доступен на `http://localhost:8000`

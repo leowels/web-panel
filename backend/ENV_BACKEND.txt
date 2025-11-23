@@ -1,0 +1,29 @@
+# Переменные окружения для Backend (FastAPI)
+# Скопируйте эти переменные в настройки деплоя Backend
+
+SECRET_KEY=8E7ExQa6dqn-yERIMMHbA_IzLdvTJ6Vw1mLSslMoBp0
+
+# PostgreSQL
+POSTGRESQL_HOST=be96b16b290a1cfbdf0595d0.twc1.net
+POSTGRESQL_PORT=5432
+POSTGRESQL_USER=gen_user
+POSTGRESQL_PASSWORD=ваш_пароль_от_бд
+POSTGRESQL_DBNAME=default_db
+
+# Или используйте DATABASE_URL напрямую:
+# DATABASE_URL=postgresql://gen_user:пароль@be96b16b290a1cfbdf0595d0.twc1.net:5432/default_db
+
+# Сервер
+PORT=8000
+ENVIRONMENT=production
+
+# Админ
+ADMIN_PASSWORD=ваш_сильный_пароль_для_админа
+
+# CORS - укажите домен Frontend после деплоя!
+CORS_ORIGINS=https://frontend-xxxxx.twc1.net,http://localhost:3000
+
+# AI (если используется)
+AI_API_URL=ваш_ai_api_url
+AI_API_KEY=ваш_ai_api_key
+

@@ -1,24 +1,35 @@
-# Dockerfile для полного приложения (Frontend + Backend)
-FROM node:18-alpine AS frontend-base
+# Multi-stage build для Frontend + Backend
+
+# ============================================
+# Stage 1: Frontend Build
+# ============================================
+FROM node:18-alpine AS frontend-builder
+
+WORKDIR /app
 
 # Установка зависимостей Frontend
-FROM frontend-base AS frontend-deps
-RUN apk add --no-cache libc6-compat
-WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 
-# Сборка Frontend
-FROM frontend-base AS frontend-builder
-WORKDIR /app
-COPY --from=frontend-deps /app/node_modules ./node_modules
+# Копируем все файлы для сборки
 COPY . .
-ENV NEXT_TELEMETRY_DISABLED 1
+
+# Build arguments для Next.js
+ARG NEXT_PUBLIC_API_URL
+ARG BACKEND_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV BACKEND_URL=${BACKEND_URL}
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Сборка Frontend
 RUN npm run build
 
-# Backend builder
+# ============================================
+# Stage 2: Backend Dependencies
+# ============================================
 FROM python:3.11-slim AS backend-builder
-WORKDIR /app/backend
+
+WORKDIR /app
 
 # Установка системных зависимостей для компиляции
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -28,11 +39,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Установка Python зависимостей
-COPY backend/requirements.txt .
+COPY backend/requirements.txt ./backend/requirements.txt
+WORKDIR /app/backend
 RUN pip install --no-cache-dir --user -r requirements.txt
 
-# Production образ
-FROM python:3.11-slim AS runner
+# ============================================
+# Stage 3: Production Image
+# ============================================
+FROM python:3.11-slim
+
 WORKDIR /app
 
 # Установка runtime зависимостей
@@ -41,28 +56,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Копируем Python пакеты из builder (до создания пользователя)
+# Копируем Python пакеты из builder
 COPY --from=backend-builder /root/.local /root/.local
-RUN chown -R appuser:appuser /root/.local 2>/dev/null || true
 
-# Копируем Frontend
+# Копируем Backend код
+COPY backend/ ./backend/
+
+# Копируем Frontend (standalone)
 COPY --from=frontend-builder /app/public ./public
 COPY --from=frontend-builder /app/.next/standalone ./
 COPY --from=frontend-builder /app/.next/static ./.next/static
 
-# Копируем Backend (сохраняем структуру)
-COPY backend/ ./backend/
-RUN ls -la /app/backend/ || true
-
-# Скрипт запуска обоих сервисов (копируем до создания пользователя)
+# Копируем entrypoint скрипт
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
 # Создаем пользователя
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
-# Копируем Python пакеты в домашнюю директорию пользователя
-RUN cp -r /root/.local /home/appuser/.local 2>/dev/null || true && \
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app && \
+    cp -r /root/.local /home/appuser/.local 2>/dev/null || true && \
     chown -R appuser:appuser /home/appuser/.local 2>/dev/null || true
+
 USER appuser
 
 # Порты
@@ -76,5 +90,7 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 ENV PATH=/home/appuser/.local/bin:$PATH
 
+# Запуск через entrypoint
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["/app/docker-entrypoint.sh"]
+
