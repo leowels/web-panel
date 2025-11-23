@@ -54,12 +54,23 @@ if [ ! -f "server.js" ]; then
     ls -la .next 2>/dev/null || echo ".next не найден"
     exit 1
 fi
-# Проверяем наличие статических файлов
-if [ ! -d ".next/static" ]; then
-    log "⚠️ .next/static не найден, проверяем структуру:"
-    find . -name "*.js" -type f | head -10
-    find . -name "static" -type d | head -5
+# Проверяем наличие статических файлов и public
+log "Проверка структуры Frontend:"
+ls -la /app | grep -E "(server.js|public|\.next)" || true
+if [ -d ".next/static" ]; then
+    log "✅ .next/static найден"
+    ls -la .next/static | head -5 || true
+else
+    log "⚠️ .next/static не найден, ищем статические файлы:"
+    find . -name "static" -type d 2>/dev/null | head -5 || true
 fi
+if [ -d "public" ]; then
+    log "✅ public директория найдена"
+    ls -la public | head -5 || true
+else
+    log "⚠️ public директория не найдена"
+fi
+log "Запуск Next.js server..."
 node server.js > /proc/1/fd/1 2>&1 &
 FRONTEND_PID=$!
 
