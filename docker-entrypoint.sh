@@ -40,6 +40,13 @@ echo "🎨 Запуск Frontend на порту ${FRONTEND_PORT:-3000}..."
 cd /app
 export PORT=${FRONTEND_PORT:-3000}
 export HOSTNAME="0.0.0.0"
+export NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+# Проверяем наличие server.js
+if [ ! -f "server.js" ]; then
+    echo "❌ server.js не найден! Проверка содержимого /app:"
+    ls -la /app | head -20
+    exit 1
+fi
 node server.js > /proc/1/fd/1 2>&1 &
 FRONTEND_PID=$!
 
