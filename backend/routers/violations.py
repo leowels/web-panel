@@ -542,22 +542,121 @@ async def generate_violation_ai(
             if knowledge_items:
                 knowledge_context = "\n\n=== РЕЛЕВАНТНАЯ ДОКУМЕНТАЦИЯ ИЗ БАЗЫ ЗНАНИЙ ===\n"
                 logger.info(f"Найдено {len(knowledge_items)} документов в базе знаний")
-                for item in knowledge_items[:5]:  # Берем до 5 документов
+                
+                # Функция для умного извлечения релевантных частей документа
+                def extract_relevant_content(content: str, search_terms: list, max_length: int = 10000) -> str:
+                    """Извлекает релевантные части документа вокруг ключевых слов"""
+                    if not search_terms or not any(term.strip() for term in search_terms):
+                        # Если нет поисковых терминов, берем начало документа
+                        return content[:max_length] + ("..." if len(content) > max_length else "")
+                    
+                    content_lower = content.lower()
+                    relevant_parts = []
+                    used_positions = set()
+                    
+                    # Ищем вхождения каждого термина
+                    for term in search_terms:
+                        if not term or not term.strip():
+                            continue
+                        term_lower = term.lower().strip()
+                        if len(term_lower) < 3:  # Пропускаем слишком короткие термины
+                            continue
+                        
+                        # Ищем все вхождения термина
+                        start = 0
+                        while True:
+                            pos = content_lower.find(term_lower, start)
+                            if pos == -1:
+                                break
+                            
+                            # Извлекаем контекст вокруг найденного термина (2000 символов до и после)
+                            context_start = max(0, pos - 2000)
+                            context_end = min(len(content), pos + len(term_lower) + 2000)
+                            
+                            # Проверяем, не пересекается ли с уже использованными частями
+                            overlap = False
+                            for used_start, used_end in used_positions:
+                                if not (context_end < used_start or context_start > used_end):
+                                    overlap = True
+                                    break
+                            
+                            if not overlap:
+                                relevant_parts.append((context_start, context_end))
+                                used_positions.add((context_start, context_end))
+                            
+                            start = pos + 1
+                            
+                            # Ограничиваем количество найденных вхождений
+                            if len(relevant_parts) >= 5:
+                                break
+                    
+                    if relevant_parts:
+                        # Сортируем по позиции и объединяем
+                        relevant_parts.sort()
+                        result_parts = []
+                        current_start, current_end = relevant_parts[0]
+                        
+                        for start, end in relevant_parts[1:]:
+                            if start <= current_end + 500:  # Объединяем близкие части
+                                current_end = max(current_end, end)
+                            else:
+                                result_parts.append((current_start, current_end))
+                                current_start, current_end = start, end
+                        result_parts.append((current_start, current_end))
+                        
+                        # Объединяем части
+                        extracted = []
+                        for start, end in result_parts:
+                            part = content[start:end]
+                            if start > 0:
+                                extracted.append("...")
+                            extracted.append(part)
+                            if end < len(content):
+                                extracted.append("...")
+                        
+                        result = "".join(extracted)
+                        # Ограничиваем общую длину
+                        if len(result) > max_length:
+                            result = result[:max_length] + "\n[Документ продолжается, показаны релевантные части]"
+                        return result
+                    else:
+                        # Если не нашли релевантных частей, берем начало документа
+                        return content[:max_length] + ("..." if len(content) > max_length else "")
+                
+                # Обрабатываем документы
+                for item in knowledge_items[:15]:  # Увеличиваем до 15 документов
                     doc_type_name = {
                         "fnp461": "ФНП 461",
                         "gost": "ГОСТ",
                         "manual": "Методичка"
                     }.get(item.document_type, item.document_type.upper())
                     
-                    knowledge_context += f"\n[{doc_type_name}] {item.title}"
+                    knowledge_context += f"\n{'='*60}\n[{doc_type_name}] {item.title}\n{'='*60}\n"
                     if item.section:
-                        knowledge_context += f" - Раздел: {item.section}"
+                        knowledge_context += f"Раздел: {item.section}\n"
                     if item.clause_number:
-                        knowledge_context += f" - Пункт: {item.clause_number}"
-                    # Берем больше контекста для ФНП/ГОСТ
-                    preview_length = 500 if item.document_type in ["fnp461", "gost"] else 300
-                    content_preview = item.content[:preview_length] + "..." if len(item.content) > preview_length else item.content
-                    knowledge_context += f"\n{content_preview}\n"
+                        knowledge_context += f"Пункт: {item.clause_number}\n"
+                    knowledge_context += "\n"
+                    
+                    # Умное извлечение контента:
+                    # - ФНП/ГОСТ: до 10000 символов релевантных частей или весь документ
+                    # - Методички: до 5000 символов
+                    if item.document_type in ["fnp461", "gost"]:
+                        # Для ФНП/ГОСТ используем умное извлечение релевантных частей
+                        content_preview = extract_relevant_content(
+                            item.content, 
+                            search_terms, 
+                            max_length=10000  # Увеличиваем до 10000 символов
+                        )
+                    else:
+                        # Для методичек тоже используем умное извлечение, но меньше
+                        content_preview = extract_relevant_content(
+                            item.content,
+                            search_terms,
+                            max_length=5000
+                        )
+                    
+                    knowledge_context += f"{content_preview}\n\n"
                     
                     # Сохраняем информацию о документе для ответа
                     used_documents.append({
@@ -633,7 +732,7 @@ async def generate_violation_ai(
             ai_description = ai_client.generate_text(
                 prompt=prompt,
                 system_prompt=system_prompt,
-                max_tokens=2000,  # Увеличенный лимит для генерации нарушений с контекстом
+                max_tokens=4000,  # Увеличенный лимит для генерации нарушений с расширенным контекстом базы знаний
                 temperature=temperature
             )
             logger.info(f"AI вернул ответ длиной {len(ai_description) if ai_description else 0} символов")

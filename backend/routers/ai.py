@@ -159,15 +159,72 @@ async def generate_text(
             knowledge_items = result.scalars().all()
             
             if knowledge_items:
-                # Формируем контекст из базы знаний (кратко)
-                knowledge_context = "\n\nРелевантная документация:\n"
-                for item in knowledge_items[:3]:  # Берем только 3 самых релевантных
-                    knowledge_context += f"\n[{item.document_type.upper()}] {item.title}"
+                # Формируем контекст из базы знаний (расширенный для лучшего понимания)
+                knowledge_context = "\n\n=== РЕЛЕВАНТНАЯ ДОКУМЕНТАЦИЯ ИЗ БАЗЫ ЗНАНИЙ ===\n"
+                
+                # Функция для умного извлечения релевантных частей
+                def extract_relevant_content(content: str, search_context: str, max_length: int = 8000) -> str:
+                    """Извлекает релевантные части документа"""
+                    if not search_context or not search_context.strip():
+                        return content[:max_length] + ("..." if len(content) > max_length else "")
+                    
+                    # Простой поиск по ключевым словам из контекста
+                    keywords = [w.lower() for w in search_context.split() if len(w) > 3]
+                    if not keywords:
+                        return content[:max_length] + ("..." if len(content) > max_length else "")
+                    
+                    content_lower = content.lower()
+                    relevant_parts = []
+                    
+                    for keyword in keywords[:5]:  # Берем до 5 ключевых слов
+                        pos = content_lower.find(keyword)
+                        if pos != -1:
+                            start = max(0, pos - 1500)
+                            end = min(len(content), pos + len(keyword) + 1500)
+                            relevant_parts.append((start, end))
+                    
+                    if relevant_parts:
+                        relevant_parts.sort()
+                        # Объединяем части
+                        result = content[relevant_parts[0][0]:relevant_parts[-1][1]]
+                        if len(result) > max_length:
+                            result = result[:max_length] + "\n[Документ продолжается]"
+                        return result
+                    else:
+                        return content[:max_length] + ("..." if len(content) > max_length else "")
+                
+                # Увеличиваем количество документов для лучшего понимания контекста
+                for item in knowledge_items[:12]:  # Берем до 12 документов
+                    doc_type_name = {
+                        "fnp461": "ФНП 461",
+                        "gost": "ГОСТ",
+                        "manual": "Методичка"
+                    }.get(item.document_type, item.document_type.upper())
+                    
+                    knowledge_context += f"\n{'='*50}\n[{doc_type_name}] {item.title}\n{'='*50}\n"
+                    if item.section:
+                        knowledge_context += f"Раздел: {item.section}\n"
                     if item.clause_number:
-                        knowledge_context += f" - Пункт: {item.clause_number}"
-                    # Берем только первые 200 символов для краткости
-                    content_preview = item.content[:200] + "..." if len(item.content) > 200 else item.content
-                    knowledge_context += f"\n{content_preview}\n"
+                        knowledge_context += f"Пункт: {item.clause_number}\n"
+                    knowledge_context += "\n"
+                    
+                    # Умное извлечение контента:
+                    # - ФНП/ГОСТ: до 8000 символов релевантных частей
+                    # - Остальные: до 4000 символов
+                    if item.document_type in ["fnp461", "gost"]:
+                        content_preview = extract_relevant_content(
+                            item.content,
+                            request.context or "",
+                            max_length=8000
+                        )
+                    else:
+                        content_preview = extract_relevant_content(
+                            item.content,
+                            request.context or "",
+                            max_length=4000
+                        )
+                    
+                    knowledge_context += f"{content_preview}\n\n"
         except Exception as e:
             # Если не удалось загрузить базу знаний, продолжаем без неё
             import logging
@@ -184,9 +241,9 @@ async def generate_text(
             full_prompt = f"Контекст: {request.context}\n\nЗапрос: {request.prompt}\n\nВАЖНО: Ответ должен быть КРАТКИМ и четким."
         
         # Устанавливаем разумный лимит токенов
-        max_tokens = request.max_tokens or 1500  # Дефолтный лимит 1500
+        max_tokens = request.max_tokens or 2000  # Дефолтный лимит 2000
         if knowledge_context:
-            max_tokens = max(max_tokens, 2000)  # Минимум 2000 токенов при наличии контекста
+            max_tokens = max(max_tokens, 4000)  # Минимум 4000 токенов при наличии контекста базы знаний
         
         # Генерируем текст
         result = ai_client.generate_text(

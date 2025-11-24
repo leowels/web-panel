@@ -173,8 +173,8 @@ app = FastAPI(
 )
 
 # CORS - настройка через переменные окружения для production
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
-cors_origins = [origin.strip() for origin in cors_origins if origin.strip()]
+cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,https://leowels-panel.ru")
+cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if origin.strip()]
 
 app.add_middleware(
     CORSMiddleware,
@@ -276,67 +276,86 @@ async def api_root():
         }
     }
 
-# Проксирование всех не-API запросов на Frontend (если основной порт 8000)
-# Это временное решение, если нельзя изменить основной порт в Timeweb Cloud
-@app.get("/{path:path}")
-@app.post("/{path:path}")
-@app.put("/{path:path}")
-@app.delete("/{path:path}")
-@app.patch("/{path:path}")
-async def proxy_to_frontend(request: Request, path: str):
-    """Проксирование всех не-API запросов на Frontend"""
-    # Если это API запрос, возвращаем 404 (должен обрабатываться роутерами выше)
-    if path.startswith("api/"):
+# Проксирование всех не-API запросов на Frontend
+# В production отключено - Frontend должен обслуживать запросы сам через веб-сервер
+# Включается только если установлена переменная ENABLE_FRONTEND_PROXY=true
+ENABLE_FRONTEND_PROXY = os.getenv("ENABLE_FRONTEND_PROXY", "false").lower() == "true"
+
+if ENABLE_FRONTEND_PROXY:
+    @app.get("/{path:path}")
+    @app.post("/{path:path}")
+    @app.put("/{path:path}")
+    @app.delete("/{path:path}")
+    @app.patch("/{path:path}")
+    async def proxy_to_frontend(request: Request, path: str):
+        """Проксирование всех не-API запросов на Frontend (только если включено)"""
+        # Если это API запрос, возвращаем 404 (должен обрабатываться роутерами выше)
+        if path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        
+        # Проксируем на Frontend (порт 3000)
+        frontend_port = os.getenv("FRONTEND_PORT", "3000")
+        frontend_url = f"http://localhost:{frontend_port}/{path}"
+        
+        # Добавляем query параметры
+        if request.query_params:
+            frontend_url += f"?{str(request.query_params)}"
+        
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                # Получаем тело запроса
+                body = await request.body()
+                
+                # Подготавливаем заголовки (убираем проблемные)
+                headers = {}
+                for k, v in request.headers.items():
+                    k_lower = k.lower()
+                    # Убираем заголовки, которые могут вызвать проблемы
+                    if k_lower not in ["host", "content-length", "accept-encoding", "connection", "transfer-encoding"]:
+                        headers[k] = v
+                
+                # Делаем запрос к Frontend
+                response = await client.request(
+                    method=request.method,
+                    url=frontend_url,
+                    headers=headers,
+                    content=body if body else None,
+                    follow_redirects=False,
+                    timeout=5.0
+                )
+                
+                # Подготавливаем заголовки ответа
+                response_headers = {}
+                for k, v in response.headers.items():
+                    k_lower = k.lower()
+                    # Убираем заголовки сжатия
+                    if k_lower not in ["content-encoding", "transfer-encoding", "connection"]:
+                        response_headers[k] = v
+                
+                # Возвращаем ответ от Frontend
+                return StreamingResponse(
+                    iter([response.content]),
+                    status_code=response.status_code,
+                    headers=response_headers,
+                    media_type=response.headers.get("content-type", "text/html")
+                )
+        except (httpx.RequestError, httpx.TimeoutException) as e:
+            # В production просто возвращаем 404, Frontend должен обслуживать запросы сам
+            logging.getLogger(__name__).debug(f"Frontend proxy unavailable: {e}")
+            raise HTTPException(status_code=404, detail="Not Found")
+else:
+    # В production просто возвращаем 404 для всех не-API запросов
+    @app.get("/{path:path}")
+    @app.post("/{path:path}")
+    @app.put("/{path:path}")
+    @app.delete("/{path:path}")
+    @app.patch("/{path:path}")
+    async def catch_all(request: Request, path: str):
+        """Обработка всех не-API запросов - в production Frontend обслуживает их сам"""
+        if path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        # В production Frontend должен обслуживать эти запросы через веб-сервер (Nginx)
         raise HTTPException(status_code=404, detail="Not Found")
-    
-    # Проксируем на Frontend (порт 3000)
-    frontend_port = os.getenv("FRONTEND_PORT", "3000")
-    frontend_url = f"http://localhost:{frontend_port}/{path}"
-    
-    # Добавляем query параметры
-    if request.query_params:
-        frontend_url += f"?{str(request.query_params)}"
-    
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            # Получаем тело запроса
-            body = await request.body()
-            
-            # Подготавливаем заголовки (убираем проблемные)
-            headers = {}
-            for k, v in request.headers.items():
-                k_lower = k.lower()
-                # Убираем заголовки, которые могут вызвать проблемы
-                if k_lower not in ["host", "content-length", "accept-encoding", "connection", "transfer-encoding"]:
-                    headers[k] = v
-            
-            # Делаем запрос к Frontend БЕЗ сжатия (чтобы избежать проблем с декодированием)
-            response = await client.request(
-                method=request.method,
-                url=frontend_url,
-                headers=headers,
-                content=body if body else None,
-                follow_redirects=False
-            )
-            
-            # Подготавливаем заголовки ответа
-            response_headers = {}
-            for k, v in response.headers.items():
-                k_lower = k.lower()
-                # Убираем заголовки сжатия, так как мы уже получили распакованный контент
-                if k_lower not in ["content-encoding", "transfer-encoding", "connection"]:
-                    response_headers[k] = v
-            
-            # Возвращаем ответ от Frontend
-            return StreamingResponse(
-                iter([response.content]),
-                status_code=response.status_code,
-                headers=response_headers,
-                media_type=response.headers.get("content-type", "text/html")
-            )
-    except httpx.RequestError as e:
-        logging.getLogger(__name__).error(f"Error proxying to frontend: {e}")
-        raise HTTPException(status_code=502, detail="Frontend unavailable")
 
 if __name__ == "__main__":
     import uvicorn
