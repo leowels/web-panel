@@ -501,12 +501,20 @@ async def bulk_upload_equipment(
             detail="CSV file must contain at least 'equipment_type' and 'passport_number' columns",
         )
 
+    # Список ключевых слов, которые указывают на строку с подсказками
+    hint_keywords = ["обязательно", "необязательно", "например", "тип пс", "номер паспорта", "инвентарный номер", "позиция", "цех", "грузоподъемность", "завод", "место установки", "дата ввода", "дата пто", "дата что", "статус"]
+    
     for row_index, row in enumerate(reader, start=2):  # Учитываем строку заголовка
         if not row:
             continue
         # Проверяем, есть ли данные в строке
         if not any((value or "").strip() for value in row.values()):
             continue
+        
+        # Проверяем, является ли строка подсказками (содержит ключевые слова)
+        row_text = " ".join((value or "").lower() for value in row.values())
+        if any(keyword in row_text for keyword in hint_keywords):
+            continue  # Пропускаем строку с подсказками
 
         normalized = {
             "equipment_type": (row.get("equipment_type") or "").strip(),

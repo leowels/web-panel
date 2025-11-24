@@ -144,137 +144,160 @@ export default function EquipmentBulkForm({ onClose, onSuccess }: EquipmentBulkF
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Тип ПС *</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Паспорт *</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Инв. №</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Позиция</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Цех</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Г/п (т)</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Место установки</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Завод</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Дата ввода</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">ПТО</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">ЧТО</th>
-                  <th className="px-4 py-3 text-right font-semibold text-gray-700">-</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {rows.map((row, index) => (
-                  <tr key={index}>
-                    <td className="px-4 py-2">
-                      <select
-                        value={row.equipment_type}
-                        onChange={(e) => updateRow(index, 'equipment_type', e.target.value)}
-                        className="border border-gray-200 rounded-lg px-2 py-1 w-44"
-                      >
-                        <option value="">-</option>
-                        {EQUIPMENT_TYPES.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="text"
-                        value={row.passport_number}
-                        onChange={(e) => updateRow(index, 'passport_number', e.target.value)}
-                        className="border border-gray-200 rounded-lg px-2 py-1 w-40"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="text"
-                        value={row.inventory_number}
-                        onChange={(e) => updateRow(index, 'inventory_number', e.target.value)}
-                        className="border border-gray-200 rounded-lg px-2 py-1 w-36"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="text"
-                        value={row.position}
-                        onChange={(e) => updateRow(index, 'position', e.target.value)}
-                        className="border border-gray-200 rounded-lg px-2 py-1 w-32"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="text"
-                        value={row.workshop}
-                        onChange={(e) => updateRow(index, 'workshop', e.target.value)}
-                        className="border border-gray-200 rounded-lg px-2 py-1 w-32"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={row.load_capacity}
-                        onChange={(e) => updateRow(index, 'load_capacity', e.target.value)}
-                        className="border border-gray-200 rounded-lg px-2 py-1 w-24"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="text"
-                        value={row.installation_location}
-                        onChange={(e) => updateRow(index, 'installation_location', e.target.value)}
-                        className="border border-gray-200 rounded-lg px-2 py-1 w-40"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="text"
-                        value={row.manufacturer}
-                        onChange={(e) => updateRow(index, 'manufacturer', e.target.value)}
-                        className="border border-gray-200 rounded-lg px-2 py-1 w-40"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="date"
-                        value={row.installation_date}
-                        onChange={(e) => updateRow(index, 'installation_date', e.target.value)}
-                        className="border border-gray-200 rounded-lg px-2 py-1"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="date"
-                        value={row.pto_date}
-                        onChange={(e) => updateRow(index, 'pto_date', e.target.value)}
-                        className="border border-gray-200 rounded-lg px-2 py-1"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="date"
-                        value={row.cto_date}
-                        onChange={(e) => updateRow(index, 'cto_date', e.target.value)}
-                        className="border border-gray-200 rounded-lg px-2 py-1"
-                      />
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() => removeRow(index)}
-                        className="text-accent-600 hover:text-accent-800 p-1"
-                        disabled={rows.length === 1}
-                        title="Удалить строку"
-                      >
-                        ✕
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-4">
+            {rows.map((row, index) => (
+              <div
+                key={index}
+                className="border border-gray-200 rounded-xl p-4 bg-white shadow-extra"
+              >
+                <div className="flex justify-between items-center mb-3">
+                  <h4 className="text-sm font-semibold text-gray-700">
+                    Запись #{index + 1}
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => removeRow(index)}
+                    className="text-accent-600 hover:text-accent-800 text-xs font-semibold disabled:opacity-40"
+                    disabled={rows.length === 1}
+                  >
+                    Удалить
+                  </button>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                      Тип ПС *
+                    </label>
+                    <select
+                      value={row.equipment_type}
+                      onChange={(e) => updateRow(index, 'equipment_type', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="">Выберите</option>
+                      {EQUIPMENT_TYPES.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                      Паспорт *
+                    </label>
+                    <input
+                      type="text"
+                      value={row.passport_number}
+                      onChange={(e) => updateRow(index, 'passport_number', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+                      placeholder="Например: KB-0001"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                      Инвентарный №
+                    </label>
+                    <input
+                      type="text"
+                      value={row.inventory_number}
+                      onChange={(e) => updateRow(index, 'inventory_number', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+                      placeholder="INV-001"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                      Позиция
+                    </label>
+                    <input
+                      type="text"
+                      value={row.position}
+                      onChange={(e) => updateRow(index, 'position', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                      Цех / участок
+                    </label>
+                    <input
+                      type="text"
+                      value={row.workshop}
+                      onChange={(e) => updateRow(index, 'workshop', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+                      placeholder="Цех №5"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                      Грузоподъемность (т)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={row.load_capacity}
+                      onChange={(e) => updateRow(index, 'load_capacity', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                      Место установки
+                    </label>
+                    <input
+                      type="text"
+                      value={row.installation_location}
+                      onChange={(e) => updateRow(index, 'installation_location', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                      Завод-изготовитель
+                    </label>
+                    <input
+                      type="text"
+                      value={row.manufacturer}
+                      onChange={(e) => updateRow(index, 'manufacturer', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                      Дата ввода
+                    </label>
+                    <input
+                      type="date"
+                      value={row.installation_date}
+                      onChange={(e) => updateRow(index, 'installation_date', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                      Дата ПТО
+                    </label>
+                    <input
+                      type="date"
+                      value={row.pto_date}
+                      onChange={(e) => updateRow(index, 'pto_date', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                      Дата ЧТО
+                    </label>
+                    <input
+                      type="date"
+                      value={row.cto_date}
+                      onChange={(e) => updateRow(index, 'cto_date', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
 
           <div className="flex items-center justify-between">

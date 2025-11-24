@@ -97,7 +97,12 @@ export default function EquipmentCsvUpload({ onClose, onSuccess }: EquipmentCsvU
                 equipment-import.csv
               </a>
             </p>
-            <p className="text-sm text-gray-600 mt-2">2. Заполните данные (формат даты: YYYY-MM-DD или DD.MM.YYYY)</p>
+            <p className="text-sm text-gray-600 mt-2">
+              2. Заполните данные (формат даты: YYYY-MM-DD или DD.MM.YYYY)
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              💡 Вторая строка содержит подсказки — её можно не трогать, она автоматически пропускается при импорте
+            </p>
             <p className="text-sm text-gray-600 mt-2">3. Загрузите готовый CSV ниже</p>
           </div>
 
