@@ -89,6 +89,13 @@ log "🎉 Приложение запущено!"
 log "   Frontend: http://0.0.0.0:${FRONTEND_PORT:-3000}"
 log "   Backend:  http://0.0.0.0:${BACKEND_PORT:-8000}"
 
-# Ожидание завершения
+# Ожидание завершения процессов
+# Используем wait для корректного ожидания завершения дочерних процессов
 wait $BACKEND_PID $FRONTEND_PID
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+    log "❌ Один из процессов завершился с ошибкой (код: $EXIT_CODE)"
+    exit $EXIT_CODE
+fi
 

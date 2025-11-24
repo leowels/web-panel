@@ -49,7 +49,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Установка runtime зависимостей (включая Node.js для Frontend)
+# Установка runtime зависимостей (включая Node.js для Frontend и curl для health check)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
@@ -87,6 +87,11 @@ USER appuser
 
 # Порты
 EXPOSE 3000 8000
+
+# Health check для Timeweb Cloud
+# Проверяем Backend (основной сервис) - Frontend может запускаться дольше
+HEALTHCHECK --interval=10s --timeout=5s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/api/health || exit 1
 
 # Переменные окружения
 ENV PYTHONUNBUFFERED=1
