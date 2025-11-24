@@ -64,6 +64,9 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
     )
   })
 
+  // Сохраняем выбранные ID при изменении поиска (для множественного выбора)
+  // Выбранные ID сохраняются независимо от фильтрации поиска
+
   useEffect(() => {
     fetchEquipment()
     if (violationId) {
@@ -313,21 +316,21 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                   type="text"
                   value={equipmentSearch}
                   onChange={(e) => setEquipmentSearch(e.target.value)}
-                  placeholder="🔍 Поиск по паспорту, типу, позиции, цеху, инвентарному номеру..."
-                  className="w-full px-5 py-4 pl-12 text-lg border-2 border-primary-300 rounded-xl focus:ring-4 focus:ring-primary-200 focus:border-primary-600 bg-white text-gray-900 font-semibold shadow-md transition-all placeholder:text-gray-400 placeholder:font-normal"
+                  placeholder="Поиск по паспорту, типу, позиции, цеху, инвентарному номеру..."
+                  className="w-full px-5 py-4 pl-14 pr-12 text-lg border-2 border-primary-300 rounded-xl focus:ring-4 focus:ring-primary-200 focus:border-primary-600 bg-white text-gray-900 font-semibold shadow-md transition-all placeholder:text-gray-400 placeholder:font-normal"
                   style={{ fontSize: '16px', lineHeight: '1.5' }}
                 />
-                <svg className="absolute left-4 top-4.5 h-6 w-6 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="absolute left-5 top-5 h-5 w-5 text-primary-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
                 {equipmentSearch && (
                   <button
                     type="button"
                     onClick={() => setEquipmentSearch('')}
-                    className="absolute right-4 top-4.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-1 transition-colors"
+                    className="absolute right-4 top-4.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-1.5 transition-colors"
                     title="Очистить поиск"
                   >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
@@ -375,6 +378,40 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                 </>
               ) : (
                 <>
+                  {/* Показываем выбранное оборудование, даже если оно не в текущем поиске */}
+                  {selectedEquipmentDetails.length > 0 && (
+                    <div className="mb-3 p-3 bg-primary-50 border border-primary-200 rounded-lg">
+                      <p className="text-sm font-semibold text-primary-700 mb-2">
+                        Выбрано оборудование ({selectedEquipmentDetails.length}):
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedEquipmentDetails.map((eq) => (
+                          <div
+                            key={eq.id}
+                            className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-primary-300 rounded-lg shadow-sm"
+                          >
+                            <span className="text-sm font-medium text-gray-900">
+                              {eq.passport_number} • {eq.equipment_type}
+                              {eq.position ? ` (${eq.position})` : ''}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedEquipmentIds(prev => prev.filter(id => id !== String(eq.id)))
+                                setFormData(prev => ({ ...prev, equipment_id: '' }))
+                              }}
+                              className="text-red-600 hover:text-red-800 hover:bg-red-50 rounded-full p-1 transition-colors"
+                              title="Удалить из выбранных"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <select
                     multiple
                     size={10}
@@ -383,35 +420,20 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                     onChange={handleMultiSelectChange}
                     className="w-full px-4 py-3 text-base border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white text-gray-900 font-medium"
                   >
-                    {filteredEquipmentList.map((eq) => (
-                      <option key={eq.id} value={eq.id}>
-                        {eq.passport_number} • {eq.equipment_type}
-                        {eq.position ? ` • Поз: ${eq.position}` : ''}
-                        {eq.workshop ? ` • Цех: ${eq.workshop}` : ''}
-                        {eq.inventory_number ? ` • Инв: ${eq.inventory_number}` : ''}
-                      </option>
-                    ))}
+                    {filteredEquipmentList
+                      .filter(eq => !selectedEquipmentIds.includes(String(eq.id))) // Не показываем уже выбранное
+                      .map((eq) => (
+                        <option key={eq.id} value={eq.id}>
+                          {eq.passport_number} • {eq.equipment_type}
+                          {eq.position ? ` • Поз: ${eq.position}` : ''}
+                          {eq.workshop ? ` • Цех: ${eq.workshop}` : ''}
+                          {eq.inventory_number ? ` • Инв: ${eq.inventory_number}` : ''}
+                        </option>
+                      ))}
                   </select>
                   <p className="text-xs text-gray-500 mt-1">
                     Удерживайте Ctrl / Cmd для выбора нескольких позиций. Первое выбранное оборудование используется для работы ИИ.
                   </p>
-                  {selectedEquipmentDetails.length > 0 && (
-                    <div className="mt-3 bg-gray-50 rounded-lg border border-gray-200 p-3">
-                      <p className="text-xs font-semibold text-gray-600 mb-2">
-                        Выбрано: {selectedEquipmentDetails.length}
-                      </p>
-                      <div className="space-y-1 max-h-28 overflow-y-auto text-xs text-gray-700">
-                        {selectedEquipmentDetails.map((eq: any) => (
-                          <div key={eq.id} className="flex items-center justify-between">
-                            <span className="font-semibold">{eq.passport_number}</span>
-                            <span className="text-gray-500">
-                              {eq.position ? `Позиция ${eq.position}` : eq.equipment_type}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </>
               )}
             </div>
