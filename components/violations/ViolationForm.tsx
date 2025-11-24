@@ -308,31 +308,42 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                 Оборудование *
               </label>
               {/* Поле поиска оборудования */}
-              <div className="relative mb-2">
+              <div className="relative mb-3">
                 <input
                   type="text"
                   value={equipmentSearch}
                   onChange={(e) => setEquipmentSearch(e.target.value)}
-                  placeholder="Поиск по паспорту, типу, позиции, цеху..."
-                  className="w-full px-4 py-2.5 pl-10 text-base border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-600 focus:border-primary-600 bg-white text-gray-900 font-medium transition-all placeholder:text-gray-400"
+                  placeholder="🔍 Поиск по паспорту, типу, позиции, цеху, инвентарному номеру..."
+                  className="w-full px-5 py-4 pl-12 text-lg border-2 border-primary-300 rounded-xl focus:ring-4 focus:ring-primary-200 focus:border-primary-600 bg-white text-gray-900 font-semibold shadow-md transition-all placeholder:text-gray-400 placeholder:font-normal"
+                  style={{ fontSize: '16px', lineHeight: '1.5' }}
                 />
-                <svg className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <svg className="absolute left-4 top-4.5 h-6 w-6 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
                 {equipmentSearch && (
                   <button
                     type="button"
                     onClick={() => setEquipmentSearch('')}
-                    className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600"
+                    className="absolute right-4 top-4.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-1 transition-colors"
+                    title="Очистить поиск"
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 )}
               </div>
+              {equipmentSearch && (
+                <div className="mb-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm font-medium text-blue-800">
+                    Найдено: <span className="font-bold">{filteredEquipmentList.length}</span> из <span className="font-bold">{equipmentList.length}</span> оборудования
+                  </p>
+                </div>
+              )}
               {equipmentSearch && filteredEquipmentList.length === 0 && (
-                <p className="text-sm text-gray-500 mb-2">Оборудование не найдено</p>
+                <div className="mb-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm font-medium text-red-800">❌ Оборудование не найдено. Попробуйте другой поисковый запрос.</p>
+                </div>
               )}
               {isEditing ? (
                 <>
@@ -366,11 +377,11 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                 <>
                   <select
                     multiple
-                    size={8}
+                    size={10}
                     required
                     value={selectedEquipmentIds}
                     onChange={handleMultiSelectChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                    className="w-full px-4 py-3 text-base border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white text-gray-900 font-medium"
                   >
                     {filteredEquipmentList.map((eq) => (
                       <option key={eq.id} value={eq.id}>
@@ -384,11 +395,6 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                   <p className="text-xs text-gray-500 mt-1">
                     Удерживайте Ctrl / Cmd для выбора нескольких позиций. Первое выбранное оборудование используется для работы ИИ.
                   </p>
-                  {equipmentSearch && (
-                    <p className="text-xs text-blue-600 mt-1">
-                      Найдено: {filteredEquipmentList.length} из {equipmentList.length}
-                    </p>
-                  )}
                   {selectedEquipmentDetails.length > 0 && (
                     <div className="mt-3 bg-gray-50 rounded-lg border border-gray-200 p-3">
                       <p className="text-xs font-semibold text-gray-600 mb-2">

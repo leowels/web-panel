@@ -132,6 +132,15 @@ class ViolationBulkResponse(BaseModel):
     created_ids: List[int]
     errors: List[dict]
 
+class ViolationBulkStatusUpdateRequest(BaseModel):
+    violation_ids: List[int]
+    status: str  # open, resolved
+    resolved_by: Optional[int] = None
+
+class ViolationBulkStatusUpdateResponse(BaseModel):
+    updated: int
+    errors: List[dict]
+
 @router.get("", response_model=List[ViolationResponse])
 async def get_violations(
     skip: int = Query(0, ge=0),
@@ -374,7 +383,63 @@ async def bulk_create_violations(
         errors=errors,
     )
 
-@router.post("/ai/generate", response_model=ViolationResponse)
+@router.put("/bulk/status", response_model=ViolationBulkStatusUpdateResponse)
+async def bulk_update_violation_status(
+    payload: ViolationBulkStatusUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Массовое изменение статусов нарушений"""
+    await require_permission(current_user, "violations:update", db)
+
+    if not payload.violation_ids:
+        raise HTTPException(status_code=400, detail="Violation IDs are required")
+
+    if payload.status not in ["open", "resolved"]:
+        raise HTTPException(status_code=400, detail="Status must be 'open' or 'resolved'")
+
+    updated = 0
+    errors: List[dict] = []
+
+    for violation_id in payload.violation_ids:
+        try:
+            result = await db.execute(select(Violation).where(Violation.id == violation_id))
+            violation = result.scalar_one_or_none()
+            
+            if not violation:
+                errors.append({"violation_id": violation_id, "detail": "Violation not found"})
+                continue
+
+            old_status = violation.status
+            violation.status = payload.status
+            violation.updated_at = datetime.utcnow()
+
+            if payload.status == "resolved" and not violation.resolved_at:
+                violation.resolved_at = datetime.utcnow()
+                violation.resolved_by = payload.resolved_by or current_user.id
+            elif payload.status == "open":
+                violation.resolved_at = None
+                violation.resolved_by = None
+
+            # Логирование
+            activity = UserActivity(
+                user_id=current_user.id,
+                action_type="update",
+                entity_type="violation",
+                entity_id=violation.id,
+                description=f"Bulk updated violation status from {old_status} to {payload.status}"
+            )
+            db.add(activity)
+            updated += 1
+
+        except Exception as exc:
+            errors.append({"violation_id": violation_id, "detail": str(exc)})
+
+    await db.commit()
+
+    return ViolationBulkStatusUpdateResponse(updated=updated, errors=errors)
+
+@router.post("/ai/generate", response_model=AIGenerateViolationResponse)
 async def generate_violation_ai(
     request: AIGenerateViolationRequest,
     current_user: User = Depends(get_current_user),

@@ -5,6 +5,8 @@ import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 import { useNotificationStore } from '@/store/notificationStore'
 import { EQUIPMENT_TYPES } from '@/constants/equipmentTypes'
+import EquipmentBulkEdit from './EquipmentBulkEdit'
+import EquipmentBulkDates from './EquipmentBulkDates'
 
 const API_URL = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '') : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
 
@@ -42,6 +44,9 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [workshopFilter, setWorkshopFilter] = useState('')
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [showBulkEdit, setShowBulkEdit] = useState(false)
+  const [showBulkDates, setShowBulkDates] = useState(false)
 
   useEffect(() => {
     fetchEquipment()
@@ -79,6 +84,29 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
     } catch (error: any) {
       addNotification(error.response?.data?.detail || 'Ошибка удаления', 'error')
     }
+  }
+
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedIds(equipment.map(eq => eq.id))
+    } else {
+      setSelectedIds([])
+    }
+  }
+
+  const handleSelectOne = (id: number) => {
+    setSelectedIds(prev => 
+      prev.includes(id) 
+        ? prev.filter(selectedId => selectedId !== id)
+        : [...prev, id]
+    )
+  }
+
+  const handleBulkSuccess = () => {
+    setSelectedIds([])
+    setShowBulkEdit(false)
+    setShowBulkDates(false)
+    fetchEquipment()
   }
 
   const getStatusColor = (status: string) => {
@@ -153,6 +181,33 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
             className="px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-600 focus:border-primary-600 bg-white text-gray-900 font-medium transition-all"
           />
         </div>
+        
+        {/* Кнопки массовых операций */}
+        {selectedIds.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2 items-center">
+            <span className="text-sm font-semibold text-gray-700">
+              Выбрано: {selectedIds.length}
+            </span>
+            <button
+              onClick={() => setShowBulkEdit(true)}
+              className="px-4 py-2 text-sm font-semibold text-primary-700 bg-primary-50 border border-primary-200 rounded-lg hover:bg-primary-100 transition-colors"
+            >
+              ✏️ Массовое редактирование
+            </button>
+            <button
+              onClick={() => setShowBulkDates(true)}
+              className="px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+            >
+              📅 Назначить даты ПТО/ЧТО
+            </button>
+            <button
+              onClick={() => setSelectedIds([])}
+              className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+            >
+              Снять выделение
+            </button>
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -165,6 +220,14 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider w-12">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.length === equipment.length && equipment.length > 0}
+                    onChange={handleSelectAll}
+                    className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                  />
+                </th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Паспорт</th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Тип ПС</th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Инвентарный №</th>
@@ -178,8 +241,16 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {equipment.map((eq) => (
-                <tr key={eq.id} className="hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => onView(eq.id)}>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                <tr key={eq.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(eq.id)}
+                      onChange={() => handleSelectOne(eq.id)}
+                      className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                    />
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap cursor-pointer" onClick={() => onView(eq.id)}>
                     <div className="text-sm font-semibold text-gray-900">{eq.passport_number}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -249,6 +320,22 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
             </div>
           )}
         </div>
+      )}
+
+      {showBulkEdit && (
+        <EquipmentBulkEdit
+          selectedIds={selectedIds}
+          onClose={() => setShowBulkEdit(false)}
+          onSuccess={handleBulkSuccess}
+        />
+      )}
+
+      {showBulkDates && (
+        <EquipmentBulkDates
+          selectedIds={selectedIds}
+          onClose={() => setShowBulkDates(false)}
+          onSuccess={handleBulkSuccess}
+        />
       )}
     </div>
   )

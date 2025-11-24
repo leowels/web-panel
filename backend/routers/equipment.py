@@ -98,9 +98,24 @@ class EquipmentBulkResponse(BaseModel):
 
     class Config:
         arbitrary_types_allowed = True
-
-    class Config:
         from_attributes = True
+
+class EquipmentBulkUpdateRequest(BaseModel):
+    equipment_ids: List[int]
+    update_data: EquipmentUpdate
+
+class EquipmentBulkUpdateResponse(BaseModel):
+    updated: int
+    errors: List[dict]
+
+class EquipmentBulkDatesRequest(BaseModel):
+    equipment_ids: List[int]
+    pto_date: Optional[datetime] = None
+    cto_date: Optional[datetime] = None
+
+class EquipmentBulkDatesResponse(BaseModel):
+    updated: int
+    errors: List[dict]
 
 def _equipment_to_response(equipment: Equipment) -> EquipmentResponse:
     return EquipmentResponse(
@@ -614,4 +629,137 @@ async def get_equipment_history(
         }
         for h in history
     ]
+
+@router.put("/bulk/update", response_model=EquipmentBulkUpdateResponse)
+async def bulk_update_equipment(
+    payload: EquipmentBulkUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Массовое редактирование оборудования"""
+    await require_permission(current_user, "equipment:update", db)
+
+    if not payload.equipment_ids:
+        raise HTTPException(status_code=400, detail="Equipment IDs are required")
+
+    updated = 0
+    errors: List[dict] = []
+    update_data = payload.update_data.dict(exclude_unset=True)
+
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No update data provided")
+
+    for eq_id in payload.equipment_ids:
+        try:
+            result = await db.execute(select(Equipment).where(Equipment.id == eq_id))
+            equipment = result.scalar_one_or_none()
+            
+            if not equipment:
+                errors.append({"equipment_id": eq_id, "detail": "Equipment not found"})
+                continue
+
+            # Сохранение истории изменений
+            for field, new_value in update_data.items():
+                if hasattr(equipment, field):
+                    old_value = getattr(equipment, field)
+                    if old_value != new_value:
+                        history = EquipmentHistory(
+                            equipment_id=equipment.id,
+                            changed_by=current_user.id,
+                            field_name=field,
+                            old_value=str(old_value) if old_value else None,
+                            new_value=str(new_value) if new_value else None
+                        )
+                        db.add(history)
+                        setattr(equipment, field, new_value)
+
+            # Логирование
+            activity = UserActivity(
+                user_id=current_user.id,
+                action_type="update",
+                entity_type="equipment",
+                entity_id=equipment.id,
+                description=f"Bulk updated equipment {equipment.passport_number}"
+            )
+            db.add(activity)
+            updated += 1
+
+        except Exception as exc:
+            errors.append({"equipment_id": eq_id, "detail": str(exc)})
+
+    await db.commit()
+
+    return EquipmentBulkUpdateResponse(updated=updated, errors=errors)
+
+@router.put("/bulk/dates", response_model=EquipmentBulkDatesResponse)
+async def bulk_update_dates(
+    payload: EquipmentBulkDatesRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Массовое назначение дат ПТО/ЧТО"""
+    await require_permission(current_user, "equipment:update", db)
+
+    if not payload.equipment_ids:
+        raise HTTPException(status_code=400, detail="Equipment IDs are required")
+
+    if not payload.pto_date and not payload.cto_date:
+        raise HTTPException(status_code=400, detail="At least one date (PTO or CTO) must be provided")
+
+    updated = 0
+    errors: List[dict] = []
+
+    for eq_id in payload.equipment_ids:
+        try:
+            result = await db.execute(select(Equipment).where(Equipment.id == eq_id))
+            equipment = result.scalar_one_or_none()
+            
+            if not equipment:
+                errors.append({"equipment_id": eq_id, "detail": "Equipment not found"})
+                continue
+
+            # Сохранение истории изменений
+            if payload.pto_date is not None:
+                old_pto = equipment.pto_date
+                if old_pto != payload.pto_date:
+                    history = EquipmentHistory(
+                        equipment_id=equipment.id,
+                        changed_by=current_user.id,
+                        field_name="pto_date",
+                        old_value=str(old_pto) if old_pto else None,
+                        new_value=str(payload.pto_date) if payload.pto_date else None
+                    )
+                    db.add(history)
+                    equipment.pto_date = payload.pto_date
+
+            if payload.cto_date is not None:
+                old_cto = equipment.cto_date
+                if old_cto != payload.cto_date:
+                    history = EquipmentHistory(
+                        equipment_id=equipment.id,
+                        changed_by=current_user.id,
+                        field_name="cto_date",
+                        old_value=str(old_cto) if old_cto else None,
+                        new_value=str(payload.cto_date) if payload.cto_date else None
+                    )
+                    db.add(history)
+                    equipment.cto_date = payload.cto_date
+
+            # Логирование
+            activity = UserActivity(
+                user_id=current_user.id,
+                action_type="update",
+                entity_type="equipment",
+                entity_id=equipment.id,
+                description=f"Bulk updated dates for equipment {equipment.passport_number}"
+            )
+            db.add(activity)
+            updated += 1
+
+        except Exception as exc:
+            errors.append({"equipment_id": eq_id, "detail": str(exc)})
+
+    await db.commit()
+
+    return EquipmentBulkDatesResponse(updated=updated, errors=errors)
 

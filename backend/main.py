@@ -53,6 +53,22 @@ async def lifespan(app: FastAPI):
         if not existing_roles:
             roles_data = [
                 {"name": "admin", "description": "Администратор", "permissions": ["*"]},
+                {"name": "manager", "description": "Менеджер", "permissions": [
+                    "equipment:*",  # Полный доступ к оборудованию
+                    "violations:*",  # Полный доступ к нарушениям
+                    "inspections:*",  # Полный доступ к осмотрам
+                    "acts:*",  # Полный доступ к актам
+                    "checklists:*",  # Полный доступ к чек-листам
+                    "knowledge:read",
+                    "knowledge:create",
+                    "knowledge:update",
+                    "files:*",
+                    "audit:read",
+                    "settings:read",
+                    "users:read",  # Может просматривать пользователей
+                    "reports:read",
+                    "reports:export"
+                ]},
                 {"name": "inspector", "description": "Инспектор", "permissions": [
                     "inspections:*", 
                     "equipment:read", 
@@ -61,7 +77,7 @@ async def lifespan(app: FastAPI):
                     "violations:*", 
                     "acts:read",
                     "acts:create",
-                    "acts:update",  # Инспектор может обновлять акты
+                    "acts:update",
                     "checklists:read",
                     "checklists:create",
                     "knowledge:read",
@@ -69,7 +85,34 @@ async def lifespan(app: FastAPI):
                     "files:create",
                     "audit:read",
                     "settings:read",
-                    "users:read"  # Инспектор может просматривать список пользователей
+                    "users:read",
+                    "reports:read"
+                ]},
+                {"name": "operator", "description": "Оператор", "permissions": [
+                    "equipment:read",
+                    "equipment:create",
+                    "inspections:read",
+                    "inspections:create",
+                    "violations:read",
+                    "violations:create",
+                    "acts:read",
+                    "checklists:read",
+                    "knowledge:read",
+                    "files:read",
+                    "files:create"
+                ]},
+                {"name": "auditor", "description": "Аудитор", "permissions": [
+                    "equipment:read",
+                    "inspections:read",
+                    "violations:read",
+                    "acts:read",
+                    "checklists:read",
+                    "knowledge:read",
+                    "files:read",
+                    "audit:read",
+                    "reports:read",
+                    "reports:export",
+                    "settings:read"
                 ]},
                 {"name": "viewer", "description": "Просмотр", "permissions": [
                     "equipment:read", 

@@ -5,6 +5,7 @@ import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 import { useNotificationStore } from '@/store/notificationStore'
 import { format } from 'date-fns'
+import ViolationsBulkStatus from './ViolationsBulkStatus'
 
 const API_URL = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '') : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
 
@@ -40,6 +41,8 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('')
   const [severityFilter, setSeverityFilter] = useState('')
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [showBulkStatus, setShowBulkStatus] = useState(false)
 
   useEffect(() => {
     fetchViolations()
@@ -93,6 +96,28 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
     }
   }
 
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedIds(violations.map(v => v.id))
+    } else {
+      setSelectedIds([])
+    }
+  }
+
+  const handleSelectOne = (id: number) => {
+    setSelectedIds(prev => 
+      prev.includes(id) 
+        ? prev.filter(selectedId => selectedId !== id)
+        : [...prev, id]
+    )
+  }
+
+  const handleBulkSuccess = () => {
+    setSelectedIds([])
+    setShowBulkStatus(false)
+    fetchViolations()
+  }
+
   return (
     <div className="bg-white rounded-lg shadow">
       <div className="p-4 sm:p-6 border-b border-gray-200">
@@ -118,6 +143,27 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
             <option value="low">Низкое</option>
           </select>
         </div>
+        
+        {/* Кнопки массовых операций */}
+        {selectedIds.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2 items-center">
+            <span className="text-sm font-semibold text-gray-700">
+              Выбрано: {selectedIds.length}
+            </span>
+            <button
+              onClick={() => setShowBulkStatus(true)}
+              className="px-4 py-2 text-sm font-semibold text-primary-700 bg-primary-50 border border-primary-200 rounded-lg hover:bg-primary-100 transition-colors"
+            >
+              🔄 Изменить статус
+            </button>
+            <button
+              onClick={() => setSelectedIds([])}
+              className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+            >
+              Снять выделение
+            </button>
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -130,6 +176,14 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
             <table className="w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-12">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.length === violations.length && violations.length > 0}
+                      onChange={handleSelectAll}
+                      className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                    />
+                  </th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[25%]">Описание</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[15%]">Оборудование</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[12%]">ФНП/ГОСТ</th>
@@ -142,6 +196,14 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
               <tbody className="bg-white divide-y divide-gray-200">
                 {violations.map((violation) => (
                   <tr key={violation.id} className="hover:bg-gray-50">
+                    <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(violation.id)}
+                        onChange={() => handleSelectOne(violation.id)}
+                        className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                      />
+                    </td>
                     <td className="px-3 py-3">
                       <div className="text-sm text-gray-900 break-words" style={{ 
                         display: '-webkit-box',
@@ -210,7 +272,15 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
           <div className="lg:hidden divide-y divide-gray-200">
             {violations.map((violation) => (
               <div key={violation.id} className="p-4 hover:bg-gray-50">
-                <div className="flex justify-between items-start mb-2">
+                <div className="flex items-start gap-3 mb-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(violation.id)}
+                    onChange={() => handleSelectOne(violation.id)}
+                    className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded mt-1"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  <div className="flex-1 flex justify-between items-start">
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-gray-900 mb-1 line-clamp-2">
                       {violation.description}
@@ -262,6 +332,14 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
             </div>
           )}
         </div>
+      )}
+
+      {showBulkStatus && (
+        <ViolationsBulkStatus
+          selectedIds={selectedIds}
+          onClose={() => setShowBulkStatus(false)}
+          onSuccess={handleBulkSuccess}
+        />
       )}
     </div>
   )

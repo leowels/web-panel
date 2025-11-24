@@ -72,17 +72,17 @@ class Equipment(Base):
     equipment_type = Column(String, index=True)  # Тип ПС
     passport_number = Column(String, unique=True, index=True)  # Паспорт
     inventory_number = Column(String, unique=True, index=True, nullable=True)  # Инвентарный номер
-    position = Column(String, nullable=True)  # Позиция
-    workshop = Column(String, nullable=True)  # Цех
+    position = Column(String, nullable=True, index=True)  # Позиция
+    workshop = Column(String, nullable=True, index=True)  # Цех
     load_capacity = Column(Float, nullable=True)  # Грузоподъемность
     manufacturer = Column(String, nullable=True)  # Завод
     installation_date = Column(DateTime, nullable=True)  # Дата ввода
-    pto_date = Column(DateTime, nullable=True)  # Дата ПТО
-    cto_date = Column(DateTime, nullable=True)  # Дата ЧТО
+    pto_date = Column(DateTime, nullable=True, index=True)  # Дата ПТО
+    cto_date = Column(DateTime, nullable=True, index=True)  # Дата ЧТО
     installation_location = Column(String, nullable=True)  # Место установки
-    status = Column(String, default="active")  # active, inactive, archived
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    status = Column(String, default="active", index=True)  # active, inactive, archived
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     
     # Relationships
@@ -188,18 +188,18 @@ class Violation(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     inspection_id = Column(Integer, ForeignKey("inspections.id", ondelete="SET NULL"), nullable=True)
-    equipment_id = Column(Integer, ForeignKey("equipment.id", ondelete="CASCADE"))
+    equipment_id = Column(Integer, ForeignKey("equipment.id", ondelete="CASCADE"), index=True)
     description = Column(Text)
     fnp_clause = Column(String, nullable=True)  # Пункт ФНП 461
     gost_clause = Column(String, nullable=True)  # Пункт ГОСТ
-    severity = Column(String, default="medium")  # low, medium, high, critical
+    severity = Column(String, default="medium", index=True)  # low, medium, high, critical
     location = Column(String, nullable=True)  # Место обнаружения
-    deadline = Column(DateTime, nullable=True)  # Срок устранения
-    status = Column(String, default="open")  # open, resolved
+    deadline = Column(DateTime, nullable=True, index=True)  # Срок устранения
+    status = Column(String, default="open", index=True)  # open, resolved
     resolved_at = Column(DateTime, nullable=True)
     resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
     created_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
