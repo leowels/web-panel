@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, ChangeEvent } from 'react'
+import { useEffect, useState, ChangeEvent, useRef } from 'react'
 import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 import { useNotificationStore } from '@/store/notificationStore'
@@ -34,6 +34,8 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
   const [equipmentList, setEquipmentList] = useState<any[]>([])
   const [selectedEquipmentIds, setSelectedEquipmentIds] = useState<string[]>([])
   const [equipmentSearch, setEquipmentSearch] = useState('')
+  const [showEquipmentDropdown, setShowEquipmentDropdown] = useState(false)
+  const equipmentDropdownRef = useRef<HTMLDivElement>(null)
 
   const resolvePrimaryEquipmentId = () => {
     if (violationId) {
@@ -66,6 +68,22 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
 
   // Сохраняем выбранные ID при изменении поиска (для множественного выбора)
   // Выбранные ID сохраняются независимо от фильтрации поиска
+
+  // Закрытие выпадающего списка при клике вне его
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (equipmentDropdownRef.current && !equipmentDropdownRef.current.contains(event.target as Node)) {
+        setShowEquipmentDropdown(false)
+      }
+    }
+
+    if (showEquipmentDropdown) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside)
+      }
+    }
+  }, [showEquipmentDropdown])
 
   useEffect(() => {
     fetchEquipment()
@@ -170,6 +188,20 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
     } finally {
       setGenerating(false)
     }
+  }
+
+  const handleEquipmentToggle = (equipmentId: string) => {
+    setSelectedEquipmentIds(prev => {
+      if (prev.includes(equipmentId)) {
+        const newIds = prev.filter(id => id !== equipmentId)
+        setFormData((prevForm) => ({ ...prevForm, equipment_id: newIds[0] || '' }))
+        return newIds
+      } else {
+        const newIds = [...prev, equipmentId]
+        setFormData((prevForm) => ({ ...prevForm, equipment_id: newIds[0] || '' }))
+        return newIds
+      }
+    })
   }
 
   const handleMultiSelectChange = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -310,42 +342,38 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Оборудование *
               </label>
-              {/* Поле поиска оборудования */}
-              <div className="relative mb-3">
-                <input
-                  type="text"
-                  value={equipmentSearch}
-                  onChange={(e) => setEquipmentSearch(e.target.value)}
-                  placeholder="Поиск по паспорту, типу, позиции, цеху, инвентарному номеру..."
-                  className="w-full px-5 py-4 pl-14 pr-12 text-lg border-2 border-primary-300 rounded-xl focus:ring-4 focus:ring-primary-200 focus:border-primary-600 bg-white text-gray-900 font-semibold shadow-md transition-all placeholder:text-gray-400 placeholder:font-normal"
-                  style={{ fontSize: '16px', lineHeight: '1.5' }}
-                />
-                <svg className="absolute left-5 top-5 h-5 w-5 text-primary-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                {equipmentSearch && (
-                  <button
-                    type="button"
-                    onClick={() => setEquipmentSearch('')}
-                    className="absolute right-4 top-4.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-1.5 transition-colors"
-                    title="Очистить поиск"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-              {equipmentSearch && (
-                <div className="mb-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm font-medium text-blue-800">
-                    Найдено: <span className="font-bold">{filteredEquipmentList.length}</span> из <span className="font-bold">{equipmentList.length}</span> оборудования
-                  </p>
-                </div>
-              )}
-              {equipmentSearch && filteredEquipmentList.length === 0 && (
-                <div className="mb-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-sm font-medium text-red-800">❌ Оборудование не найдено. Попробуйте другой поисковый запрос.</p>
+              {/* Поле поиска оборудования - показываем только если открыт выпадающий список или есть поиск */}
+              {(showEquipmentDropdown || equipmentSearch) && (
+                <div className="relative mb-3">
+                  <input
+                    type="text"
+                    value={equipmentSearch}
+                    onChange={(e) => {
+                      setEquipmentSearch(e.target.value)
+                      if (!showEquipmentDropdown) {
+                        setShowEquipmentDropdown(true)
+                      }
+                    }}
+                    onFocus={() => setShowEquipmentDropdown(true)}
+                    placeholder="🔍 Поиск по паспорту, типу, позиции, цеху, инвентарному номеру..."
+                    className="w-full px-5 py-4 pl-14 pr-12 text-lg border-2 border-primary-300 rounded-xl focus:ring-4 focus:ring-primary-200 focus:border-primary-600 bg-white text-gray-900 font-semibold shadow-md transition-all placeholder:text-gray-400 placeholder:font-normal"
+                    style={{ fontSize: '16px', lineHeight: '1.5' }}
+                  />
+                  <svg className="absolute left-5 top-5 h-5 w-5 text-primary-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  {equipmentSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setEquipmentSearch('')}
+                      className="absolute right-4 top-4.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-1.5 transition-colors"
+                      title="Очистить поиск"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               )}
               {isEditing ? (
@@ -378,21 +406,26 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                 </>
               ) : (
                 <>
-                  {/* Показываем выбранное оборудование, даже если оно не в текущем поиске */}
+                  {/* Показываем выбранное оборудование */}
                   {selectedEquipmentDetails.length > 0 && (
-                    <div className="mb-3 p-3 bg-primary-50 border border-primary-200 rounded-lg">
-                      <p className="text-sm font-semibold text-primary-700 mb-2">
-                        Выбрано оборудование ({selectedEquipmentDetails.length}):
-                      </p>
+                    <div className="mb-3 p-4 bg-gradient-to-r from-primary-50 to-blue-50 border-2 border-primary-200 rounded-xl shadow-soft">
+                      <div className="flex items-center gap-2 mb-3">
+                        <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <p className="text-sm font-bold text-primary-700">
+                          Выбрано: {selectedEquipmentDetails.length}
+                        </p>
+                      </div>
                       <div className="flex flex-wrap gap-2">
                         {selectedEquipmentDetails.map((eq) => (
                           <div
                             key={eq.id}
-                            className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-primary-300 rounded-lg shadow-sm"
+                            className="group inline-flex items-center gap-2 px-3 py-2 bg-white border-2 border-primary-300 rounded-lg shadow-sm hover:shadow-md transition-all duration-200"
                           >
-                            <span className="text-sm font-medium text-gray-900">
+                            <span className="text-sm font-semibold text-gray-900">
                               {eq.passport_number} • {eq.equipment_type}
-                              {eq.position ? ` (${eq.position})` : ''}
+                              {eq.position && <span className="text-primary-600"> ({eq.position})</span>}
                             </span>
                             <button
                               type="button"
@@ -400,7 +433,7 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                                 setSelectedEquipmentIds(prev => prev.filter(id => id !== String(eq.id)))
                                 setFormData(prev => ({ ...prev, equipment_id: '' }))
                               }}
-                              className="text-red-600 hover:text-red-800 hover:bg-red-50 rounded-full p-1 transition-colors"
+                              className="text-red-600 hover:text-white hover:bg-red-600 rounded-full p-1 transition-all duration-200"
                               title="Удалить из выбранных"
                             >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -412,27 +445,167 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                       </div>
                     </div>
                   )}
-                  <select
-                    multiple
-                    size={10}
-                    required
-                    value={selectedEquipmentIds}
-                    onChange={handleMultiSelectChange}
-                    className="w-full px-4 py-3 text-base border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white text-gray-900 font-medium"
-                  >
-                    {filteredEquipmentList
-                      .filter(eq => !selectedEquipmentIds.includes(String(eq.id))) // Не показываем уже выбранное
-                      .map((eq) => (
-                        <option key={eq.id} value={eq.id}>
-                          {eq.passport_number} • {eq.equipment_type}
-                          {eq.position ? ` • Поз: ${eq.position}` : ''}
-                          {eq.workshop ? ` • Цех: ${eq.workshop}` : ''}
-                          {eq.inventory_number ? ` • Инв: ${eq.inventory_number}` : ''}
-                        </option>
-                      ))}
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Удерживайте Ctrl / Cmd для выбора нескольких позиций. Первое выбранное оборудование используется для работы ИИ.
+
+                  {/* Выпадающий список с чекбоксами */}
+                  <div className="relative" ref={equipmentDropdownRef}>
+                    <div
+                      className="w-full px-4 py-3 text-base border-2 border-gray-300 rounded-xl focus-within:ring-4 focus-within:ring-primary-200 focus-within:border-primary-600 bg-white text-gray-900 font-medium cursor-pointer transition-all shadow-md hover:shadow-lg"
+                      onClick={() => setShowEquipmentDropdown(!showEquipmentDropdown)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className={selectedEquipmentIds.length > 0 ? 'text-gray-900' : 'text-gray-400'}>
+                          {selectedEquipmentIds.length > 0
+                            ? `Выбрано: ${selectedEquipmentIds.length} ${selectedEquipmentIds.length === 1 ? 'оборудование' : 'оборудования'}`
+                            : 'Нажмите для выбора оборудования'}
+                        </span>
+                        <svg
+                          className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${showEquipmentDropdown ? 'transform rotate-180' : ''}`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </div>
+                    </div>
+
+                    {/* Выпадающий список */}
+                    {showEquipmentDropdown && (
+                      <div className="absolute z-50 w-full mt-2 bg-white border-2 border-primary-300 rounded-xl shadow-2xl max-h-96 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                        {/* Заголовок выпадающего списка */}
+                        <div className="p-4 bg-gradient-to-r from-primary-50 to-blue-50 border-b-2 border-primary-200">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-sm font-bold text-primary-700">
+                              {filteredEquipmentList.length > 0
+                                ? `Найдено: ${filteredEquipmentList.length}`
+                                : 'Оборудование не найдено'}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setShowEquipmentDropdown(false)
+                              }}
+                              className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-1 transition-colors"
+                            >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                          {selectedEquipmentIds.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedEquipmentIds([])
+                                setFormData(prev => ({ ...prev, equipment_id: '' }))
+                              }}
+                              className="text-xs text-red-600 hover:text-red-800 font-semibold"
+                            >
+                              Очистить все
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Список оборудования с чекбоксами */}
+                        <div className="max-h-80 overflow-y-auto">
+                          {filteredEquipmentList.length > 0 ? (
+                            <div className="divide-y divide-gray-100">
+                              {filteredEquipmentList.map((eq, index) => {
+                                const isSelected = selectedEquipmentIds.includes(String(eq.id))
+                                return (
+                                  <label
+                                    key={eq.id}
+                                    className={`flex items-start gap-3 p-4 cursor-pointer transition-all duration-150 ${
+                                      isSelected
+                                        ? 'bg-primary-50 hover:bg-primary-100'
+                                        : 'hover:bg-gray-50'
+                                    } ${index === 0 ? 'rounded-t-lg' : ''}`}
+                                  >
+                                    <div className="flex-shrink-0 mt-0.5">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={() => handleEquipmentToggle(String(eq.id))}
+                                        className="w-5 h-5 text-primary-600 border-2 border-gray-300 rounded focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 cursor-pointer transition-all"
+                                      />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <div className="flex-1">
+                                          <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-sm font-bold text-gray-900">
+                                              {eq.passport_number}
+                                            </span>
+                                            <span className="text-xs px-2 py-0.5 bg-primary-100 text-primary-700 rounded-full font-semibold">
+                                              {eq.equipment_type}
+                                            </span>
+                                          </div>
+                                          <div className="flex flex-wrap gap-2 text-xs text-gray-600">
+                                            {eq.position && (
+                                              <span className="flex items-center gap-1">
+                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                </svg>
+                                                {eq.position}
+                                              </span>
+                                            )}
+                                            {eq.workshop && (
+                                              <span className="flex items-center gap-1">
+                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                                </svg>
+                                                {eq.workshop}
+                                              </span>
+                                            )}
+                                            {eq.inventory_number && (
+                                              <span className="flex items-center gap-1">
+                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
+                                                </svg>
+                                                {eq.inventory_number}
+                                              </span>
+                                            )}
+                                          </div>
+                                          {eq.installation_location && (
+                                            <p className="text-xs text-gray-500 mt-1 truncate">
+                                              {eq.installation_location}
+                                            </p>
+                                          )}
+                                        </div>
+                                        {isSelected && (
+                                          <div className="flex-shrink-0">
+                                            <div className="w-6 h-6 bg-primary-600 rounded-full flex items-center justify-center">
+                                              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                              </svg>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </label>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            <div className="p-8 text-center">
+                              <svg className="w-12 h-12 text-gray-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                              </svg>
+                              <p className="text-sm font-semibold text-gray-500">Оборудование не найдено</p>
+                              <p className="text-xs text-gray-400 mt-1">Попробуйте изменить поисковый запрос</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-gray-500 mt-2">
+                    💡 Выберите одно или несколько оборудований. Первое выбранное используется для работы ИИ.
                   </p>
                 </>
               )}
