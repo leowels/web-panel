@@ -33,6 +33,7 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
   })
   const [equipmentList, setEquipmentList] = useState<any[]>([])
   const [selectedEquipmentIds, setSelectedEquipmentIds] = useState<string[]>([])
+  const [equipmentSearch, setEquipmentSearch] = useState('')
 
   const resolvePrimaryEquipmentId = () => {
     if (violationId) {
@@ -48,6 +49,20 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
     selectedEquipmentIds.includes(String(eq.id))
   )
   const singleSelectedEquipment = equipmentList.find((eq) => String(eq.id) === formData.equipment_id)
+
+  // Фильтрация оборудования по поисковому запросу
+  const filteredEquipmentList = equipmentList.filter((eq) => {
+    if (!equipmentSearch.trim()) return true
+    const searchLower = equipmentSearch.toLowerCase()
+    return (
+      eq.passport_number?.toLowerCase().includes(searchLower) ||
+      eq.equipment_type?.toLowerCase().includes(searchLower) ||
+      eq.position?.toLowerCase().includes(searchLower) ||
+      eq.inventory_number?.toLowerCase().includes(searchLower) ||
+      eq.workshop?.toLowerCase().includes(searchLower) ||
+      eq.installation_location?.toLowerCase().includes(searchLower)
+    )
+  })
 
   useEffect(() => {
     fetchEquipment()
@@ -292,6 +307,33 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Оборудование *
               </label>
+              {/* Поле поиска оборудования */}
+              <div className="relative mb-2">
+                <input
+                  type="text"
+                  value={equipmentSearch}
+                  onChange={(e) => setEquipmentSearch(e.target.value)}
+                  placeholder="Поиск по паспорту, типу, позиции, цеху..."
+                  className="w-full px-4 py-2.5 pl-10 text-base border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-600 focus:border-primary-600 bg-white text-gray-900 font-medium transition-all placeholder:text-gray-400"
+                />
+                <svg className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                {equipmentSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setEquipmentSearch('')}
+                    className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+              {equipmentSearch && filteredEquipmentList.length === 0 && (
+                <p className="text-sm text-gray-500 mb-2">Оборудование не найдено</p>
+              )}
               {isEditing ? (
                 <>
                   <select
@@ -301,9 +343,10 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                   >
                     <option value="">Выберите оборудование</option>
-                    {equipmentList.map((eq) => (
+                    {filteredEquipmentList.map((eq) => (
                       <option key={eq.id} value={eq.id}>
                         {eq.passport_number} - {eq.equipment_type} {eq.position ? `(${eq.position})` : ''}
+                        {eq.workshop ? ` [${eq.workshop}]` : ''}
                       </option>
                     ))}
                   </select>
@@ -313,6 +356,9 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                       {singleSelectedEquipment.inventory_number && (
                         <p>Инв. № {singleSelectedEquipment.inventory_number}</p>
                       )}
+                      {singleSelectedEquipment.workshop && (
+                        <p>Цех: {singleSelectedEquipment.workshop}</p>
+                      )}
                     </div>
                   )}
                 </>
@@ -320,22 +366,29 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                 <>
                   <select
                     multiple
-                    size={6}
+                    size={8}
                     required
                     value={selectedEquipmentIds}
                     onChange={handleMultiSelectChange}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                   >
-                    {equipmentList.map((eq) => (
+                    {filteredEquipmentList.map((eq) => (
                       <option key={eq.id} value={eq.id}>
                         {eq.passport_number} • {eq.equipment_type}
-                        {eq.position ? ` • ${eq.position}` : ''}
+                        {eq.position ? ` • Поз: ${eq.position}` : ''}
+                        {eq.workshop ? ` • Цех: ${eq.workshop}` : ''}
+                        {eq.inventory_number ? ` • Инв: ${eq.inventory_number}` : ''}
                       </option>
                     ))}
                   </select>
                   <p className="text-xs text-gray-500 mt-1">
                     Удерживайте Ctrl / Cmd для выбора нескольких позиций. Первое выбранное оборудование используется для работы ИИ.
                   </p>
+                  {equipmentSearch && (
+                    <p className="text-xs text-blue-600 mt-1">
+                      Найдено: {filteredEquipmentList.length} из {equipmentList.length}
+                    </p>
+                  )}
                   {selectedEquipmentDetails.length > 0 && (
                     <div className="mt-3 bg-gray-50 rounded-lg border border-gray-200 p-3">
                       <p className="text-xs font-semibold text-gray-600 mb-2">
