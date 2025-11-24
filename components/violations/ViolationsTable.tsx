@@ -281,28 +281,38 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
                     onClick={(e) => e.stopPropagation()}
                   />
                   <div className="flex-1 flex justify-between items-start">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 mb-1 line-clamp-2">
-                      {violation.description}
-                    </div>
-                    {violation.equipment && (
-                      <div className="text-xs text-gray-600">
-                        <div className="font-semibold">{violation.equipment.passport_number}</div>
-                        <div>{violation.equipment.equipment_type}</div>
-                        {violation.equipment.position && (
-                          <div>Позиция: {violation.equipment.position}</div>
-                        )}
+                    <div className="flex-1 min-w-0">
+                      <div 
+                        className="text-sm font-medium text-gray-900 mb-1"
+                        style={{
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          maxHeight: '3em'
+                        }}
+                      >
+                        {violation.description}
                       </div>
-                    )}
+                      {violation.equipment && (
+                        <div className="text-xs text-gray-600">
+                          <div className="font-semibold">{violation.equipment.passport_number}</div>
+                          <div>{violation.equipment.equipment_type}</div>
+                          {violation.equipment.position && (
+                            <div>Позиция: {violation.equipment.position}</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => onView(violation.id)}
+                      className="ml-2 text-primary-600 hover:text-primary-900 text-sm font-medium"
+                    >
+                      Открыть
+                    </button>
                   </div>
-                  <button
-                    onClick={() => onView(violation.id)}
-                    className="ml-2 text-primary-600 hover:text-primary-900 text-sm font-medium"
-                  >
-                    Открыть
-                  </button>
                 </div>
-                <div className="flex flex-wrap gap-2 mt-3">
+                <div className="flex flex-wrap gap-2 mt-3 ml-6">
                   <span className={`px-2 py-1 text-xs font-medium rounded-full ${getSeverityColor(violation.severity)}`}>
                     {getSeverityText(violation.severity)}
                   </span>
