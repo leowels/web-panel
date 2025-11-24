@@ -1,0 +1,3 @@
+equipment_type,passport_number,inventory_number,position,workshop,load_capacity,manufacturer,installation_location,installation_date,pto_date,cto_date,status
+Кран-балка электрическая,KB-001,INV-2024-001,Позиция 1,Цех №5,5,ООО "Подъеммаш",Участок №3,2024-01-10,2024-07-10,2025-01-10,active
+

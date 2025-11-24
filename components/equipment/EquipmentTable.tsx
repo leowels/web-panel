@@ -5,7 +5,6 @@ import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 import { useNotificationStore } from '@/store/notificationStore'
 import { EQUIPMENT_TYPES } from '@/constants/equipmentTypes'
-import { format } from 'date-fns'
 
 const API_URL = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '') : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
 

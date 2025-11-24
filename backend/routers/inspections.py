@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel
+import csv
+import io
 
 # Поддержка запуска как скрипта и как модуля
 try:
@@ -125,6 +128,78 @@ async def get_inspections(
         )
         for i in inspections
     ]
+
+
+@router.get("/export")
+async def export_inspections(
+    equipment_id: Optional[int] = None,
+    status: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Экспорт осмотров в CSV"""
+    await require_permission(current_user, "inspections:read", db)
+
+    query = select(Inspection).options(
+        selectinload(Inspection.equipment),
+        selectinload(Inspection.checklist_template)
+    )
+
+    user_roles = [ur.role.name for ur in current_user.roles]
+    if "admin" not in user_roles:
+        query = query.where(Inspection.inspector_id == current_user.id)
+
+    if equipment_id:
+        query = query.where(Inspection.equipment_id == equipment_id)
+
+    if status:
+        query = query.where(Inspection.status == status)
+
+    result = await db.execute(query.order_by(Inspection.updated_at.desc()))
+    inspections = result.scalars().all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "id",
+        "status",
+        "equipment_passport",
+        "workshop",
+        "checklist",
+        "inspector_id",
+        "started_at",
+        "completed_at",
+        "notes",
+        "updated_at",
+    ])
+
+    for inspection in inspections:
+        equipment = inspection.equipment
+        checklist = inspection.checklist_template
+        writer.writerow([
+            inspection.id,
+            inspection.status,
+            equipment.passport_number if equipment else "",
+            equipment.workshop if equipment else "",
+            checklist.name if checklist else inspection.checklist_template_id,
+            inspection.inspector_id,
+            inspection.started_at.isoformat() if inspection.started_at else "",
+            inspection.completed_at.isoformat() if inspection.completed_at else "",
+            (inspection.notes or "").replace("\n", " "),
+            inspection.updated_at.isoformat() if inspection.updated_at else "",
+        ])
+
+    output.seek(0)
+    filename = f"inspections_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Type": "text/csv; charset=utf-8",
+    }
+    return StreamingResponse(
+        iter([output.getvalue().encode("utf-8-sig")]),
+        media_type="text/csv",
+        headers=headers,
+    )
 
 @router.get("/{inspection_id}", response_model=InspectionResponse)
 async def get_inspection(

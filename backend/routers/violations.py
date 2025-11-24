@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import selectinload
@@ -9,6 +10,8 @@ from datetime import datetime, timedelta
 import re
 from pydantic import BaseModel
 import os
+import csv
+import io
 
 # Поддержка запуска как скрипта и как модуля
 try:
@@ -162,6 +165,77 @@ async def get_violations(
     violations = result.scalars().all()
     
     return [_violation_to_response(v) for v in violations]
+
+
+@router.get("/export")
+async def export_violations(
+    equipment_id: Optional[int] = None,
+    inspection_id: Optional[int] = None,
+    status: Optional[str] = None,
+    severity: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Экспорт нарушений в CSV"""
+    await require_permission(current_user, "violations:read", db)
+
+    query = select(Violation).options(selectinload(Violation.equipment))
+
+    if equipment_id:
+        query = query.where(Violation.equipment_id == equipment_id)
+    if inspection_id:
+        query = query.where(Violation.inspection_id == inspection_id)
+    if status:
+        query = query.where(Violation.status == status)
+    if severity:
+        query = query.where(Violation.severity == severity)
+
+    result = await db.execute(query.order_by(Violation.created_at.desc()))
+    violations = result.scalars().all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "id",
+        "created_at",
+        "status",
+        "severity",
+        "equipment_passport",
+        "equipment_position",
+        "workshop",
+        "description",
+        "fnp_clause",
+        "gost_clause",
+        "deadline",
+    ])
+
+    for violation in violations:
+        equipment = getattr(violation, "equipment", None)
+        writer.writerow([
+            violation.id,
+            violation.created_at.isoformat() if violation.created_at else "",
+            violation.status,
+            violation.severity,
+            equipment.passport_number if equipment else "",
+            equipment.position if equipment else "",
+            equipment.workshop if equipment else "",
+            violation.description.replace("\n", " ") if violation.description else "",
+            violation.fnp_clause or "",
+            violation.gost_clause or "",
+            violation.deadline.isoformat() if violation.deadline else "",
+        ])
+
+    output.seek(0)
+    filename = f"violations_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Type": "text/csv; charset=utf-8",
+    }
+    return StreamingResponse(
+        iter([output.getvalue().encode("utf-8-sig")]),
+        media_type="text/csv",
+        headers=headers,
+    )
 
 @router.get("/{violation_id}", response_model=ViolationResponse)
 async def get_violation(
