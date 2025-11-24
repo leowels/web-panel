@@ -339,41 +339,59 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className={isEditing ? '' : 'md:col-span-2'}>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Оборудование *
+              <label className="block text-sm font-semibold text-gray-900 mb-3">
+                Оборудование <span className="text-red-500">*</span>
               </label>
-              {/* Поле поиска оборудования - показываем только если открыт выпадающий список или есть поиск */}
-              {(showEquipmentDropdown || equipmentSearch) && (
-                <div className="relative mb-3">
-                  <input
-                    type="text"
-                    value={equipmentSearch}
-                    onChange={(e) => {
-                      setEquipmentSearch(e.target.value)
-                      if (!showEquipmentDropdown) {
-                        setShowEquipmentDropdown(true)
-                      }
+              
+              {/* Поле поиска оборудования - всегда видимо для удобства */}
+              <div className="relative mb-3">
+                <input
+                  type="text"
+                  value={equipmentSearch}
+                  onChange={(e) => {
+                    setEquipmentSearch(e.target.value)
+                    if (!showEquipmentDropdown && e.target.value.trim()) {
+                      setShowEquipmentDropdown(true)
+                    }
+                  }}
+                  onFocus={() => {
+                    if (equipmentSearch.trim() || equipmentList.length > 0) {
+                      setShowEquipmentDropdown(true)
+                    }
+                  }}
+                  placeholder="🔍 Начните вводить для поиска оборудования..."
+                  className="w-full px-5 py-4 pl-14 pr-12 text-base border-2 border-primary-300 rounded-xl focus:ring-4 focus:ring-primary-200 focus:border-primary-600 bg-white text-gray-900 font-medium shadow-md transition-all placeholder:text-gray-400"
+                />
+                <svg className="absolute left-5 top-5 h-5 w-5 text-primary-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                {equipmentSearch && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setEquipmentSearch('')
                     }}
-                    onFocus={() => setShowEquipmentDropdown(true)}
-                    placeholder="🔍 Поиск по паспорту, типу, позиции, цеху, инвентарному номеру..."
-                    className="w-full px-5 py-4 pl-14 pr-12 text-lg border-2 border-primary-300 rounded-xl focus:ring-4 focus:ring-primary-200 focus:border-primary-600 bg-white text-gray-900 font-semibold shadow-md transition-all placeholder:text-gray-400 placeholder:font-normal"
-                    style={{ fontSize: '16px', lineHeight: '1.5' }}
-                  />
-                  <svg className="absolute left-5 top-5 h-5 w-5 text-primary-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  {equipmentSearch && (
-                    <button
-                      type="button"
-                      onClick={() => setEquipmentSearch('')}
-                      className="absolute right-4 top-4.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-1.5 transition-colors"
-                      title="Очистить поиск"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  )}
+                    className="absolute right-4 top-4.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-1.5 transition-colors"
+                    title="Очистить поиск"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+
+              {/* Информация о результатах поиска */}
+              {equipmentSearch && (
+                <div className="mb-3 px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm font-medium text-blue-800">
+                    {filteredEquipmentList.length > 0 ? (
+                      <>Найдено: <span className="font-bold">{filteredEquipmentList.length}</span> из <span className="font-bold">{equipmentList.length}</span> оборудования</>
+                    ) : (
+                      <span className="text-red-700">❌ Оборудование не найдено. Попробуйте другой запрос.</span>
+                    )}
+                  </p>
                 </div>
               )}
               {isEditing ? (
@@ -449,14 +467,22 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                   {/* Выпадающий список с чекбоксами */}
                   <div className="relative" ref={equipmentDropdownRef}>
                     <div
-                      className="w-full px-4 py-3 text-base border-2 border-gray-300 rounded-xl focus-within:ring-4 focus-within:ring-primary-200 focus-within:border-primary-600 bg-white text-gray-900 font-medium cursor-pointer transition-all shadow-md hover:shadow-lg"
-                      onClick={() => setShowEquipmentDropdown(!showEquipmentDropdown)}
+                      className="w-full px-4 py-3.5 text-base border-2 border-gray-300 rounded-xl focus-within:ring-4 focus-within:ring-primary-200 focus-within:border-primary-600 bg-white text-gray-900 font-medium cursor-pointer transition-all shadow-md hover:shadow-lg hover:border-primary-400"
+                      onClick={() => {
+                        if (equipmentList.length > 0) {
+                          setShowEquipmentDropdown(!showEquipmentDropdown)
+                        } else {
+                          addNotification('Загрузка оборудования...', 'info')
+                        }
+                      }}
                     >
                       <div className="flex items-center justify-between">
-                        <span className={selectedEquipmentIds.length > 0 ? 'text-gray-900' : 'text-gray-400'}>
+                        <span className={selectedEquipmentIds.length > 0 ? 'text-gray-900 font-semibold' : 'text-gray-400'}>
                           {selectedEquipmentIds.length > 0
-                            ? `Выбрано: ${selectedEquipmentIds.length} ${selectedEquipmentIds.length === 1 ? 'оборудование' : 'оборудования'}`
-                            : 'Нажмите для выбора оборудования'}
+                            ? `✓ Выбрано: ${selectedEquipmentIds.length} ${selectedEquipmentIds.length === 1 ? 'оборудование' : 'оборудования'}`
+                            : equipmentList.length > 0
+                            ? 'Нажмите для выбора оборудования'
+                            : 'Загрузка оборудования...'}
                         </span>
                         <svg
                           className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${showEquipmentDropdown ? 'transform rotate-180' : ''}`}
@@ -470,23 +496,31 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                     </div>
 
                     {/* Выпадающий список */}
-                    {showEquipmentDropdown && (
-                      <div className="absolute z-50 w-full mt-2 bg-white border-2 border-primary-300 rounded-xl shadow-2xl max-h-96 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                    {showEquipmentDropdown && equipmentList.length > 0 && (
+                      <div className="absolute z-50 w-full mt-2 bg-white border-2 border-primary-300 rounded-xl shadow-2xl max-h-96 overflow-hidden">
                         {/* Заголовок выпадающего списка */}
-                        <div className="p-4 bg-gradient-to-r from-primary-50 to-blue-50 border-b-2 border-primary-200">
+                        <div className="p-4 bg-gradient-to-r from-primary-50 to-blue-50 border-b-2 border-primary-200 sticky top-0 z-10">
                           <div className="flex items-center justify-between mb-2">
-                            <p className="text-sm font-bold text-primary-700">
-                              {filteredEquipmentList.length > 0
-                                ? `Найдено: ${filteredEquipmentList.length}`
-                                : 'Оборудование не найдено'}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <p className="text-sm font-bold text-primary-700">
+                                {equipmentSearch
+                                  ? filteredEquipmentList.length > 0
+                                    ? `Найдено: ${filteredEquipmentList.length} из ${equipmentList.length}`
+                                    : 'Оборудование не найдено'
+                                  : `Всего: ${equipmentList.length} оборудования`}
+                              </p>
+                            </div>
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setShowEquipmentDropdown(false)
                               }}
-                              className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-1 transition-colors"
+                              className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-1.5 transition-colors"
+                              title="Закрыть"
                             >
                               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -501,9 +535,12 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                                 setSelectedEquipmentIds([])
                                 setFormData(prev => ({ ...prev, equipment_id: '' }))
                               }}
-                              className="text-xs text-red-600 hover:text-red-800 font-semibold"
+                              className="inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-800 font-semibold px-2 py-1 hover:bg-red-50 rounded transition-colors"
                             >
-                              Очистить все
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                              Очистить все ({selectedEquipmentIds.length})
                             </button>
                           )}
                         </div>
@@ -512,22 +549,26 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                         <div className="max-h-80 overflow-y-auto">
                           {filteredEquipmentList.length > 0 ? (
                             <div className="divide-y divide-gray-100">
-                              {filteredEquipmentList.map((eq, index) => {
+                              {filteredEquipmentList.map((eq) => {
                                 const isSelected = selectedEquipmentIds.includes(String(eq.id))
                                 return (
                                   <label
                                     key={eq.id}
                                     className={`flex items-start gap-3 p-4 cursor-pointer transition-all duration-150 ${
                                       isSelected
-                                        ? 'bg-primary-50 hover:bg-primary-100'
+                                        ? 'bg-primary-50 hover:bg-primary-100 border-l-4 border-primary-500'
                                         : 'hover:bg-gray-50'
-                                    } ${index === 0 ? 'rounded-t-lg' : ''}`}
+                                    }`}
                                   >
                                     <div className="flex-shrink-0 mt-0.5">
                                       <input
                                         type="checkbox"
                                         checked={isSelected}
-                                        onChange={() => handleEquipmentToggle(String(eq.id))}
+                                        onChange={(e) => {
+                                          e.stopPropagation()
+                                          handleEquipmentToggle(String(eq.id))
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
                                         className="w-5 h-5 text-primary-600 border-2 border-gray-300 rounded focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 cursor-pointer transition-all"
                                       />
                                     </div>
@@ -590,13 +631,28 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
                                 )
                               })}
                             </div>
-                          ) : (
+                          ) : equipmentSearch ? (
                             <div className="p-8 text-center">
                               <svg className="w-12 h-12 text-gray-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
-                              <p className="text-sm font-semibold text-gray-500">Оборудование не найдено</p>
-                              <p className="text-xs text-gray-400 mt-1">Попробуйте изменить поисковый запрос</p>
+                              <p className="text-sm font-semibold text-gray-600 mb-1">Оборудование не найдено</p>
+                              <p className="text-xs text-gray-500">Попробуйте изменить поисковый запрос или очистить фильтр</p>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setEquipmentSearch('')
+                                }}
+                                className="mt-3 px-4 py-2 text-xs font-semibold text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors"
+                              >
+                                Очистить поиск
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="p-8 text-center">
+                              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-3"></div>
+                              <p className="text-sm font-semibold text-gray-500">Загрузка оборудования...</p>
                             </div>
                           )}
                         </div>
