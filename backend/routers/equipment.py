@@ -487,7 +487,10 @@ async def bulk_upload_equipment(
     except UnicodeDecodeError:
         decoded = raw_content.decode("utf-8")
 
-    reader = csv.DictReader(io.StringIO(decoded))
+    # Определяем разделитель (поддержка как запятой, так и точки с запятой)
+    first_line = decoded.splitlines()[0] if decoded.splitlines() else ""
+    delimiter = ";" if first_line.count(";") > first_line.count(",") else ","
+    reader = csv.DictReader(io.StringIO(decoded), delimiter=delimiter)
     if not reader.fieldnames:
         raise HTTPException(status_code=400, detail="CSV file is missing headers")
 

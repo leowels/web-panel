@@ -159,7 +159,7 @@ async def export_inspections(
     inspections = result.scalars().all()
 
     output = io.StringIO()
-    writer = csv.writer(output)
+    writer = csv.writer(output, delimiter=';', quoting=csv.QUOTE_MINIMAL)
     writer.writerow([
         "id",
         "status",

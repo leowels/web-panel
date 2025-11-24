@@ -95,12 +95,12 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
 
   return (
     <div className="bg-white rounded-lg shadow">
-      <div className="p-6 border-b border-gray-200">
-        <div className="flex flex-col sm:flex-row gap-4">
+      <div className="p-4 sm:p-6 border-b border-gray-200">
+        <div className="flex flex-col sm:flex-row gap-3">
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+            className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
           >
             <option value="">Все статусы</option>
             <option value="open">Открыто</option>
@@ -109,7 +109,7 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
           <select
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+            className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
           >
             <option value="">Все уровни</option>
             <option value="critical">Критическое</option>
@@ -125,70 +125,137 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Описание</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Оборудование</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ФНП/ГОСТ</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Критичность</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Статус</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Срок</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {violations.map((violation) => (
-                <tr key={violation.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900 max-w-md truncate">{violation.description}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    {violation.equipment ? (
-                      <div>
-                        <div className="font-semibold text-gray-900">{violation.equipment.passport_number}</div>
-                        <div className="text-xs text-gray-500">{violation.equipment.equipment_type}</div>
+        <div className="w-full">
+          <div className="hidden lg:block">
+            <table className="w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[25%]">Описание</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[15%]">Оборудование</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[12%]">ФНП/ГОСТ</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Критичность</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Статус</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Срок</th>
+                  <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-[8%]">Действия</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {violations.map((violation) => (
+                  <tr key={violation.id} className="hover:bg-gray-50">
+                    <td className="px-3 py-3">
+                      <div className="text-sm text-gray-900 break-words" style={{ 
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                        maxHeight: '3em'
+                      }}>{violation.description}</div>
+                    </td>
+                    <td className="px-3 py-3 text-sm text-gray-600">
+                      {violation.equipment ? (
+                        <div>
+                          <div className="font-semibold text-gray-900 truncate">{violation.equipment.passport_number}</div>
+                          <div className="text-xs text-gray-500 truncate">{violation.equipment.equipment_type}</div>
+                          {violation.equipment.position && (
+                            <div className="text-xs text-gray-500 truncate">
+                              Поз: {violation.equipment.position}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span>-</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-sm text-gray-500 break-words">
+                      <div style={{ 
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                        maxHeight: '3em'
+                      }}>
+                        {violation.fnp_clause || violation.gost_clause || '-'}
+                      </div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${getSeverityColor(violation.severity)}`}>
+                        {getSeverityText(violation.severity)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${
+                        violation.status === 'resolved' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {violation.status === 'resolved' ? 'Устранено' : 'Открыто'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-sm text-gray-500">
+                      {violation.deadline ? format(new Date(violation.deadline), 'dd.MM.yyyy') : '-'}
+                    </td>
+                    <td className="px-3 py-3 text-right text-sm font-medium">
+                      <button
+                        onClick={() => onView(violation.id)}
+                        className="text-primary-600 hover:text-primary-900"
+                      >
+                        Открыть
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          
+          {/* Мобильная версия - карточки */}
+          <div className="lg:hidden divide-y divide-gray-200">
+            {violations.map((violation) => (
+              <div key={violation.id} className="p-4 hover:bg-gray-50">
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-900 mb-1 line-clamp-2">
+                      {violation.description}
+                    </div>
+                    {violation.equipment && (
+                      <div className="text-xs text-gray-600">
+                        <div className="font-semibold">{violation.equipment.passport_number}</div>
+                        <div>{violation.equipment.equipment_type}</div>
                         {violation.equipment.position && (
-                          <div className="text-xs text-gray-500">
-                            Позиция: {violation.equipment.position}
-                          </div>
+                          <div>Позиция: {violation.equipment.position}</div>
                         )}
                       </div>
-                    ) : (
-                      <span>-</span>
                     )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {violation.fnp_clause || violation.gost_clause || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getSeverityColor(violation.severity)}`}>
-                      {getSeverityText(violation.severity)}
+                  </div>
+                  <button
+                    onClick={() => onView(violation.id)}
+                    className="ml-2 text-primary-600 hover:text-primary-900 text-sm font-medium"
+                  >
+                    Открыть
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${getSeverityColor(violation.severity)}`}>
+                    {getSeverityText(violation.severity)}
+                  </span>
+                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                    violation.status === 'resolved' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                  }`}>
+                    {violation.status === 'resolved' ? 'Устранено' : 'Открыто'}
+                  </span>
+                  {violation.deadline && (
+                    <span className="px-2 py-1 text-xs text-gray-600">
+                      Срок: {format(new Date(violation.deadline), 'dd.MM.yyyy')}
                     </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                      violation.status === 'resolved' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {violation.status === 'resolved' ? 'Устранено' : 'Открыто'}
+                  )}
+                  {(violation.fnp_clause || violation.gost_clause) && (
+                    <span className="px-2 py-1 text-xs text-gray-600">
+                      {violation.fnp_clause || violation.gost_clause}
                     </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {violation.deadline ? format(new Date(violation.deadline), 'dd.MM.yyyy') : '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => onView(violation.id)}
-                      className="text-primary-600 hover:text-primary-900"
-                    >
-                      Открыть
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          
           {violations.length === 0 && (
             <div className="p-6 text-center text-gray-500">
               Нарушения не найдены

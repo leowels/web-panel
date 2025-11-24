@@ -28,9 +28,9 @@ export default function ViolationsPage() {
 
   return (
     <Layout>
-      <div className="p-6">
-        <div className="max-w-7xl mx-auto">
-        <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="p-4 sm:p-6">
+        <div className="max-w-full mx-auto">
+        <div className="mb-4 sm:mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Нарушения</h1>
             <p className="text-gray-600 mt-1">Управление нарушениями</p>

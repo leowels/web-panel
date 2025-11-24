@@ -194,7 +194,7 @@ async def export_violations(
     violations = result.scalars().all()
 
     output = io.StringIO()
-    writer = csv.writer(output)
+    writer = csv.writer(output, delimiter=';', quoting=csv.QUOTE_MINIMAL)
     writer.writerow([
         "id",
         "created_at",
