@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 import { useNotificationStore } from '@/store/notificationStore'
+import { EQUIPMENT_TYPES } from '@/constants/equipmentTypes'
 import { format } from 'date-fns'
 
 const API_URL = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '') : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
@@ -12,6 +13,9 @@ interface Equipment {
   id: number
   equipment_type: string
   passport_number: string
+  inventory_number: string | null
+  position: string | null
+  workshop: string | null
   load_capacity: number | null
   manufacturer: string | null
   installation_date: string | null
@@ -27,9 +31,10 @@ interface EquipmentTableProps {
   onEdit: (id: number) => void
   onView: (id: number) => void
   onViewHistory: (id: number) => void
+  refreshKey?: number
 }
 
-export default function EquipmentTable({ onEdit, onView, onViewHistory }: EquipmentTableProps) {
+export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshKey = 0 }: EquipmentTableProps) {
   const { token } = useAuthStore()
   const { addNotification } = useNotificationStore()
   const [equipment, setEquipment] = useState<Equipment[]>([])
@@ -37,10 +42,11 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory }: Equipm
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [workshopFilter, setWorkshopFilter] = useState('')
 
   useEffect(() => {
     fetchEquipment()
-  }, [search, typeFilter, statusFilter])
+  }, [search, typeFilter, statusFilter, workshopFilter, refreshKey])
 
   const fetchEquipment = async () => {
     setLoading(true)
@@ -49,6 +55,7 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory }: Equipm
       if (search) params.append('search', search)
       if (typeFilter) params.append('equipment_type', typeFilter)
       if (statusFilter) params.append('status', statusFilter)
+      if (workshopFilter) params.append('workshop', workshopFilter)
       
       const response = await axios.get(`${API_URL}/api/equipment?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -123,10 +130,11 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory }: Equipm
             className="px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-600 focus:border-primary-600 bg-white text-gray-900 font-medium transition-all"
           >
             <option value="">Все типы</option>
-            <option value="Кран">Кран</option>
-            <option value="Подъемник">Подъемник</option>
-            <option value="Лифт">Лифт</option>
-            <option value="Эскалатор">Эскалатор</option>
+            {EQUIPMENT_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
           </select>
           <select
             value={statusFilter}
@@ -138,6 +146,13 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory }: Equipm
             <option value="inactive">Неактивно</option>
             <option value="archived">Архив</option>
           </select>
+          <input
+            type="text"
+            value={workshopFilter}
+            onChange={(e) => setWorkshopFilter(e.target.value)}
+            placeholder="Фильтр по цеху"
+            className="px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-600 focus:border-primary-600 bg-white text-gray-900 font-medium transition-all"
+          />
         </div>
       </div>
 
@@ -153,8 +168,11 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory }: Equipm
               <tr>
                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Паспорт</th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Тип ПС</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Инвентарный №</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Позиция</th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Грузоподъемность</th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Место установки</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Цех</th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Статус</th>
                 <th className="px-6 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">Действия</th>
               </tr>
@@ -169,10 +187,19 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory }: Equipm
                     <div className="text-sm font-medium text-gray-900">{eq.equipment_type}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600">
+                    {eq.inventory_number || '-'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600">
+                    {eq.position || '-'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600">
                     {eq.load_capacity ? `${eq.load_capacity} т` : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600">
                     {eq.installation_location || '-'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600">
+                    {eq.workshop || '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getStatusColor(eq.status)}`}>

@@ -7,3 +7,4 @@ export const API_URL =
     ? (process.env.NEXT_PUBLIC_API_URL || '') // В браузере - относительный путь
     : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'); // На сервере - полный URL
 
+

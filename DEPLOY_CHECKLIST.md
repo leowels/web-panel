@@ -82,3 +82,4 @@ BACKEND_URL=https://backend-xxxxx.twc1.net
 4. ✅ Деплой Frontend с правильным `NEXT_PUBLIC_API_URL`
 5. ✅ Проверка работы
 
+

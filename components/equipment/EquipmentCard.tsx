@@ -12,6 +12,9 @@ interface Equipment {
   id: number
   equipment_type: string
   passport_number: string
+  inventory_number: string | null
+  position: string | null
+  workshop: string | null
   load_capacity: number | null
   manufacturer: string | null
   installation_date: string | null
@@ -96,6 +99,27 @@ export default function EquipmentCard({ equipmentId, onClose, onEdit }: Equipmen
           <label className="text-sm font-medium text-gray-500">Тип ПС</label>
           <p className="text-gray-900">{equipment.equipment_type}</p>
         </div>
+
+        {equipment.inventory_number && (
+          <div>
+            <label className="text-sm font-medium text-gray-500">Инвентарный номер</label>
+            <p className="text-gray-900">{equipment.inventory_number}</p>
+          </div>
+        )}
+
+        {equipment.position && (
+          <div>
+            <label className="text-sm font-medium text-gray-500">Позиция</label>
+            <p className="text-gray-900">{equipment.position}</p>
+          </div>
+        )}
+
+        {equipment.workshop && (
+          <div>
+            <label className="text-sm font-medium text-gray-500">Цех / подразделение</label>
+            <p className="text-gray-900">{equipment.workshop}</p>
+          </div>
+        )}
 
         {equipment.load_capacity && (
           <div>

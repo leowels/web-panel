@@ -11,6 +11,13 @@ const API_URL = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL
 interface Violation {
   id: number
   equipment_id: number
+  equipment?: {
+    passport_number: string
+    equipment_type: string
+    position?: string | null
+    inventory_number?: string | null
+    workshop?: string | null
+  }
   description: string
   fnp_clause: string | null
   gost_clause: string | null
@@ -23,9 +30,10 @@ interface Violation {
 interface ViolationsTableProps {
   onEdit: (id: number) => void
   onView: (id: number) => void
+  refreshKey?: number
 }
 
-export default function ViolationsTable({ onEdit, onView }: ViolationsTableProps) {
+export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: ViolationsTableProps) {
   const { token } = useAuthStore()
   const { addNotification } = useNotificationStore()
   const [violations, setViolations] = useState<Violation[]>([])
@@ -35,7 +43,7 @@ export default function ViolationsTable({ onEdit, onView }: ViolationsTableProps
 
   useEffect(() => {
     fetchViolations()
-  }, [statusFilter, severityFilter])
+  }, [statusFilter, severityFilter, refreshKey])
 
   const fetchViolations = async () => {
     setLoading(true)
@@ -122,6 +130,7 @@ export default function ViolationsTable({ onEdit, onView }: ViolationsTableProps
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Описание</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Оборудование</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ФНП/ГОСТ</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Критичность</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Статус</th>
@@ -134,6 +143,21 @@ export default function ViolationsTable({ onEdit, onView }: ViolationsTableProps
                 <tr key={violation.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <div className="text-sm text-gray-900 max-w-md truncate">{violation.description}</div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    {violation.equipment ? (
+                      <div>
+                        <div className="font-semibold text-gray-900">{violation.equipment.passport_number}</div>
+                        <div className="text-xs text-gray-500">{violation.equipment.equipment_type}</div>
+                        {violation.equipment.position && (
+                          <div className="text-xs text-gray-500">
+                            Позиция: {violation.equipment.position}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span>-</span>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {violation.fnp_clause || violation.gost_clause || '-'}

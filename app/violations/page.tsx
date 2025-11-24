@@ -10,6 +10,9 @@ export default function ViolationsPage() {
   const { isAuthenticated } = useAuthStore()
   const [showForm, setShowForm] = useState(false)
   const [selectedViolation, setSelectedViolation] = useState<number | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  const triggerRefresh = () => setRefreshKey((prev) => prev + 1)
 
   if (!isAuthenticated) {
     return null
@@ -47,6 +50,7 @@ export default function ViolationsPage() {
             setSelectedViolation(id)
             setShowForm(true)
           }}
+          refreshKey={refreshKey}
         />
 
         {showForm && (
@@ -59,6 +63,7 @@ export default function ViolationsPage() {
             onSuccess={() => {
               setShowForm(false)
               setSelectedViolation(null)
+              triggerRefresh()
             }}
           />
         )}

@@ -27,3 +27,4 @@ CORS_ORIGINS=https://frontend-xxxxx.twc1.net,http://localhost:3000
 AI_API_URL=ваш_ai_api_url
 AI_API_KEY=ваш_ai_api_key
 
+

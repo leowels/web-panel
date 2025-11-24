@@ -71,6 +71,9 @@ class Equipment(Base):
     id = Column(Integer, primary_key=True, index=True)
     equipment_type = Column(String, index=True)  # Тип ПС
     passport_number = Column(String, unique=True, index=True)  # Паспорт
+    inventory_number = Column(String, unique=True, index=True, nullable=True)  # Инвентарный номер
+    position = Column(String, nullable=True)  # Позиция
+    workshop = Column(String, nullable=True)  # Цех
     load_capacity = Column(Float, nullable=True)  # Грузоподъемность
     manufacturer = Column(String, nullable=True)  # Завод
     installation_date = Column(DateTime, nullable=True)  # Дата ввода

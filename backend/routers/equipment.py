@@ -30,6 +30,10 @@ class EquipmentCreate(BaseModel):
     pto_date: Optional[datetime] = None
     cto_date: Optional[datetime] = None
     installation_location: Optional[str] = None
+    inventory_number: Optional[str] = None
+    position: Optional[str] = None
+    workshop: Optional[str] = None
+    status: Optional[str] = "active"
 
 class EquipmentUpdate(BaseModel):
     equipment_type: Optional[str] = None
@@ -40,12 +44,18 @@ class EquipmentUpdate(BaseModel):
     pto_date: Optional[datetime] = None
     cto_date: Optional[datetime] = None
     installation_location: Optional[str] = None
+    inventory_number: Optional[str] = None
+    position: Optional[str] = None
+    workshop: Optional[str] = None
     status: Optional[str] = None
 
 class EquipmentResponse(BaseModel):
     id: int
     equipment_type: str
     passport_number: str
+    inventory_number: Optional[str]
+    position: Optional[str]
+    workshop: Optional[str]
     load_capacity: Optional[float]
     manufacturer: Optional[str]
     installation_date: Optional[datetime]
@@ -59,6 +69,56 @@ class EquipmentResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class EquipmentBulkItem(BaseModel):
+    equipment_type: str
+    passport_number: str
+    load_capacity: Optional[float] = None
+    manufacturer: Optional[str] = None
+    installation_date: Optional[datetime] = None
+    pto_date: Optional[datetime] = None
+    cto_date: Optional[datetime] = None
+    installation_location: Optional[str] = None
+    inventory_number: Optional[str] = None
+    position: Optional[str] = None
+    workshop: Optional[str] = None
+    status: Optional[str] = "active"
+
+class EquipmentBulkRequest(BaseModel):
+    items: List[EquipmentBulkItem]
+    skip_duplicates: bool = True
+
+class EquipmentBulkResponse(BaseModel):
+    created: int
+    skipped: int
+    created_ids: List[int]
+    errors: List[dict]
+
+    class Config:
+        arbitrary_types_allowed = True
+
+    class Config:
+        from_attributes = True
+
+def _equipment_to_response(equipment: Equipment) -> EquipmentResponse:
+    return EquipmentResponse(
+        id=equipment.id,
+        equipment_type=equipment.equipment_type,
+        passport_number=equipment.passport_number,
+        inventory_number=equipment.inventory_number,
+        position=equipment.position,
+        workshop=equipment.workshop,
+        load_capacity=equipment.load_capacity,
+        manufacturer=equipment.manufacturer,
+        installation_date=equipment.installation_date,
+        pto_date=equipment.pto_date,
+        cto_date=equipment.cto_date,
+        installation_location=equipment.installation_location,
+        status=equipment.status,
+        created_at=equipment.created_at,
+        updated_at=equipment.updated_at,
+    )
+
+
 @router.get("", response_model=List[EquipmentResponse])
 async def get_equipment_list(
     skip: int = Query(0, ge=0),
@@ -66,6 +126,7 @@ async def get_equipment_list(
     search: Optional[str] = None,
     equipment_type: Optional[str] = None,
     status: Optional[str] = None,
+    workshop: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -78,7 +139,10 @@ async def get_equipment_list(
         query = query.where(
             or_(
                 Equipment.passport_number.ilike(f"%{search}%"),
+                Equipment.inventory_number.ilike(f"%{search}%"),
+                Equipment.position.ilike(f"%{search}%"),
                 Equipment.equipment_type.ilike(f"%{search}%"),
+                Equipment.workshop.ilike(f"%{search}%"),
                 Equipment.installation_location.ilike(f"%{search}%")
             )
         )
@@ -89,27 +153,14 @@ async def get_equipment_list(
     if status:
         query = query.where(Equipment.status == status)
     
+    if workshop:
+        query = query.where(Equipment.workshop == workshop)
+    
     query = query.order_by(Equipment.updated_at.desc()).offset(skip).limit(limit)
     result = await db.execute(query)
     equipment_list = result.scalars().all()
     
-    return [
-        EquipmentResponse(
-            id=eq.id,
-            equipment_type=eq.equipment_type,
-            passport_number=eq.passport_number,
-            load_capacity=eq.load_capacity,
-            manufacturer=eq.manufacturer,
-            installation_date=eq.installation_date,
-            pto_date=eq.pto_date,
-            cto_date=eq.cto_date,
-            installation_location=eq.installation_location,
-            status=eq.status,
-            created_at=eq.created_at,
-            updated_at=eq.updated_at,
-        )
-        for eq in equipment_list
-    ]
+    return [_equipment_to_response(eq) for eq in equipment_list]
 
 @router.get("/{equipment_id}", response_model=EquipmentResponse)
 async def get_equipment(
@@ -126,20 +177,7 @@ async def get_equipment(
     if not equipment:
         raise HTTPException(status_code=404, detail="Equipment not found")
     
-    return EquipmentResponse(
-        id=equipment.id,
-        equipment_type=equipment.equipment_type,
-        passport_number=equipment.passport_number,
-        load_capacity=equipment.load_capacity,
-        manufacturer=equipment.manufacturer,
-        installation_date=equipment.installation_date,
-        pto_date=equipment.pto_date,
-        cto_date=equipment.cto_date,
-        installation_location=equipment.installation_location,
-        status=equipment.status,
-        created_at=equipment.created_at,
-        updated_at=equipment.updated_at,
-    )
+    return _equipment_to_response(equipment)
 
 @router.post("", response_model=EquipmentResponse, status_code=status.HTTP_201_CREATED)
 async def create_equipment(
@@ -186,11 +224,18 @@ async def create_equipment(
         if result.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Passport number already exists")
         
+        if equipment_data.inventory_number:
+            result = await db.execute(
+                select(Equipment).where(Equipment.inventory_number == equipment_data.inventory_number)
+            )
+            if result.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail="Inventory number already exists")
+        
         logger.debug("Creating equipment object")
         new_equipment = Equipment(
             **equipment_data.dict(),
             created_by=current_user.id,
-            status="active"  # По умолчанию активное
+            status=equipment_data.status or "active"
         )
         db.add(new_equipment)
         logger.debug("Flushing to database")
@@ -214,20 +259,7 @@ async def create_equipment(
         await db.refresh(new_equipment)
         logger.info("Equipment saved successfully")
         
-        return EquipmentResponse(
-            id=new_equipment.id,
-            equipment_type=new_equipment.equipment_type,
-            passport_number=new_equipment.passport_number,
-            load_capacity=new_equipment.load_capacity,
-            manufacturer=new_equipment.manufacturer,
-            installation_date=new_equipment.installation_date,
-            pto_date=new_equipment.pto_date,
-            cto_date=new_equipment.cto_date,
-            installation_location=new_equipment.installation_location,
-            status=new_equipment.status,
-            created_at=new_equipment.created_at,
-            updated_at=new_equipment.updated_at,
-        )
+        return _equipment_to_response(new_equipment)
     except HTTPException:
         raise
     except Exception as e:
@@ -281,19 +313,108 @@ async def update_equipment(
     await db.commit()
     await db.refresh(equipment)
     
-    return EquipmentResponse(
-        id=equipment.id,
-        equipment_type=equipment.equipment_type,
-        passport_number=equipment.passport_number,
-        load_capacity=equipment.load_capacity,
-        manufacturer=equipment.manufacturer,
-        installation_date=equipment.installation_date,
-        pto_date=equipment.pto_date,
-        cto_date=equipment.cto_date,
-        installation_location=equipment.installation_location,
-        status=equipment.status,
-        created_at=equipment.created_at,
-        updated_at=equipment.updated_at,
+    return _equipment_to_response(equipment)
+
+
+@router.post("/bulk", response_model=EquipmentBulkResponse)
+async def bulk_create_equipment(
+    payload: EquipmentBulkRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Массовое добавление оборудования"""
+    await require_permission(current_user, "equipment:create", db)
+
+    created_ids: List[int] = []
+    skipped = 0
+    errors: List[dict] = []
+
+    for index, item in enumerate(payload.items):
+        try:
+            # Проверяем обязательные поля
+            if not item.passport_number or not item.equipment_type:
+                raise HTTPException(status_code=400, detail="Passport number and equipment type are required")
+
+            # Проверяем дубликаты
+            existing_passport = await db.execute(
+                select(Equipment.id).where(Equipment.passport_number == item.passport_number)
+            )
+            if existing_passport.scalar_one_or_none():
+                if payload.skip_duplicates:
+                    errors.append(
+                        {
+                            "index": index,
+                            "passport_number": item.passport_number,
+                            "detail": "Passport number already exists",
+                            "type": "duplicate",
+                        }
+                    )
+                    skipped += 1
+                    continue
+                raise HTTPException(status_code=400, detail="Passport number already exists")
+
+            if item.inventory_number:
+                existing_inventory = await db.execute(
+                    select(Equipment.id).where(Equipment.inventory_number == item.inventory_number)
+                )
+                if existing_inventory.scalar_one_or_none():
+                    if payload.skip_duplicates:
+                        errors.append(
+                            {
+                                "index": index,
+                                "passport_number": item.passport_number,
+                                "detail": "Inventory number already exists",
+                                "type": "duplicate",
+                            }
+                        )
+                        skipped += 1
+                        continue
+                    raise HTTPException(status_code=400, detail="Inventory number already exists")
+
+            new_equipment = Equipment(
+                **item.dict(),
+                created_by=current_user.id,
+                status=item.status or "active"
+            )
+            db.add(new_equipment)
+            await db.flush()
+            created_ids.append(new_equipment.id)
+
+            activity = UserActivity(
+                user_id=current_user.id,
+                action_type="create",
+                entity_type="equipment",
+                entity_id=new_equipment.id,
+                description=f"Bulk created equipment {new_equipment.passport_number}"
+            )
+            db.add(activity)
+        except HTTPException as http_exc:
+            errors.append(
+                {
+                    "index": index,
+                    "passport_number": item.passport_number,
+                    "detail": http_exc.detail,
+                }
+            )
+            if not payload.skip_duplicates:
+                await db.rollback()
+                raise
+        except Exception as exc:
+            errors.append(
+                {
+                    "index": index,
+                    "passport_number": item.passport_number,
+                    "detail": str(exc),
+                }
+            )
+
+    await db.commit()
+
+    return EquipmentBulkResponse(
+        created=len(created_ids),
+        skipped=skipped,
+        created_ids=created_ids,
+        errors=errors,
     )
 
 @router.delete("/{equipment_id}", status_code=status.HTTP_204_NO_CONTENT)

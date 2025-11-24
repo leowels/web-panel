@@ -27,3 +27,4 @@ Frontend пытался обращаться к `http://localhost:8000/api/auth/
 - `✓ Пользователь admin создан` или `Пользователь admin уже существует`
 - Frontend должен обращаться к `/api/auth/login` (без `localhost:8000`)
 
+

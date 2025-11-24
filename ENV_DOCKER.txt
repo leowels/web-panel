@@ -29,7 +29,7 @@ FRONTEND_PORT=3000
 ENVIRONMENT=production
 
 # CORS (укажите домен Frontend после деплоя!)
-CORS_ORIGINS=http://localhost:3000,https://your-domain.com
+CORS_ORIGINS=http://localhost:3000,https://leowels-panel.ru
 
 # Админ пароль
 ADMIN_PASSWORD=ваш_сильный_пароль_для_админа

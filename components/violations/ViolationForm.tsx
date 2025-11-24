@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, ChangeEvent } from 'react'
 import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 import { useNotificationStore } from '@/store/notificationStore'
@@ -18,6 +18,7 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
   const { addNotification } = useNotificationStore()
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const isEditing = !!violationId
   const [formData, setFormData] = useState({
     equipment_id: '',
     inspection_id: '',
@@ -31,11 +32,30 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
     status: 'open',
   })
   const [equipmentList, setEquipmentList] = useState<any[]>([])
+  const [selectedEquipmentIds, setSelectedEquipmentIds] = useState<string[]>([])
+
+  const resolvePrimaryEquipmentId = () => {
+    if (violationId) {
+      return formData.equipment_id ? Number(formData.equipment_id) : null
+    }
+    if (selectedEquipmentIds.length === 0) {
+      return null
+    }
+    return Number(selectedEquipmentIds[0])
+  }
+
+  const selectedEquipmentDetails = equipmentList.filter((eq) =>
+    selectedEquipmentIds.includes(String(eq.id))
+  )
+  const singleSelectedEquipment = equipmentList.find((eq) => String(eq.id) === formData.equipment_id)
 
   useEffect(() => {
     fetchEquipment()
     if (violationId) {
       fetchViolation()
+    }
+    if (!violationId) {
+      setSelectedEquipmentIds([])
     }
   }, [violationId])
 
@@ -68,13 +88,15 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
         deadline: v.deadline ? v.deadline.split('T')[0] : '',
         status: v.status,
       })
+      setSelectedEquipmentIds([String(v.equipment_id)])
     } catch (error: any) {
       addNotification('Ошибка загрузки нарушения', 'error')
     }
   }
 
   const handleAIGenerate = async () => {
-    if (!formData.equipment_id) {
+    const targetEquipmentId = resolvePrimaryEquipmentId()
+    if (!targetEquipmentId) {
       addNotification('Выберите оборудование', 'error')
       return
     }
@@ -89,7 +111,7 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
       const response = await axios.post(
         `${API_URL}/api/violations/ai/generate`,
         {
-          equipment_id: Number(formData.equipment_id),
+          equipment_id: targetEquipmentId,
           inspection_id: formData.inspection_id ? Number(formData.inspection_id) : null,
           violation_type: formData.violation_type.trim(),
           context: formData.location || undefined,
@@ -132,6 +154,12 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
     }
   }
 
+  const handleMultiSelectChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const values = Array.from(event.target.selectedOptions, (option) => option.value)
+    setSelectedEquipmentIds(values)
+    setFormData((prev) => ({ ...prev, equipment_id: values[0] || '' }))
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -153,8 +181,19 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
         return dateStr
       }
 
+      const targetEquipmentIds = isEditing
+        ? formData.equipment_id
+          ? [Number(formData.equipment_id)]
+          : []
+        : selectedEquipmentIds.map((id) => Number(id))
+
+      if (targetEquipmentIds.length === 0) {
+        addNotification('Выберите хотя бы одно оборудование', 'error')
+        setLoading(false)
+        return
+      }
+
       const submitData: any = {
-        equipment_id: Number(formData.equipment_id),
         description: formData.description,
         fnp_clause: formData.fnp_clause || null,
         gost_clause: formData.gost_clause || null,
@@ -168,6 +207,7 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
       }
 
       if (violationId) {
+        submitData.equipment_id = targetEquipmentIds[0]
         await axios.put(
           `${API_URL}/api/violations/${violationId}`,
           { ...submitData, status: formData.status },
@@ -177,16 +217,30 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
           }
         )
         addNotification('Нарушение успешно обновлено', 'success')
-      } else {
+      } else if (targetEquipmentIds.length === 1) {
         await axios.post(
           `${API_URL}/api/violations`,
-          submitData,
+          { ...submitData, equipment_id: targetEquipmentIds[0] },
           { 
             headers: { Authorization: `Bearer ${token}` },
             timeout: 10000
           }
         )
         addNotification('Нарушение успешно создано', 'success')
+      } else {
+        const response = await axios.post(
+          `${API_URL}/api/violations/bulk`,
+          {
+            equipment_ids: targetEquipmentIds,
+            ...submitData,
+          },
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            timeout: 15000,
+          }
+        )
+        const { created, skipped } = response.data
+        addNotification(`Создано нарушений: ${created}. Пропущено: ${skipped}`, 'success')
       }
       onSuccess()
     } catch (error: any) {
@@ -234,23 +288,73 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
+            <div className={isEditing ? '' : 'md:col-span-2'}>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Оборудование *
               </label>
-              <select
-                required
-                value={formData.equipment_id}
-                onChange={(e) => setFormData({ ...formData, equipment_id: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-              >
-                <option value="">Выберите оборудование</option>
-                {equipmentList.map((eq) => (
-                  <option key={eq.id} value={eq.id}>
-                    {eq.passport_number} - {eq.equipment_type}
-                  </option>
-                ))}
-              </select>
+              {isEditing ? (
+                <>
+                  <select
+                    required
+                    value={formData.equipment_id}
+                    onChange={(e) => setFormData({ ...formData, equipment_id: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="">Выберите оборудование</option>
+                    {equipmentList.map((eq) => (
+                      <option key={eq.id} value={eq.id}>
+                        {eq.passport_number} - {eq.equipment_type} {eq.position ? `(${eq.position})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {singleSelectedEquipment && (
+                    <div className="mt-2 text-xs text-gray-500 space-y-1">
+                      {singleSelectedEquipment.position && <p>Позиция: {singleSelectedEquipment.position}</p>}
+                      {singleSelectedEquipment.inventory_number && (
+                        <p>Инв. № {singleSelectedEquipment.inventory_number}</p>
+                      )}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <select
+                    multiple
+                    size={6}
+                    required
+                    value={selectedEquipmentIds}
+                    onChange={handleMultiSelectChange}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  >
+                    {equipmentList.map((eq) => (
+                      <option key={eq.id} value={eq.id}>
+                        {eq.passport_number} • {eq.equipment_type}
+                        {eq.position ? ` • ${eq.position}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Удерживайте Ctrl / Cmd для выбора нескольких позиций. Первое выбранное оборудование используется для работы ИИ.
+                  </p>
+                  {selectedEquipmentDetails.length > 0 && (
+                    <div className="mt-3 bg-gray-50 rounded-lg border border-gray-200 p-3">
+                      <p className="text-xs font-semibold text-gray-600 mb-2">
+                        Выбрано: {selectedEquipmentDetails.length}
+                      </p>
+                      <div className="space-y-1 max-h-28 overflow-y-auto text-xs text-gray-700">
+                        {selectedEquipmentDetails.map((eq: any) => (
+                          <div key={eq.id} className="flex items-center justify-between">
+                            <span className="font-semibold">{eq.passport_number}</span>
+                            <span className="text-gray-500">
+                              {eq.position ? `Позиция ${eq.position}` : eq.equipment_type}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             <div>

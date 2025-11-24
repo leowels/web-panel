@@ -1,5 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy import inspect, text
+import logging
 import os
 
 # Поддержка запуска как скрипта и как модуля
@@ -83,13 +85,46 @@ async def init_db():
             # Создаем все таблицы (только если их нет)
             # SQLAlchemy автоматически проверяет существование таблиц
             await conn.run_sync(Base.metadata.create_all)
-            import logging
+            await conn.run_sync(_apply_custom_migrations)
             logging.getLogger(__name__).info("✓ Database tables initialized successfully")
     except Exception as e:
-        import logging
         import traceback
         logger = logging.getLogger(__name__)
         logger.error(f"ERROR: Failed to initialize database: {e}")
         traceback.print_exc()
         raise
+
+
+def _apply_custom_migrations(sync_conn):
+    """
+    Простейшие миграции для существующих БД без Alembic.
+    Добавляем новые колонки, если их еще нет (для оборудования).
+    """
+    logger = logging.getLogger(__name__)
+    inspector = inspect(sync_conn)
+    if "equipment" not in inspector.get_table_names():
+        return
+
+    existing_columns = {col["name"] for col in inspector.get_columns("equipment")}
+    alter_statements = []
+
+    if "inventory_number" not in existing_columns:
+        alter_statements.append(
+            "ALTER TABLE equipment ADD COLUMN inventory_number VARCHAR(255)"
+        )
+    if "position" not in existing_columns:
+        alter_statements.append(
+            "ALTER TABLE equipment ADD COLUMN position VARCHAR(255)"
+        )
+    if "workshop" not in existing_columns:
+        alter_statements.append(
+            "ALTER TABLE equipment ADD COLUMN workshop VARCHAR(255)"
+        )
+
+    for stmt in alter_statements:
+        try:
+            sync_conn.execute(text(stmt))
+            logger.info(f"✓ Applied migration: {stmt}")
+        except Exception as exc:
+            logger.warning(f"⚠️ Failed to apply migration '{stmt}': {exc}")
 

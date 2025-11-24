@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
+from sqlalchemy.orm import selectinload
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import re
@@ -18,6 +19,37 @@ except ImportError:
     from ..auth import get_current_user, require_permission
 
 router = APIRouter(prefix="/api/violations", tags=["violations"])
+
+def _equipment_summary(equipment: Optional[Equipment]) -> Optional[EquipmentSummary]:
+    if not equipment:
+        return None
+    return EquipmentSummary(
+        id=equipment.id,
+        equipment_type=equipment.equipment_type,
+        passport_number=equipment.passport_number,
+        position=equipment.position,
+        inventory_number=equipment.inventory_number,
+        workshop=equipment.workshop,
+    )
+
+
+def _violation_to_response(violation: Violation) -> ViolationResponse:
+    return ViolationResponse(
+        id=violation.id,
+        inspection_id=violation.inspection_id,
+        equipment_id=violation.equipment_id,
+        description=violation.description,
+        fnp_clause=violation.fnp_clause,
+        gost_clause=violation.gost_clause,
+        severity=violation.severity,
+        location=violation.location,
+        deadline=violation.deadline,
+        status=violation.status,
+        resolved_at=violation.resolved_at,
+        created_at=violation.created_at,
+        updated_at=violation.updated_at,
+        equipment=_equipment_summary(getattr(violation, "equipment", None)),
+    )
 
 class ViolationCreate(BaseModel):
     inspection_id: Optional[int] = None
@@ -38,6 +70,17 @@ class ViolationUpdate(BaseModel):
     deadline: Optional[datetime] = None
     status: Optional[str] = None
 
+class EquipmentSummary(BaseModel):
+    id: int
+    equipment_type: str
+    passport_number: str
+    position: Optional[str]
+    inventory_number: Optional[str]
+    workshop: Optional[str]
+
+    class Config:
+        from_attributes = True
+
 class ViolationResponse(BaseModel):
     id: int
     inspection_id: Optional[int]
@@ -52,6 +95,7 @@ class ViolationResponse(BaseModel):
     resolved_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
+    equipment: Optional[EquipmentSummary] = None
 
     class Config:
         from_attributes = True
@@ -67,6 +111,22 @@ class AIGenerateViolationRequest(BaseModel):
     violation_type: str  # Тип нарушения (краткое описание от пользователя)
     context: Optional[str] = None
 
+class ViolationBulkCreate(BaseModel):
+    equipment_ids: List[int]
+    description: str
+    inspection_id: Optional[int] = None
+    fnp_clause: Optional[str] = None
+    gost_clause: Optional[str] = None
+    severity: str = "medium"
+    location: Optional[str] = None
+    deadline: Optional[datetime] = None
+
+class ViolationBulkResponse(BaseModel):
+    created: int
+    skipped: int
+    created_ids: List[int]
+    errors: List[dict]
+
 @router.get("", response_model=List[ViolationResponse])
 async def get_violations(
     skip: int = Query(0, ge=0),
@@ -81,7 +141,7 @@ async def get_violations(
     """Получить список нарушений"""
     await require_permission(current_user, "violations:read", db)
     
-    query = select(Violation)
+    query = select(Violation).options(selectinload(Violation.equipment))
     
     if equipment_id:
         query = query.where(Violation.equipment_id == equipment_id)
@@ -99,24 +159,7 @@ async def get_violations(
     result = await db.execute(query)
     violations = result.scalars().all()
     
-    return [
-        ViolationResponse(
-            id=v.id,
-            inspection_id=v.inspection_id,
-            equipment_id=v.equipment_id,
-            description=v.description,
-            fnp_clause=v.fnp_clause,
-            gost_clause=v.gost_clause,
-            severity=v.severity,
-            location=v.location,
-            deadline=v.deadline,
-            status=v.status,
-            resolved_at=v.resolved_at,
-            created_at=v.created_at,
-            updated_at=v.updated_at,
-        )
-        for v in violations
-    ]
+    return [_violation_to_response(v) for v in violations]
 
 @router.get("/{violation_id}", response_model=ViolationResponse)
 async def get_violation(
@@ -127,27 +170,17 @@ async def get_violation(
     """Получить нарушение по ID"""
     await require_permission(current_user, "violations:read", db)
     
-    result = await db.execute(select(Violation).where(Violation.id == violation_id))
+    result = await db.execute(
+        select(Violation)
+        .options(selectinload(Violation.equipment))
+        .where(Violation.id == violation_id)
+    )
     violation = result.scalar_one_or_none()
     
     if not violation:
         raise HTTPException(status_code=404, detail="Violation not found")
     
-    return ViolationResponse(
-        id=violation.id,
-        inspection_id=violation.inspection_id,
-        equipment_id=violation.equipment_id,
-        description=violation.description,
-        fnp_clause=violation.fnp_clause,
-        gost_clause=violation.gost_clause,
-        severity=violation.severity,
-        location=violation.location,
-        deadline=violation.deadline,
-        status=violation.status,
-        resolved_at=violation.resolved_at,
-        created_at=violation.created_at,
-        updated_at=violation.updated_at,
-    )
+    return _violation_to_response(violation)
 
 @router.post("", response_model=ViolationResponse, status_code=status.HTTP_201_CREATED)
 async def create_violation(
@@ -160,7 +193,8 @@ async def create_violation(
     
     # Проверка существования оборудования
     eq_result = await db.execute(select(Equipment).where(Equipment.id == violation_data.equipment_id))
-    if not eq_result.scalar_one_or_none():
+    equipment = eq_result.scalar_one_or_none()
+    if not equipment:
         raise HTTPException(status_code=404, detail="Equipment not found")
     
     new_violation = Violation(
@@ -190,21 +224,78 @@ async def create_violation(
     
     await db.commit()
     await db.refresh(new_violation)
+    new_violation.equipment = equipment
     
-    return ViolationResponse(
-        id=new_violation.id,
-        inspection_id=new_violation.inspection_id,
-        equipment_id=new_violation.equipment_id,
-        description=new_violation.description,
-        fnp_clause=new_violation.fnp_clause,
-        gost_clause=new_violation.gost_clause,
-        severity=new_violation.severity,
-        location=new_violation.location,
-        deadline=new_violation.deadline,
-        status=new_violation.status,
-        resolved_at=new_violation.resolved_at,
-        created_at=new_violation.created_at,
-        updated_at=new_violation.updated_at,
+    return _violation_to_response(new_violation)
+
+
+@router.post("/bulk", response_model=ViolationBulkResponse)
+async def bulk_create_violations(
+    payload: ViolationBulkCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Массовое создание нарушений для нескольких ПС"""
+    await require_permission(current_user, "violations:create", db)
+
+    if not payload.equipment_ids:
+        raise HTTPException(status_code=400, detail="Equipment IDs are required")
+
+    created_ids: List[int] = []
+    errors: List[dict] = []
+
+    for eq_id in payload.equipment_ids:
+        eq_result = await db.execute(select(Equipment).where(Equipment.id == eq_id))
+        equipment = eq_result.scalar_one_or_none()
+        if not equipment:
+            errors.append(
+                {
+                    "equipment_id": eq_id,
+                    "detail": "Equipment not found",
+                }
+            )
+            continue
+
+        try:
+            new_violation = Violation(
+                inspection_id=payload.inspection_id,
+                equipment_id=eq_id,
+                description=payload.description,
+                fnp_clause=payload.fnp_clause,
+                gost_clause=payload.gost_clause,
+                severity=payload.severity,
+                location=payload.location,
+                deadline=payload.deadline,
+                status="open",
+                created_by=current_user.id
+            )
+            db.add(new_violation)
+            await db.flush()
+            created_ids.append(new_violation.id)
+
+            activity = UserActivity(
+                user_id=current_user.id,
+                action_type="create",
+                entity_type="violation",
+                entity_id=new_violation.id,
+                description=f"Bulk created violation for equipment {eq_id}"
+            )
+            db.add(activity)
+        except Exception as exc:
+            errors.append(
+                {
+                    "equipment_id": eq_id,
+                    "detail": str(exc),
+                }
+            )
+
+    await db.commit()
+
+    return ViolationBulkResponse(
+        created=len(created_ids),
+        skipped=len(payload.equipment_ids) - len(created_ids),
+        created_ids=created_ids,
+        errors=errors,
     )
 
 @router.post("/ai/generate", response_model=ViolationResponse)
@@ -520,24 +611,11 @@ async def generate_violation_ai(
         
         await db.commit()
         await db.refresh(new_violation)
+        new_violation.equipment = equipment
         
         logger.info(f"Нарушение успешно сохранено, возвращаем ответ")
         
-        violation_response = ViolationResponse(
-            id=new_violation.id,
-            inspection_id=new_violation.inspection_id,
-            equipment_id=new_violation.equipment_id,
-            description=new_violation.description,
-            fnp_clause=new_violation.fnp_clause,
-            gost_clause=new_violation.gost_clause,
-            severity=new_violation.severity,
-            location=new_violation.location,
-            deadline=new_violation.deadline,
-            status=new_violation.status,
-            resolved_at=new_violation.resolved_at,
-            created_at=new_violation.created_at,
-            updated_at=new_violation.updated_at,
-        )
+        violation_response = _violation_to_response(new_violation)
         
         response = AIGenerateViolationResponse(
             violation=violation_response,
@@ -589,23 +667,14 @@ async def update_violation(
     db.add(activity)
     
     await db.commit()
-    await db.refresh(violation)
-    
-    return ViolationResponse(
-        id=violation.id,
-        inspection_id=violation.inspection_id,
-        equipment_id=violation.equipment_id,
-        description=violation.description,
-        fnp_clause=violation.fnp_clause,
-        gost_clause=violation.gost_clause,
-        severity=violation.severity,
-        location=violation.location,
-        deadline=violation.deadline,
-        status=violation.status,
-        resolved_at=violation.resolved_at,
-        created_at=violation.created_at,
-        updated_at=violation.updated_at,
+    result = await db.execute(
+        select(Violation)
+        .options(selectinload(Violation.equipment))
+        .where(Violation.id == violation.id)
     )
+    updated_violation = result.scalar_one()
+    
+    return _violation_to_response(updated_violation)
 
 @router.delete("/{violation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_violation(

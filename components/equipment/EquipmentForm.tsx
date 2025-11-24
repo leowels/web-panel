@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 import { useNotificationStore } from '@/store/notificationStore'
+import { EQUIPMENT_TYPES } from '@/constants/equipmentTypes'
 
 const API_URL = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '') : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
 
@@ -20,6 +21,9 @@ export default function EquipmentForm({ equipmentId, onClose, onSuccess }: Equip
   const [formData, setFormData] = useState({
     equipment_type: '',
     passport_number: '',
+    inventory_number: '',
+    position: '',
+    workshop: '',
     load_capacity: '',
     manufacturer: '',
     installation_date: '',
@@ -44,6 +48,9 @@ export default function EquipmentForm({ equipmentId, onClose, onSuccess }: Equip
       setFormData({
         equipment_type: eq.equipment_type || '',
         passport_number: eq.passport_number || '',
+        inventory_number: eq.inventory_number || '',
+        position: eq.position || '',
+        workshop: eq.workshop || '',
         load_capacity: eq.load_capacity ? String(eq.load_capacity) : '',
         manufacturer: eq.manufacturer || '',
         installation_date: eq.installation_date ? eq.installation_date.split('T')[0] : '',
@@ -81,6 +88,9 @@ export default function EquipmentForm({ equipmentId, onClose, onSuccess }: Equip
       const submitData: any = {
         equipment_type: formData.equipment_type,
         passport_number: formData.passport_number,
+        inventory_number: formData.inventory_number || null,
+        position: formData.position || null,
+        workshop: formData.workshop || null,
         load_capacity: formData.load_capacity ? parseFloat(formData.load_capacity) : null,
         manufacturer: formData.manufacturer || null,
         installation_date: formatDate(formData.installation_date),
@@ -173,11 +183,11 @@ export default function EquipmentForm({ equipmentId, onClose, onSuccess }: Equip
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-600 focus:border-primary-600 bg-white text-gray-900 font-medium transition-all"
               >
                 <option value="">Выберите тип</option>
-                <option value="Кран">Кран</option>
-                <option value="Подъемник">Подъемник</option>
-                <option value="Лифт">Лифт</option>
-                <option value="Эскалатор">Эскалатор</option>
-                <option value="Другое">Другое</option>
+                {EQUIPMENT_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -191,6 +201,32 @@ export default function EquipmentForm({ equipmentId, onClose, onSuccess }: Equip
                 value={formData.passport_number}
                 onChange={(e) => setFormData({ ...formData, passport_number: e.target.value })}
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-600 focus:border-primary-600 bg-white text-gray-900 font-medium transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-900 mb-2">
+                Инвентарный номер
+              </label>
+              <input
+                type="text"
+                value={formData.inventory_number}
+                onChange={(e) => setFormData({ ...formData, inventory_number: e.target.value })}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-600 focus:border-primary-600 bg-white text-gray-900 font-medium transition-all"
+                placeholder="Например: КБ-00123"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-900 mb-2">
+                Позиция
+              </label>
+              <input
+                type="text"
+                value={formData.position}
+                onChange={(e) => setFormData({ ...formData, position: e.target.value })}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-600 focus:border-primary-600 bg-white text-gray-900 font-medium transition-all"
+                placeholder="Например: КБ-12/1"
               />
             </div>
 
@@ -216,6 +252,19 @@ export default function EquipmentForm({ equipmentId, onClose, onSuccess }: Equip
                 value={formData.manufacturer}
                 onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-600 focus:border-primary-600 bg-white text-gray-900 font-medium transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-900 mb-2">
+                Цех / подразделение
+              </label>
+              <input
+                type="text"
+                value={formData.workshop}
+                onChange={(e) => setFormData({ ...formData, workshop: e.target.value })}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-600 focus:border-primary-600 bg-white text-gray-900 font-medium transition-all"
+                placeholder="Например: Цех №5"
               />
             </div>
 
