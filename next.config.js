@@ -3,6 +3,19 @@ const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
   transpilePackages: ['react-beautiful-dnd'],
+  // Standalone режим для Docker
+  output: 'standalone',
+  // Прокси для API запросов
+  // В одном контейнере проксируем все /api/* на Backend
+  async rewrites() {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${backendUrl}/api/:path*`,
+      },
+    ];
+  },
   // Отключение кэширования в dev режиме
   onDemandEntries: {
     maxInactiveAge: 25 * 1000,
