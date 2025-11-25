@@ -381,7 +381,6 @@ async def create_equipment(
         new_equipment = Equipment(
             **equipment_data.dict(),
             created_by=current_user.id,
-            status=equipment_data.status or "active"
         )
         db.add(new_equipment)
         logger.debug("Flushing to database")
