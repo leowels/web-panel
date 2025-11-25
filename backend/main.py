@@ -278,8 +278,8 @@ async def api_root():
 
 # Проксирование всех не-API запросов на Frontend
 # В production отключено - Frontend должен обслуживать запросы сам через веб-сервер
-# Включается только если установлена переменная ENABLE_FRONTEND_PROXY=true
-ENABLE_FRONTEND_PROXY = os.getenv("ENABLE_FRONTEND_PROXY", "false").lower() == "true"
+# Включается по умолчанию (можно выключить переменной ENABLE_FRONTEND_PROXY=false)
+ENABLE_FRONTEND_PROXY = os.getenv("ENABLE_FRONTEND_PROXY", "true").lower() == "true"
 
 if ENABLE_FRONTEND_PROXY:
     @app.get("/{path:path}")
