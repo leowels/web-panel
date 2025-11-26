@@ -22,9 +22,9 @@ except ImportError:
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 class UserLogin(BaseModel):
-    username: Optional[str] = None
-    password: Optional[str] = None
-    telegram_user_id: Optional[str] = None
+    username: str
+    password: str
+    # telegram_user_id: Optional[str] = None  # ВРЕМЕННО ОТКЛЮЧЕНО
 
 class UserRegister(BaseModel):
     username: str
@@ -92,27 +92,8 @@ async def login(
     
     user = None
     
-    # Проверяем тип входа
-    if user_data.telegram_user_id and not (user_data.username and user_data.password):
-        # Вход через Telegram
-        logger.info(f"Попытка входа через Telegram ID: {user_data.telegram_user_id}")
-        result = await db.execute(
-            select(User)
-            .options(selectinload(User.roles).selectinload(UserRole.role))
-            .where(User.telegram_user_id == user_data.telegram_user_id)
-        )
-        user = result.scalar_one_or_none()
-        
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Telegram account not linked to any user",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        logger.info(f"Успешный вход через Telegram для пользователя: {user.username}")
-        
-    elif user_data.username and user_data.password:
+    # Обычный вход (Telegram временно отключен)
+    if user_data.username and user_data.password:
         # Обычный вход
         logger.info(f"Попытка обычного входа для пользователя: {user_data.username}")
         result = await db.execute(
@@ -138,24 +119,12 @@ async def login(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Если передан telegram_user_id, привязываем к аккаунту
-        if user_data.telegram_user_id:
-            logger.info(f"Привязка Telegram ID {user_data.telegram_user_id} к пользователю {user.username}")
-            # Проверяем, не привязан ли уже этот Telegram ID к другому пользователю
-            existing_telegram = await db.execute(
-                select(User).where(User.telegram_user_id == user_data.telegram_user_id)
-            )
-            if existing_telegram.scalar_one_or_none():
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="This Telegram account is already linked to another user"
-                )
-            user.telegram_user_id = user_data.telegram_user_id
+        # Telegram функции временно отключены
         
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Either username+password or telegram_user_id is required"
+            detail="Username and password are required"
         )
     
     if not user.is_active:
@@ -172,7 +141,7 @@ async def login(
     refresh_token = await create_refresh_token(user.id, db)
     
     # Логирование входа
-    login_method = "telegram" if user_data.telegram_user_id and not user_data.username else "password"
+    login_method = "password"
     activity = UserActivity(
         user_id=user.id,
         action_type="login",

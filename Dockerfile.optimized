@@ -1,0 +1,83 @@
+# Оптимизированный Dockerfile для быстрого деплоя
+
+# ============================================
+# Stage 1: Frontend Build (с кэшированием)
+# ============================================
+FROM node:18-alpine AS frontend-builder
+
+WORKDIR /app
+
+# Копируем только package files для кэширования слоя
+COPY package.json package-lock.json* ./
+
+# Устанавливаем зависимости (этот слой будет кэшироваться)
+RUN npm ci --only=production --silent
+
+# Копируем исходники
+COPY . .
+
+# Сборка (быстрая в Alpine)
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+RUN npm run build
+
+# ============================================
+# Stage 2: Python Dependencies (оптимизированно)
+# ============================================
+FROM python:3.11-slim AS backend-builder
+
+WORKDIR /app
+
+# Устанавливаем только необходимые системные пакеты
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копируем requirements отдельно для кэширования
+COPY backend/requirements.txt ./
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# ============================================
+# Stage 3: Минимальный Production Image
+# ============================================
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Минимальные runtime зависимости
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копируем Python пакеты
+COPY --from=backend-builder /root/.local /root/.local
+
+# Копируем Backend
+COPY backend/ ./backend/
+
+# Копируем Frontend build
+COPY --from=frontend-builder /app/public ./public
+COPY --from=frontend-builder /app/.next/standalone ./
+COPY --from=frontend-builder /app/.next/static ./.next/static
+
+# Entrypoint
+COPY docker-entrypoint.sh /app/
+RUN chmod +x /app/docker-entrypoint.sh
+
+# Пользователь
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+# Переменные
+ENV PYTHONUNBUFFERED=1
+ENV NODE_ENV=production
+ENV PATH=/root/.local/bin:$PATH
+
+EXPOSE 3000 8000
+
+# Быстрый health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=2 \
+    CMD curl -f http://localhost:8000/api/health || exit 1
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

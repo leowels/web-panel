@@ -16,7 +16,7 @@ class User(Base):
     full_name = Column(String)
     organization = Column(String)
     signature = Column(Text)  # Подпись для актов
-    telegram_user_id = Column(String, unique=True, nullable=True, index=True)  # Telegram ID
+    # telegram_user_id = Column(String, unique=True, nullable=True, index=True)  # Telegram ID - ВРЕМЕННО ОТКЛЮЧЕНО
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)

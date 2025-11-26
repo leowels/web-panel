@@ -1,0 +1,34 @@
+# Сверхбыстрый Dockerfile (только Backend)
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Минимальные зависимости
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python зависимости
+COPY backend/requirements.txt ./backend/
+RUN pip install --no-cache-dir -r backend/requirements.txt
+
+# Backend код
+COPY backend/ ./backend/
+
+# Entrypoint
+COPY docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
+
+# Пользователь
+RUN useradd -m appuser && chown -R appuser:appuser /app
+USER appuser
+
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8000
+
+# Простой health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s \
+    CMD curl -f http://localhost:8000/api/health || exit 1
+
+# Запуск только Backend
+CMD ["python", "backend/run.py"]
