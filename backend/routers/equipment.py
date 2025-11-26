@@ -117,6 +117,23 @@ class EquipmentBulkDatesResponse(BaseModel):
     updated: int
     errors: List[dict]
 
+class EquipmentOCRUpsertRequest(BaseModel):
+    name: Optional[str] = None
+    capacity: Optional[float] = None
+    inventory_number: Optional[str] = None
+    manufacturer: Optional[str] = None
+    installation_date: Optional[datetime] = None
+    pto_date: Optional[datetime] = None
+    cto_date: Optional[datetime] = None
+    equipment_type: Optional[str] = None
+    passport_number: Optional[str] = None
+    position: Optional[str] = None
+    workshop: Optional[str] = None
+
+class EquipmentOCRUpsertResponse(BaseModel):
+    id: int
+    created: bool  # True если создан новый, False если обновлен существующий
+
 def _equipment_to_response(equipment: Equipment) -> EquipmentResponse:
     return EquipmentResponse(
         id=equipment.id,
@@ -761,4 +778,245 @@ async def bulk_update_dates(
     await db.commit()
 
     return EquipmentBulkDatesResponse(updated=updated, errors=errors)
+
+@router.post("/ocr-upsert", response_model=EquipmentOCRUpsertResponse)
+async def ocr_upsert_equipment(
+    equipment_data: EquipmentOCRUpsertRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Создать или обновить оборудование через OCR данные"""
+    await require_permission(current_user, "equipment:create", db)
+    
+    # Проверяем обязательные поля
+    if not equipment_data.passport_number and not equipment_data.inventory_number:
+        raise HTTPException(
+            status_code=400, 
+            detail="Either passport_number or inventory_number is required"
+        )
+    
+    # Ищем существующее оборудование
+    existing_equipment = None
+    
+    # Сначала ищем по паспортному номеру
+    if equipment_data.passport_number:
+        result = await db.execute(
+            select(Equipment).where(Equipment.passport_number == equipment_data.passport_number)
+        )
+        existing_equipment = result.scalar_one_or_none()
+    
+    # Если не найдено по паспорту, ищем по инвентарному номеру
+    if not existing_equipment and equipment_data.inventory_number:
+        result = await db.execute(
+            select(Equipment).where(Equipment.inventory_number == equipment_data.inventory_number)
+        )
+        existing_equipment = result.scalar_one_or_none()
+    
+    # Если не найдено по инвентарному, ищем по имени (если указано)
+    if not existing_equipment and equipment_data.name:
+        # Ищем по комбинации типа и позиции
+        search_conditions = []
+        if equipment_data.equipment_type:
+            search_conditions.append(Equipment.equipment_type.ilike(f"%{equipment_data.equipment_type}%"))
+        if equipment_data.position:
+            search_conditions.append(Equipment.position.ilike(f"%{equipment_data.position}%"))
+        
+        if search_conditions:
+            result = await db.execute(
+                select(Equipment).where(and_(*search_conditions))
+            )
+            potential_matches = result.scalars().all()
+            
+            # Если найдено только одно совпадение, используем его
+            if len(potential_matches) == 1:
+                existing_equipment = potential_matches[0]
+    
+    created = False
+    
+    if existing_equipment:
+        # Обновляем существующее оборудование
+        logger.info(f"Updating existing equipment ID {existing_equipment.id}")
+        
+        # Обновляем только непустые поля
+        update_fields = {}
+        
+        if equipment_data.name and not existing_equipment.equipment_type:
+            update_fields['equipment_type'] = equipment_data.name
+        elif equipment_data.equipment_type:
+            update_fields['equipment_type'] = equipment_data.equipment_type
+            
+        if equipment_data.capacity and not existing_equipment.load_capacity:
+            update_fields['load_capacity'] = equipment_data.capacity
+            
+        if equipment_data.inventory_number and not existing_equipment.inventory_number:
+            update_fields['inventory_number'] = equipment_data.inventory_number
+            
+        if equipment_data.manufacturer and not existing_equipment.manufacturer:
+            update_fields['manufacturer'] = equipment_data.manufacturer
+            
+        if equipment_data.installation_date and not existing_equipment.installation_date:
+            update_fields['installation_date'] = equipment_data.installation_date
+            
+        if equipment_data.pto_date and not existing_equipment.pto_date:
+            update_fields['pto_date'] = equipment_data.pto_date
+            
+        if equipment_data.cto_date and not existing_equipment.cto_date:
+            update_fields['cto_date'] = equipment_data.cto_date
+            
+        if equipment_data.position and not existing_equipment.position:
+            update_fields['position'] = equipment_data.position
+            
+        if equipment_data.workshop and not existing_equipment.workshop:
+            update_fields['workshop'] = equipment_data.workshop
+        
+        # Применяем обновления
+        for field, value in update_fields.items():
+            setattr(existing_equipment, field, value)
+        
+        # Сохраняем историю изменений для обновленных полей
+        for field, new_value in update_fields.items():
+            history = EquipmentHistory(
+                equipment_id=existing_equipment.id,
+                changed_by=current_user.id,
+                field_name=field,
+                old_value=None,  # Было пустое
+                new_value=str(new_value) if new_value else None
+            )
+            db.add(history)
+        
+        equipment_id = existing_equipment.id
+        
+    else:
+        # Создаем новое оборудование
+        logger.info("Creating new equipment from OCR data")
+        
+        # Определяем обязательные поля
+        equipment_type = equipment_data.equipment_type or equipment_data.name or "Неопределенный тип"
+        passport_number = equipment_data.passport_number
+        
+        # Если нет паспортного номера, генерируем временный
+        if not passport_number:
+            import random
+            passport_number = f"OCR-{datetime.utcnow().strftime('%Y%m%d')}-{random.randint(1000, 9999)}"
+        
+        # Проверяем уникальность паспортного номера
+        result = await db.execute(
+            select(Equipment).where(Equipment.passport_number == passport_number)
+        )
+        if result.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Passport number already exists")
+        
+        # Проверяем уникальность инвентарного номера если указан
+        if equipment_data.inventory_number:
+            result = await db.execute(
+                select(Equipment).where(Equipment.inventory_number == equipment_data.inventory_number)
+            )
+            if result.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail="Inventory number already exists")
+        
+        new_equipment = Equipment(
+            equipment_type=equipment_type,
+            passport_number=passport_number,
+            inventory_number=equipment_data.inventory_number,
+            load_capacity=equipment_data.capacity,
+            manufacturer=equipment_data.manufacturer,
+            installation_date=equipment_data.installation_date,
+            pto_date=equipment_data.pto_date,
+            cto_date=equipment_data.cto_date,
+            position=equipment_data.position,
+            workshop=equipment_data.workshop,
+            status="active",
+            created_by=current_user.id
+        )
+        db.add(new_equipment)
+        await db.flush()
+        
+        equipment_id = new_equipment.id
+        created = True
+    
+    # Логирование
+    action = "create" if created else "update"
+    activity = UserActivity(
+        user_id=current_user.id,
+        action_type=action,
+        entity_type="equipment",
+        entity_id=equipment_id,
+        description=f"OCR {action}d equipment: {equipment_data.passport_number or equipment_data.inventory_number}"
+    )
+    db.add(activity)
+    
+    await db.commit()
+    
+    logger.info(f"OCR upsert completed: equipment_id={equipment_id}, created={created}")
+    
+    return EquipmentOCRUpsertResponse(
+        id=equipment_id,
+        created=created
+    )
+
+@router.get("/{equipment_id}/violations")
+async def get_equipment_violations(
+    equipment_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    status: Optional[str] = None,
+    severity: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Получить нарушения для конкретного оборудования"""
+    await require_permission(current_user, "violations:read", db)
+    
+    # Проверяем существование оборудования
+    eq_result = await db.execute(select(Equipment).where(Equipment.id == equipment_id))
+    equipment = eq_result.scalar_one_or_none()
+    
+    if not equipment:
+        raise HTTPException(status_code=404, detail="Equipment not found")
+    
+    # Импортируем модель Violation если еще не импортирована
+    try:
+        from backend.models import Violation
+    except ImportError:
+        from ..models import Violation
+    
+    # Строим запрос нарушений
+    query = select(Violation).where(Violation.equipment_id == equipment_id)
+    
+    if status:
+        query = query.where(Violation.status == status)
+    
+    if severity:
+        query = query.where(Violation.severity == severity)
+    
+    query = query.order_by(Violation.created_at.desc()).offset(skip).limit(limit)
+    result = await db.execute(query)
+    violations = result.scalars().all()
+    
+    # Формируем ответ
+    violations_data = []
+    for violation in violations:
+        violations_data.append({
+            "id": violation.id,
+            "description": violation.description,
+            "fnp_clause": violation.fnp_clause,
+            "gost_clause": violation.gost_clause,
+            "severity": violation.severity,
+            "location": violation.location,
+            "deadline": violation.deadline.isoformat() if violation.deadline else None,
+            "status": violation.status,
+            "resolved_at": violation.resolved_at.isoformat() if violation.resolved_at else None,
+            "created_at": violation.created_at.isoformat()
+        })
+    
+    return {
+        "items": violations_data,
+        "equipment": {
+            "id": equipment.id,
+            "equipment_type": equipment.equipment_type,
+            "passport_number": equipment.passport_number,
+            "position": equipment.position,
+            "workshop": equipment.workshop
+        }
+    }
 

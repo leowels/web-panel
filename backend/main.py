@@ -202,7 +202,11 @@ app.include_router(users.router)
 # Импорт остальных роутеров
 try:
     # Пробуем абсолютные импорты (для uvicorn через run.py)
-    from backend.routers import equipment, checklists, inspections, violations, acts, knowledge, files, settings, audit, documents
+    from backend.routers import (
+        equipment, checklists, inspections, violations, acts, knowledge, 
+        files, settings, audit, documents, tasks, permits, analytics, 
+        notifications, reports
+    )
     try:
         from backend.routers import ai
     except ImportError:
@@ -210,7 +214,11 @@ try:
 except ImportError:
     try:
         # Пробуем относительные импорты (для uvicorn напрямую)
-        from .routers import equipment, checklists, inspections, violations, acts, knowledge, files, settings, audit, documents
+        from .routers import (
+            equipment, checklists, inspections, violations, acts, knowledge,
+            files, settings, audit, documents, tasks, permits, analytics,
+            notifications, reports
+        )
         try:
             from .routers import ai
         except ImportError:
@@ -218,7 +226,11 @@ except ImportError:
     except ImportError:
         # Пробуем абсолютные импорты (для прямого запуска)
         try:
-            from routers import equipment, checklists, inspections, violations, acts, knowledge, files, settings, audit, documents
+            from routers import (
+                equipment, checklists, inspections, violations, acts, knowledge,
+                files, settings, audit, documents, tasks, permits, analytics,
+                notifications, reports
+            )
             try:
                 from routers import ai
             except ImportError:
@@ -229,6 +241,7 @@ except ImportError:
             import traceback
             traceback.print_exc()
             equipment = checklists = inspections = violations = acts = knowledge = files = settings = audit = documents = None
+            tasks = permits = analytics = notifications = reports = None
             ai = None
 
 if equipment:
@@ -242,6 +255,18 @@ if equipment:
     app.include_router(settings.router)
     app.include_router(audit.router)
     app.include_router(documents.router)
+
+# Регистрация новых роутеров
+if tasks:
+    app.include_router(tasks.router)
+if permits:
+    app.include_router(permits.router)
+if analytics:
+    app.include_router(analytics.router)
+if notifications:
+    app.include_router(notifications.router)
+if reports:
+    app.include_router(reports.router)
 
 # Регистрация AI роутера (опционально)
 try:
@@ -272,7 +297,13 @@ async def api_root():
             "checklists": "/api/checklists",
             "settings": "/api/settings",
             "audit": "/api/audit",
-            "files": "/api/files"
+            "files": "/api/files",
+            "tasks": "/api/tasks",
+            "permits": "/api/permits",
+            "analytics": "/api/analytics",
+            "notifications": "/api/notifications",
+            "reports": "/api/reports",
+            "ai": "/api/ai"
         }
     }
 
