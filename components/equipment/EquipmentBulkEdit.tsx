@@ -208,3 +208,4 @@ export default function EquipmentBulkEdit({ selectedIds, onClose, onSuccess }: E
   )
 }
 
+

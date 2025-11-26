@@ -247,107 +247,209 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
           <p className="mt-4 text-sm text-gray-500 font-medium">Загрузка...</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider w-12">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.length === equipment.length && equipment.length > 0}
-                    onChange={handleSelectAll}
-                    className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                  />
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Паспорт</th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Тип ПС</th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Инвентарный №</th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Позиция</th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Грузоподъемность</th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Место установки</th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Цех</th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Статус</th>
-                <th className="px-6 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">Действия</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {equipment.map((eq) => (
-                <tr key={eq.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+        <div className="w-full">
+          <div className="hidden lg:block overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider w-12">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.length === equipment.length && equipment.length > 0}
+                      onChange={handleSelectAll}
+                      className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                    />
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Паспорт</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Тип ПС</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Инвентарный №</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Позиция</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Грузоподъемность</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Место установки</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Цех</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Статус</th>
+                  <th className="px-6 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">Действия</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {equipment.map((eq) => (
+                  <tr key={eq.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(eq.id)}
+                        onChange={() => handleSelectOne(eq.id)}
+                        className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                      />
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap cursor-pointer" onClick={() => onView(eq.id)}>
+                      <div className="text-sm font-semibold text-gray-900">{eq.passport_number}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{eq.equipment_type}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600">
+                      {eq.inventory_number || '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600">
+                      {eq.position || '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600">
+                      {eq.load_capacity ? `${eq.load_capacity} т` : '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600">
+                      {eq.installation_location || '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600">
+                      {eq.workshop || '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getStatusColor(eq.status)}`}>
+                        {getStatusText(eq.status)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex justify-end space-x-2">
+                        <button
+                          onClick={() => onViewHistory(eq.id)}
+                          className="text-primary-600 hover:text-primary-800 hover:bg-primary-50 p-2 rounded-lg transition-all"
+                          title="История"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => onEdit(eq.id)}
+                          className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-2 rounded-lg transition-all"
+                          title="Редактировать"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleDelete(eq.id, eq.passport_number)}
+                          className="text-accent-600 hover:text-accent-800 hover:bg-accent-50 p-2 rounded-lg transition-all"
+                          title="Удалить"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {equipment.length === 0 && (
+              <div className="p-12 text-center">
+                <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                </svg>
+                <p className="mt-4 text-sm font-semibold text-gray-500">Оборудование не найдено</p>
+              </div>
+            )}
+          </div>
+
+          {/* Мобильная версия */}
+          <div className="lg:hidden divide-y divide-gray-200">
+            {equipment.map((eq) => (
+              <div key={eq.id} className="p-4 bg-white">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
                     <input
                       type="checkbox"
                       checked={selectedIds.includes(eq.id)}
                       onChange={() => handleSelectOne(eq.id)}
-                      className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                      className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded mt-1"
                     />
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap cursor-pointer" onClick={() => onView(eq.id)}>
-                    <div className="text-sm font-semibold text-gray-900">{eq.passport_number}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{eq.equipment_type}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600">
-                    {eq.inventory_number || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600">
-                    {eq.position || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600">
-                    {eq.load_capacity ? `${eq.load_capacity} т` : '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600">
-                    {eq.installation_location || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600">
-                    {eq.workshop || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getStatusColor(eq.status)}`}>
-                      {getStatusText(eq.status)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex justify-end space-x-2">
+                    <div>
                       <button
-                        onClick={() => onViewHistory(eq.id)}
-                        className="text-primary-600 hover:text-primary-800 hover:bg-primary-50 p-2 rounded-lg transition-all"
-                        title="История"
+                        onClick={() => onView(eq.id)}
+                        className="text-base font-semibold text-left text-gray-900"
                       >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
+                        {eq.passport_number}
                       </button>
-                      <button
-                        onClick={() => onEdit(eq.id)}
-                        className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-2 rounded-lg transition-all"
-                        title="Редактировать"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => handleDelete(eq.id, eq.passport_number)}
-                        className="text-accent-600 hover:text-accent-800 hover:bg-accent-50 p-2 rounded-lg transition-all"
-                        title="Удалить"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
+                      <p className="text-sm text-gray-500">{eq.equipment_type}</p>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                  <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getStatusColor(eq.status)}`}>
+                    {getStatusText(eq.status)}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-4 text-sm text-gray-600">
+                  <div>
+                    <p className="text-xs uppercase text-gray-400">Инв. номер</p>
+                    <p className="font-semibold text-gray-800">{eq.inventory_number || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase text-gray-400">Позиция</p>
+                    <p className="font-semibold text-gray-800">{eq.position || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase text-gray-400">Цех</p>
+                    <p className="font-semibold text-gray-800">{eq.workshop || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase text-gray-400">Место установки</p>
+                    <p className="font-semibold text-gray-800">{eq.installation_location || '-'}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {eq.load_capacity && (
+                    <span className="px-2 py-1 text-xs font-semibold bg-primary-50 text-primary-700 rounded-full">
+                      Г/п: {eq.load_capacity} т
+                    </span>
+                  )}
+                  {eq.pto_date && (
+                    <span className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded-full">
+                      ПТО: {new Date(eq.pto_date).toLocaleDateString('ru-RU')}
+                    </span>
+                  )}
+                  {eq.cto_date && (
+                    <span className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded-full">
+                      ЧТО: {new Date(eq.cto_date).toLocaleDateString('ru-RU')}
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    onClick={() => onView(eq.id)}
+                    className="flex-1 min-w-[120px] inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-primary-700 bg-primary-50 rounded-lg"
+                  >
+                    Просмотр
+                  </button>
+                  <button
+                    onClick={() => onEdit(eq.id)}
+                    className="flex-1 min-w-[120px] inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 rounded-lg"
+                  >
+                    Редактировать
+                  </button>
+                  <button
+                    onClick={() => onViewHistory(eq.id)}
+                    className="flex-1 min-w-[120px] inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 rounded-lg"
+                  >
+                    История
+                  </button>
+                  <button
+                    onClick={() => handleDelete(eq.id, eq.passport_number)}
+                    className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-accent-700 bg-accent-50 rounded-lg"
+                  >
+                    Удалить
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
           {equipment.length === 0 && (
-            <div className="p-12 text-center">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-              </svg>
-              <p className="mt-4 text-sm font-semibold text-gray-500">Оборудование не найдено</p>
+            <div className="lg:hidden p-8 text-center text-gray-500 font-semibold">
+              Оборудование не найдено
             </div>
           )}
         </div>

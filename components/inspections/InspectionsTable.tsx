@@ -97,8 +97,9 @@ export default function InspectionsTable({ onView }: InspectionsTableProps) {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+        <div className="w-full">
+          <div className="hidden lg:block overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
@@ -155,6 +156,55 @@ export default function InspectionsTable({ onView }: InspectionsTableProps) {
             </div>
           )}
         </div>
+
+        <div className="lg:hidden divide-y divide-gray-200">
+          {inspections.map((inspection) => (
+            <div key={inspection.id} className="p-4 bg-white">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-base font-semibold text-gray-900">Осмотр #{inspection.id}</p>
+                  <p className="text-sm text-gray-500 mt-1">ПС #{inspection.equipment_id}</p>
+                </div>
+                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(inspection.status)}`}>
+                  {getStatusText(inspection.status)}
+                </span>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-gray-600">
+                <div>
+                  <p className="text-xs uppercase text-gray-400">Начало</p>
+                  <p className="font-semibold text-gray-800">
+                    {inspection.started_at ? format(new Date(inspection.started_at), 'dd.MM.yyyy HH:mm') : '-'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-gray-400">Завершение</p>
+                  <p className="font-semibold text-gray-800">
+                    {inspection.completed_at ? format(new Date(inspection.completed_at), 'dd.MM.yyyy HH:mm') : '-'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-gray-400">Синхронизация</p>
+                  <p className={`font-semibold ${inspection.is_synced ? 'text-green-600' : 'text-yellow-600'}`}>
+                    {inspection.is_synced ? 'Синхронизирован' : 'Ожидает'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => onView(inspection.id)}
+                className="mt-4 w-full inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-primary-700 bg-primary-50 rounded-lg"
+              >
+                Открыть
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {inspections.length === 0 && (
+          <div className="lg:hidden p-6 text-center text-gray-500">
+            Осмотры не найдены
+          </div>
+        )}
+      </div>
       )}
     </div>
   )

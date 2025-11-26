@@ -28,3 +28,4 @@ Frontend пытался обращаться к `http://localhost:8000/api/auth/
 - Frontend должен обращаться к `/api/auth/login` (без `localhost:8000`)
 
 
+

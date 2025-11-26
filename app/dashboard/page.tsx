@@ -47,7 +47,7 @@ export default function DashboardPage() {
       <div className={`min-h-screen ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}>
         <div className="p-6">
           {/* Заголовок с переключателем темы */}
-          <div className="mb-8 flex justify-between items-center">
+          <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className={`text-3xl font-bold tracking-tight ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
                 Дашборд инспектора

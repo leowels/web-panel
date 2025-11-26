@@ -115,8 +115,9 @@ export default function UsersTable({ onEdit, onViewActivity }: UsersTableProps) 
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+        <div className="w-full">
+          <div className="hidden lg:block overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Пользователь</th>
@@ -202,6 +203,76 @@ export default function UsersTable({ onEdit, onViewActivity }: UsersTableProps) 
             </div>
           )}
         </div>
+
+        <div className="lg:hidden divide-y divide-gray-200">
+          {users.map((user) => (
+            <div key={user.id} className="p-4 bg-white">
+              <div className="flex flex-col gap-2">
+                <div>
+                  <p className="text-base font-semibold text-gray-900">{user.full_name || user.username}</p>
+                  <p className="text-sm text-gray-500">{user.email}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {user.roles.map((role) => (
+                    <span
+                      key={role.id}
+                      className={`px-2 py-1 text-xs font-semibold rounded-full ${getRoleBadgeColor(role.name)}`}
+                    >
+                      {role.name}
+                    </span>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm text-gray-600">
+                  <div>
+                    <p className="text-xs uppercase text-gray-400">Организация</p>
+                    <p className="font-semibold text-gray-800">{user.organization || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase text-gray-400">Статус</p>
+                    <span className={`inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full ${
+                      user.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                    }`}>
+                      {user.is_active ? 'Активен' : 'Неактивен'}
+                    </span>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs uppercase text-gray-400">Последний вход</p>
+                    <p className="font-semibold text-gray-800">
+                      {user.last_login ? format(new Date(user.last_login), 'dd.MM.yyyy HH:mm') : 'Никогда'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 flex flex-col sm:flex-row gap-2">
+                <button
+                  onClick={() => onViewActivity(user.id)}
+                  className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-primary-700 bg-primary-50 rounded-lg"
+                >
+                  Активность
+                </button>
+                <button
+                  onClick={() => onEdit(user.id)}
+                  className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 rounded-lg"
+                >
+                  Редактировать
+                </button>
+                <button
+                  onClick={() => handleDelete(user.id, user.username)}
+                  className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-red-700 bg-red-50 rounded-lg"
+                >
+                  Удалить
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {users.length === 0 && (
+          <div className="lg:hidden p-6 text-center text-gray-500">
+            Пользователи не найдены
+          </div>
+        )}
+      </div>
       )}
     </div>
   )

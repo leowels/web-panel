@@ -99,8 +99,9 @@ export default function AuditLogTable() {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+        <div className="w-full">
+          <div className="hidden lg:block overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Дата/Время</th>
@@ -144,6 +145,42 @@ export default function AuditLogTable() {
             </div>
           )}
         </div>
+
+        <div className="lg:hidden divide-y divide-gray-200">
+          {logs.map((log) => (
+            <div key={log.id} className="p-4 bg-white">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-base font-semibold text-gray-900">{log.username}</p>
+                  <p className="text-sm text-gray-500">{format(new Date(log.created_at), 'dd.MM.yyyy HH:mm:ss')}</p>
+                </div>
+                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getActionColor(log.action_type)}`}>
+                  {log.action_type}
+                </span>
+              </div>
+              <div className="mt-3 text-sm text-gray-600 space-y-1">
+                {log.entity_type && (
+                  <p className="flex justify-between">
+                    <span className="text-xs uppercase text-gray-400">Сущность</span>
+                    <span className="font-semibold text-gray-800">
+                      {log.entity_type} {log.entity_id && `#${log.entity_id}`}
+                    </span>
+                  </p>
+                )}
+                {log.description && (
+                  <p className="text-gray-700">{log.description}</p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {logs.length === 0 && (
+          <div className="lg:hidden p-6 text-center text-gray-500">
+            Записи не найдены
+          </div>
+        )}
+      </div>
       )}
     </div>
   )

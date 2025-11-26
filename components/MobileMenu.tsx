@@ -35,7 +35,9 @@ export default function MobileMenu() {
     <>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="lg:hidden fixed bottom-4 right-4 z-40 w-14 h-14 bg-gradient-to-br from-primary-600 to-primary-700 text-white rounded-full shadow-strong flex items-center justify-center hover:from-primary-700 hover:to-primary-800 transition-all duration-200"
+        aria-label="Открыть мобильное меню"
+        className="lg:hidden fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 w-14 h-14 bg-gradient-to-br from-primary-600 to-primary-700 text-white rounded-full shadow-strong flex items-center justify-center hover:from-primary-700 hover:to-primary-800 transition-all duration-200"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {isOpen ? (
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -54,7 +56,10 @@ export default function MobileMenu() {
             className="lg:hidden fixed inset-0 bg-black bg-opacity-60 z-30 backdrop-blur-sm"
             onClick={() => setIsOpen(false)}
           />
-          <div className="lg:hidden fixed bottom-20 right-4 z-40 bg-white rounded-xl shadow-strong p-3 min-w-[240px] max-h-[70vh] overflow-y-auto border border-gray-200">
+          <div
+            className="lg:hidden fixed bottom-24 right-4 sm:right-6 z-40 bg-white rounded-xl shadow-strong p-3 min-w-[240px] max-h-[70vh] overflow-y-auto border border-gray-200"
+            style={{ paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom))' }}
+          >
             <nav>
               <ul className="space-y-1">
                 {menuItems.map((item) => {

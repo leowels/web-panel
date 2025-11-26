@@ -1,6 +1,5 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import Layout from '@/components/Layout'
 import AuditLogTable from '@/components/audit/AuditLogTable'

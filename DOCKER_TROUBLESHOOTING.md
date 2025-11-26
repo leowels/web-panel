@@ -216,3 +216,4 @@ docker exec CONTAINER_NAME env | grep -E "(SECRET_KEY|PORT|POSTGRESQL)"
    ```
 
 
+

@@ -117,8 +117,9 @@ export default function ActsTable({ onEdit, onView }: ActsTableProps) {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+        <div className="w-full">
+          <div className="hidden lg:block overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Номер</th>
@@ -188,6 +189,58 @@ export default function ActsTable({ onEdit, onView }: ActsTableProps) {
             </div>
           )}
         </div>
+
+        <div className="lg:hidden divide-y divide-gray-200">
+          {acts.map((act) => (
+            <div key={act.id} className="p-4 bg-white">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-base font-semibold text-gray-900">Акт №{act.act_number}</p>
+                  <p className="text-sm text-gray-500">{act.organization}</p>
+                </div>
+                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                  act.status === 'completed' ? 'bg-green-100 text-green-800' :
+                  act.status === 'signed' ? 'bg-blue-100 text-blue-800' :
+                  'bg-gray-100 text-gray-800'
+                }`}>
+                  {act.status === 'completed' ? 'Завершен' :
+                   act.status === 'signed' ? 'Подписан' : 'Черновик'}
+                </span>
+              </div>
+              <div className="mt-4 text-sm text-gray-600">
+                <p className="text-xs uppercase text-gray-400">Дата</p>
+                <p className="font-semibold text-gray-800">{format(new Date(act.act_date), 'dd.MM.yyyy')}</p>
+              </div>
+              <div className="mt-4 flex flex-col sm:flex-row gap-2">
+                <button
+                  onClick={() => handleExportTable(act.id)}
+                  className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 rounded-lg"
+                >
+                  Таблица
+                </button>
+                <button
+                  onClick={() => handleExportPDF(act.id)}
+                  className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-green-700 bg-green-50 rounded-lg"
+                >
+                  PDF
+                </button>
+                <button
+                  onClick={() => onView(act.id)}
+                  className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-primary-700 bg-primary-50 rounded-lg"
+                >
+                  Открыть
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {acts.length === 0 && (
+          <div className="lg:hidden p-6 text-center text-gray-500">
+            Акты не найдены
+          </div>
+        )}
+      </div>
       )}
     </div>
   )

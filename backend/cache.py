@@ -80,3 +80,4 @@ class SimpleCache:
 # Глобальный экземпляр кэша
 cache = SimpleCache()
 
+
