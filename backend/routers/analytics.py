@@ -435,3 +435,4 @@ async def get_violations_dynamics(
     
     return ViolationDynamicsResponse(**response_data)
 
+

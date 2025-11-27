@@ -189,10 +189,22 @@ class Violation(Base):
     id = Column(Integer, primary_key=True, index=True)
     inspection_id = Column(Integer, ForeignKey("inspections.id", ondelete="SET NULL"), nullable=True)
     equipment_id = Column(Integer, ForeignKey("equipment.id", ondelete="CASCADE"), index=True)
+    source = Column(String, nullable=True)  # telegram, web, etc.
+    reported_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    attachment_meta = Column(JSON, nullable=True)
     description = Column(Text)
     fnp_clause = Column(String, nullable=True)  # Пункт ФНП 461
     gost_clause = Column(String, nullable=True)  # Пункт ГОСТ
     severity = Column(String, default="medium", index=True)  # low, medium, high, critical
+    criticality_level = Column(String, nullable=True, index=True)
+    violation_type = Column(String, nullable=True, index=True)
+    violation_type_description = Column(Text, nullable=True)
+    norm_reference = Column(String, nullable=True)
+    recommended_act_text = Column(Text, nullable=True)
+    requirements = Column(JSON, nullable=True)
+    ai_classification = Column(JSON, nullable=True)
+    ai_recommendations = Column(JSON, nullable=True)
+    ai_payload_raw = Column(JSON, nullable=True)
     location = Column(String, nullable=True)  # Место обнаружения
     deadline = Column(DateTime, nullable=True, index=True)  # Срок устранения
     status = Column(String, default="open", index=True)  # open, resolved
@@ -207,6 +219,7 @@ class Violation(Base):
     equipment = relationship("Equipment", back_populates="violations")
     files = relationship("File", back_populates="violation", foreign_keys="File.violation_id")
     acts = relationship("ActViolation", back_populates="violation")
+    reporter = relationship("User", foreign_keys=[reported_by], lazy="joined")
 
 # БЛОК 7: Предписания и акты
 class Act(Base):
@@ -272,6 +285,8 @@ class File(Base):
     inspection_id = Column(Integer, ForeignKey("inspections.id", ondelete="CASCADE"), nullable=True)
     violation_id = Column(Integer, ForeignKey("violations.id", ondelete="CASCADE"), nullable=True)
     act_id = Column(Integer, ForeignKey("acts.id", ondelete="CASCADE"), nullable=True)
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True)
+    permit_id = Column(Integer, ForeignKey("permits.id", ondelete="CASCADE"), nullable=True)
     uploaded_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
     
@@ -279,6 +294,8 @@ class File(Base):
     equipment = relationship("Equipment", back_populates="files")
     violation = relationship("Violation", back_populates="files")
     act = relationship("Act", back_populates="files", foreign_keys=[act_id])
+    task = relationship("Task", back_populates="files")
+    permit = relationship("Permit", back_populates="files")
 
 # БЛОК 10: Audit Log (используем UserActivity, но расширим)
 # Уже реализовано в UserActivity
@@ -307,4 +324,106 @@ class RefreshToken(Base):
     
     # Relationships
     user = relationship("User")
+
+# БЛОК 13: Задачи
+class Task(Base):
+    __tablename__ = "tasks"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    equipment_id = Column(Integer, ForeignKey("equipment.id", ondelete="CASCADE"), nullable=True)
+    violation_id = Column(Integer, ForeignKey("violations.id", ondelete="SET NULL"), nullable=True)
+    assignee_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String, default="open", index=True)
+    priority = Column(String, default="medium")
+    due_date = Column(DateTime, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    estimated_hours = Column(Float, nullable=True)
+    actual_hours = Column(Float, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+    
+    equipment = relationship("Equipment")
+    violation = relationship("Violation")
+    assignee = relationship("User", foreign_keys=[assignee_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    files = relationship("File", back_populates="task", foreign_keys="File.task_id")
+
+# БЛОК 14: Разрешения на работы
+class Permit(Base):
+    __tablename__ = "permits"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    permit_number = Column(String, unique=True, index=True)
+    equipment_id = Column(Integer, ForeignKey("equipment.id", ondelete="CASCADE"))
+    work_type = Column(String, index=True)
+    description = Column(Text, nullable=False)
+    responsible_person = Column(String, nullable=False)
+    responsible_organization = Column(String, nullable=True)
+    safety_measures = Column(Text, nullable=True)
+    status = Column(String, default="pending", index=True)
+    requested_by = Column(Integer, ForeignKey("users.id"))
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    start_date = Column(DateTime, nullable=True)
+    end_date = Column(DateTime, nullable=True)
+    actual_start = Column(DateTime, nullable=True)
+    actual_end = Column(DateTime, nullable=True)
+    approval_notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+    
+    equipment = relationship("Equipment")
+    requester = relationship("User", foreign_keys=[requested_by])
+    approver = relationship("User", foreign_keys=[approved_by])
+    files = relationship("File", back_populates="permit", foreign_keys="File.permit_id")
+
+# БЛОК 15: Уведомления
+class Notification(Base):
+    __tablename__ = "notifications"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    title = Column(String, nullable=False)
+    message = Column(Text, nullable=False)
+    notification_type = Column(String, index=True)
+    entity_type = Column(String, nullable=True)
+    entity_id = Column(Integer, nullable=True)
+    is_read = Column(Boolean, default=False, index=True)
+    priority = Column(String, default="normal")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    read_at = Column(DateTime, nullable=True)
+    
+    user = relationship("User")
+
+# БЛОК 16: Кэш аналитики
+class AnalyticsCache(Base):
+    __tablename__ = "analytics_cache"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    cache_key = Column(String, unique=True, index=True)
+    data = Column(JSON, nullable=True)
+    expires_at = Column(DateTime, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+# БЛОК 17: Отчёты
+class Report(Base):
+    __tablename__ = "reports"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    report_type = Column(String, index=True)
+    title = Column(String, nullable=False)
+    parameters = Column(JSON, nullable=True)
+    file_path = Column(String, nullable=True)
+    file_format = Column(String, nullable=False)
+    status = Column(String, default="generating", index=True)
+    generated_by = Column(Integer, ForeignKey("users.id"))
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    completed_at = Column(DateTime, nullable=True)
+    
+    generator = relationship("User")
 
