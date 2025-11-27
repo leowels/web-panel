@@ -524,3 +524,4 @@ async def get_notification_stats(
         "read": total - unread,
         "priority_breakdown": priority_stats
     }
+

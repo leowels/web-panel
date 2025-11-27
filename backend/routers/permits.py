@@ -414,3 +414,4 @@ async def delete_permit(
     await db.delete(permit)
     await db.commit()
     return None
+

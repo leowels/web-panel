@@ -19,6 +19,7 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
   const isEditing = !!violationId
+  const [violationDetails, setViolationDetails] = useState<any | null>(null)
   const [formData, setFormData] = useState({
     equipment_id: '',
     inspection_id: '',
@@ -51,6 +52,13 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
     selectedEquipmentIds.includes(String(eq.id))
   )
   const singleSelectedEquipment = equipmentList.find((eq) => String(eq.id) === formData.equipment_id)
+  const activeRequirements = violationDetails?.requirements?.length
+    ? violationDetails.requirements
+    : violationDetails?.ai_recommendations?.requirements || []
+  const aiConfidence =
+    typeof violationDetails?.ai_classification?.confidence === 'number'
+      ? `${Math.round(violationDetails.ai_classification.confidence * 100)}%`
+      : null
 
   // Фильтрация оборудования по поисковому запросу
   const filteredEquipmentList = equipmentList.filter((eq) => {
@@ -91,6 +99,7 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
       fetchViolation()
     }
     if (!violationId) {
+      setViolationDetails(null)
       setSelectedEquipmentIds([])
     }
   }, [violationId])
@@ -112,6 +121,7 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
         headers: { Authorization: `Bearer ${token}` },
       })
       const v = response.data
+      setViolationDetails(v)
       setFormData({
         equipment_id: String(v.equipment_id),
         inspection_id: v.inspection_id ? String(v.inspection_id) : '',
@@ -335,6 +345,68 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
             </svg>
           </button>
         </div>
+
+        {violationId && violationDetails && (
+          <div className="mx-6 mt-6 mb-0 rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50 via-white to-purple-50 p-5 shadow-inner">
+            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-indigo-600 mb-3">
+              <span className="px-2 py-1 bg-white border border-indigo-100 rounded-full">
+                AI анализ
+              </span>
+              {violationDetails.source && (
+                <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded-full">
+                  Источник: {violationDetails.source}
+                </span>
+              )}
+              {aiConfidence && (
+                <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full">
+                  Уверенность: {aiConfidence}
+                </span>
+              )}
+              {violationDetails.criticality_level && (
+                <span className="px-2 py-1 bg-rose-100 text-rose-700 rounded-full">
+                  Критичность: {violationDetails.criticality_level}
+                </span>
+              )}
+            </div>
+            <div className="space-y-3 text-sm text-gray-700">
+              {(violationDetails.violation_type_description || violationDetails.violation_type) && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Тип нарушения</p>
+                  <p className="text-base font-semibold text-gray-900">
+                    {violationDetails.violation_type_description || violationDetails.violation_type}
+                  </p>
+                </div>
+              )}
+              {violationDetails.norm_reference && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Норматив</p>
+                  <p className="font-medium text-gray-900">{violationDetails.norm_reference}</p>
+                </div>
+              )}
+              {violationDetails.recommended_act_text && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Формулировка акта</p>
+                  <p className="italic text-gray-800">«{violationDetails.recommended_act_text}»</p>
+                </div>
+              )}
+              {activeRequirements && activeRequirements.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Рекомендации</p>
+                  <ul className="mt-1 space-y-1 text-gray-800 list-disc list-inside">
+                    {activeRequirements.map((req: string, idx: number) => (
+                      <li key={idx}>{req}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {violationDetails.ai_recommendations?.quote && (
+                <div className="border-l-4 border-indigo-200 pl-3 italic text-gray-600">
+                  {violationDetails.ai_recommendations.quote}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

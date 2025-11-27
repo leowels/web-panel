@@ -553,3 +553,4 @@ async def delete_report(
     await db.delete(report)
     await db.commit()
     return None
+

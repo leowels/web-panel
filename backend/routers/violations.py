@@ -47,6 +47,18 @@ def _violation_to_response(violation: Violation) -> ViolationResponse:
         fnp_clause=violation.fnp_clause,
         gost_clause=violation.gost_clause,
         severity=violation.severity,
+        criticality_level=violation.criticality_level,
+        violation_type=violation.violation_type,
+        violation_type_description=violation.violation_type_description,
+        norm_reference=violation.norm_reference,
+        recommended_act_text=violation.recommended_act_text,
+        requirements=violation.requirements if isinstance(violation.requirements, list) else None,
+        source=violation.source,
+        reported_by=violation.reported_by,
+        attachment_meta=violation.attachment_meta,
+        ai_classification=violation.ai_classification,
+        ai_recommendations=violation.ai_recommendations,
+        ai_payload_raw=violation.ai_payload_raw,
         location=violation.location,
         deadline=violation.deadline,
         status=violation.status,
@@ -63,6 +75,18 @@ class ViolationCreate(BaseModel):
     fnp_clause: Optional[str] = None
     gost_clause: Optional[str] = None
     severity: str = "medium"  # low, medium, high, critical
+    criticality_level: Optional[str] = None
+    violation_type: Optional[str] = None
+    violation_type_description: Optional[str] = None
+    norm_reference: Optional[str] = None
+    recommended_act_text: Optional[str] = None
+    requirements: Optional[List[str]] = None
+    source: Optional[str] = None
+    reported_by: Optional[int] = None
+    attachment_meta: Optional[Dict[str, Any]] = None
+    ai_classification: Optional[Dict[str, Any]] = None
+    ai_recommendations: Optional[Dict[str, Any]] = None
+    ai_payload_raw: Optional[Dict[str, Any]] = None
     location: Optional[str] = None
     deadline: Optional[datetime] = None
 
@@ -71,6 +95,18 @@ class ViolationUpdate(BaseModel):
     fnp_clause: Optional[str] = None
     gost_clause: Optional[str] = None
     severity: Optional[str] = None
+    criticality_level: Optional[str] = None
+    violation_type: Optional[str] = None
+    violation_type_description: Optional[str] = None
+    norm_reference: Optional[str] = None
+    recommended_act_text: Optional[str] = None
+    requirements: Optional[List[str]] = None
+    source: Optional[str] = None
+    reported_by: Optional[int] = None
+    attachment_meta: Optional[Dict[str, Any]] = None
+    ai_classification: Optional[Dict[str, Any]] = None
+    ai_recommendations: Optional[Dict[str, Any]] = None
+    ai_payload_raw: Optional[Dict[str, Any]] = None
     location: Optional[str] = None
     deadline: Optional[datetime] = None
     status: Optional[str] = None
@@ -94,6 +130,18 @@ class ViolationResponse(BaseModel):
     fnp_clause: Optional[str]
     gost_clause: Optional[str]
     severity: str
+    criticality_level: Optional[str]
+    violation_type: Optional[str]
+    violation_type_description: Optional[str]
+    norm_reference: Optional[str]
+    recommended_act_text: Optional[str]
+    requirements: Optional[List[str]]
+    source: Optional[str]
+    reported_by: Optional[int]
+    attachment_meta: Optional[Dict[str, Any]]
+    ai_classification: Optional[Dict[str, Any]]
+    ai_recommendations: Optional[Dict[str, Any]]
+    ai_payload_raw: Optional[Dict[str, Any]]
     location: Optional[str]
     deadline: Optional[datetime]
     status: str
@@ -289,6 +337,18 @@ async def create_violation(
         fnp_clause=violation_data.fnp_clause,
         gost_clause=violation_data.gost_clause,
         severity=violation_data.severity,
+        criticality_level=violation_data.criticality_level,
+        violation_type=violation_data.violation_type,
+        violation_type_description=violation_data.violation_type_description,
+        norm_reference=violation_data.norm_reference,
+        recommended_act_text=violation_data.recommended_act_text,
+        requirements=violation_data.requirements,
+        source=violation_data.source,
+        reported_by=violation_data.reported_by or current_user.id,
+        attachment_meta=violation_data.attachment_meta,
+        ai_classification=violation_data.ai_classification,
+        ai_recommendations=violation_data.ai_recommendations,
+        ai_payload_raw=violation_data.ai_payload_raw,
         location=violation_data.location,
         deadline=violation_data.deadline,
         status="open",

@@ -23,6 +23,30 @@ interface Violation {
   fnp_clause: string | null
   gost_clause: string | null
   severity: string
+  criticality_level?: string | null
+  violation_type?: string | null
+  violation_type_description?: string | null
+  norm_reference?: string | null
+  recommended_act_text?: string | null
+  requirements?: string[] | null
+  source?: string | null
+  reported_by?: number | null
+  attachment_meta?: Record<string, any> | null
+  ai_classification?: {
+    type?: string
+    severity?: string
+    norm_block?: string
+    confidence?: number
+    gost_reference?: string
+    labels?: string[]
+  } | null
+  ai_recommendations?: {
+    quote?: string
+    requirements?: string[]
+    act_text?: string
+    criticality?: string
+  } | null
+  ai_payload_raw?: Record<string, any> | null
   status: string
   deadline: string | null
   created_at: string
@@ -94,6 +118,78 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
       default:
         return severity
     }
+  }
+
+  const renderAIInsights = (violation: Violation) => {
+    const hasAIData =
+      violation.violation_type ||
+      violation.violation_type_description ||
+      violation.norm_reference ||
+      violation.recommended_act_text ||
+      (violation.requirements && violation.requirements.length > 0) ||
+      (violation.ai_recommendations?.requirements && violation.ai_recommendations.requirements.length > 0) ||
+      typeof violation.ai_classification?.confidence === 'number'
+
+    if (!hasAIData) {
+      return null
+    }
+
+    const requirements =
+      violation.requirements && violation.requirements.length > 0
+        ? violation.requirements
+        : violation.ai_recommendations?.requirements || []
+
+    const confidence =
+      typeof violation.ai_classification?.confidence === 'number'
+        ? `${Math.round(violation.ai_classification.confidence * 100)}%`
+        : null
+
+    return (
+      <div className="mt-2 space-y-1 rounded-lg bg-gray-50 border border-gray-200 p-2">
+        <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-wide text-gray-500">
+          {violation.source && (
+            <span className="px-2 py-0.5 bg-primary-100 text-primary-700 rounded-full">
+              Источник: {violation.source}
+            </span>
+          )}
+          {confidence && (
+            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full">
+              AI уверенность: {confidence}
+            </span>
+          )}
+        </div>
+        {violation.violation_type_description || violation.violation_type ? (
+          <div className="text-xs font-semibold text-primary-800">
+            {violation.violation_type_description || violation.violation_type}
+          </div>
+        ) : null}
+        {violation.norm_reference && (
+          <div className="text-xs text-gray-600">
+            Норматив: <span className="font-medium">{violation.norm_reference}</span>
+          </div>
+        )}
+        {violation.recommended_act_text && (
+          <div className="text-xs text-gray-600 italic">
+            «{violation.recommended_act_text}»
+          </div>
+        )}
+        {requirements && requirements.length > 0 && (
+          <div className="text-xs text-gray-600">
+            <span className="font-semibold text-gray-700">Требования:</span>
+            <ul className="list-disc list-inside space-y-0.5 mt-1">
+              {requirements.slice(0, 3).map((req, idx) => (
+                <li key={idx}>{req}</li>
+              ))}
+              {requirements.length > 3 && (
+                <li className="text-gray-400">
+                  + ещё {requirements.length - 3}
+                </li>
+              )}
+            </ul>
+          </div>
+        )}
+      </div>
+    )
   }
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -225,6 +321,7 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
                         overflow: 'hidden',
                         maxHeight: '3em'
                       }}>{violation.description}</div>
+                    {renderAIInsights(violation)}
                     </td>
                     <td className="px-3 py-3 text-sm text-gray-600">
                       {violation.equipment ? (
@@ -256,6 +353,11 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
                       <span className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${getSeverityColor(violation.severity)}`}>
                         {getSeverityText(violation.severity)}
                       </span>
+                    {violation.criticality_level && (
+                      <div className="mt-1 text-[11px] text-gray-500">
+                        AI: {getSeverityText(violation.criticality_level)}
+                      </div>
+                    )}
                     </td>
                     <td className="px-3 py-3">
                       <span className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${
@@ -307,6 +409,7 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
                       >
                         {violation.description}
                       </div>
+                  {renderAIInsights(violation)}
                       {violation.equipment && (
                         <div className="text-xs text-gray-600">
                           <div className="font-semibold">{violation.equipment.passport_number}</div>

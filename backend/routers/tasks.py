@@ -400,3 +400,4 @@ async def delete_task(
     await db.delete(task)
     await db.commit()
     return None
+

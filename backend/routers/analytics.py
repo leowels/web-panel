@@ -434,3 +434,4 @@ async def get_violations_dynamics(
     await db.commit()
     
     return ViolationDynamicsResponse(**response_data)
+
