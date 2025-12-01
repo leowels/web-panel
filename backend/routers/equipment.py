@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File as UploadFileType
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import selectinload
@@ -614,7 +614,7 @@ def _parse_equipment_csv_text(decoded: str) -> (List[EquipmentBulkItem], List[di
 
 @router.post("/bulk/upload", response_model=EquipmentBulkResponse)
 async def bulk_upload_equipment(
-    file: UploadFileType = UploadFileType(...),
+    file: UploadFile = File(...),
     skip_duplicates: bool = True,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
