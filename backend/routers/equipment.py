@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File as UploadFileType
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import selectinload
@@ -9,16 +9,20 @@ import logging
 import csv
 import io
 import re
+from pathlib import Path
+
+from PIL import Image
+import pytesseract
 
 logger = logging.getLogger(__name__)
 
 # Поддержка запуска как скрипта и как модуля
 try:
-    from backend.models import Equipment, EquipmentHistory, UserActivity, User, UserRole
+    from backend.models import Equipment, EquipmentHistory, UserActivity, User, UserRole, File
     from backend.database import get_db
     from backend.auth import get_current_user, require_permission
 except ImportError:
-    from ..models import Equipment, EquipmentHistory, UserActivity, User, UserRole
+    from ..models import Equipment, EquipmentHistory, UserActivity, User, UserRole, File
     from ..database import get_db
     from ..auth import get_current_user, require_permission
 
@@ -133,6 +137,18 @@ class EquipmentOCRUpsertRequest(BaseModel):
 class EquipmentOCRUpsertResponse(BaseModel):
     id: int
     created: bool  # True если создан новый, False если обновлен существующий
+
+
+class EquipmentOCRImportRequest(BaseModel):
+    """
+    Запрос на импорт оборудования через OCR/табличный текст.
+    Варианты:
+    - ocr_text: уже распознанный текст таблицы (CSV-подобный)
+    - file_id: ID файла в таблице files (фото или CSV/текст)
+    """
+    ocr_text: Optional[str] = None
+    file_id: Optional[int] = None
+
 
 def _equipment_to_response(equipment: Equipment) -> EquipmentResponse:
     return EquipmentResponse(
@@ -280,6 +296,26 @@ def _normalize_float(value: Optional[str]) -> Optional[float]:
         return float(value)
     except ValueError:
         return None
+
+
+def _ocr_image_to_text(image_path: str) -> str:
+    """
+    Преобразование изображения (фото таблицы) в текст с помощью Tesseract OCR.
+    Используется как бесплатный локальный OCR.
+    """
+    try:
+        img = Image.open(image_path)
+    except Exception as e:
+        logger.error(f"Failed to open image for OCR: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to open image for OCR: {e}")
+
+    try:
+        # Русский + английский, таблицы на ПС обычно на русском
+        text = pytesseract.image_to_string(img, lang="rus+eng")
+        return text
+    except Exception as e:
+        logger.error(f"OCR error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"OCR error: {e}")
 
 
 @router.get("", response_model=List[EquipmentResponse])
@@ -495,29 +531,11 @@ async def bulk_create_equipment(
     )
 
 
-@router.post("/bulk/upload", response_model=EquipmentBulkResponse)
-async def bulk_upload_equipment(
-    file: UploadFile = File(...),
-    skip_duplicates: bool = True,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Массовое добавление оборудования через CSV"""
-    await require_permission(current_user, "equipment:create", db)
-
-    filename = file.filename or ""
-    if not filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Please upload a CSV file")
-
-    raw_content = await file.read()
-    if not raw_content:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
-
-    try:
-        decoded = raw_content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        decoded = raw_content.decode("utf-8")
-
+def _parse_equipment_csv_text(decoded: str) -> (List[EquipmentBulkItem], List[dict]):
+    """
+    Общий CSV-парсер для массового импорта оборудования.
+    Используется как для загрузки файлов, так и для OCR-импорта.
+    """
     # Определяем разделитель (поддержка как запятой, так и точки с запятой)
     first_line = decoded.splitlines()[0] if decoded.splitlines() else ""
     delimiter = ";" if first_line.count(";") > first_line.count(",") else ","
@@ -536,15 +554,31 @@ async def bulk_upload_equipment(
         )
 
     # Список ключевых слов, которые указывают на строку с подсказками
-    hint_keywords = ["обязательно", "необязательно", "например", "тип пс", "номер паспорта", "инвентарный номер", "позиция", "цех", "грузоподъемность", "завод", "место установки", "дата ввода", "дата пто", "дата что", "статус"]
-    
+    hint_keywords = [
+        "обязательно",
+        "необязательно",
+        "например",
+        "тип пс",
+        "номер паспорта",
+        "инвентарный номер",
+        "позиция",
+        "цех",
+        "грузоподъемность",
+        "завод",
+        "место установки",
+        "дата ввода",
+        "дата пто",
+        "дата что",
+        "статус",
+    ]
+
     for row_index, row in enumerate(reader, start=2):  # Учитываем строку заголовка
         if not row:
             continue
         # Проверяем, есть ли данные в строке
         if not any((value or "").strip() for value in row.values()):
             continue
-        
+
         # Проверяем, является ли строка подсказками (содержит ключевые слова)
         row_text = " ".join((value or "").lower() for value in row.values())
         if any(keyword in row_text for keyword in hint_keywords):
@@ -574,6 +608,34 @@ async def bulk_upload_equipment(
                     "detail": exc.errors(),
                 }
             )
+
+    return parsed_items, parse_errors
+
+
+@router.post("/bulk/upload", response_model=EquipmentBulkResponse)
+async def bulk_upload_equipment(
+    file: UploadFileType = UploadFileType(...),
+    skip_duplicates: bool = True,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Массовое добавление оборудования через CSV"""
+    await require_permission(current_user, "equipment:create", db)
+
+    filename = file.filename or ""
+    if not filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Please upload a CSV file")
+
+    raw_content = await file.read()
+    if not raw_content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    try:
+        decoded = raw_content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        decoded = raw_content.decode("utf-8")
+
+    parsed_items, parse_errors = _parse_equipment_csv_text(decoded)
 
     if not parsed_items:
         raise HTTPException(status_code=400, detail="CSV file does not contain valid rows")
@@ -953,6 +1015,107 @@ async def ocr_upsert_equipment(
         id=equipment_id,
         created=created
     )
+
+
+@router.post("/ocr-import", response_model=EquipmentBulkResponse)
+async def ocr_import_equipment(
+    payload: EquipmentOCRImportRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Массовый импорт оборудования на основе OCR-результата.
+
+    Варианты использования:
+    - Бот или внешний сервис распознал таблицу и прислал CSV-текст в ocr_text
+    - Указан file_id на ранее загруженный CSV-файл в таблице files
+
+    Поддержка распознавания фото (image → text) должна быть реализована
+    во внешнем сервисе, который передаст уже готовый табличный текст.
+    """
+    await require_permission(current_user, "equipment:create", db)
+
+    if not payload.ocr_text and not payload.file_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Either ocr_text or file_id must be provided",
+        )
+
+    decoded = None
+
+    # Если пришёл готовый текст (например, от Telegram-бота после OCR)
+    if payload.ocr_text:
+        decoded = payload.ocr_text
+
+    # Если указан file_id — пробуем прочитать содержимое файла
+    if not decoded and payload.file_id:
+        result = await db.execute(select(File).where(File.id == payload.file_id))
+        file_obj: Optional[File] = result.scalar_one_or_none()
+        if not file_obj:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        if not file_obj.file_path:
+            raise HTTPException(
+                status_code=400,
+                detail="File has no file_path, cannot read from disk",
+            )
+
+        # Определяем, является ли файл текстом/CSV или картинкой
+        file_path = Path(file_obj.file_path)
+        suffix = file_path.suffix.lower()
+
+        # Если это изображение — запускаем OCR
+        if suffix in {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"} or (
+            file_obj.mime_type and file_obj.mime_type.startswith("image/")
+        ):
+            logger.info(f"Running OCR for equipment import on image file: {file_obj.file_path}")
+            decoded = _ocr_image_to_text(file_obj.file_path)
+        else:
+            # Иначе считаем, что это текст/CSV
+            try:
+                with open(file_obj.file_path, "rb") as f:
+                    raw_content = f.read()
+            except FileNotFoundError:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"File not found on disk: {file_obj.file_path}",
+                )
+            except Exception as e:
+                logger.error(f"Error reading file {file_obj.file_path}: {e}", exc_info=True)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error reading file: {str(e)}",
+                )
+
+            try:
+                decoded = raw_content.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                decoded = raw_content.decode("utf-8", errors="ignore")
+
+    if not decoded or not decoded.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="OCR text is empty or could not be decoded",
+        )
+
+    parsed_items, parse_errors = _parse_equipment_csv_text(decoded)
+
+    if not parsed_items:
+        raise HTTPException(
+            status_code=400,
+            detail="OCR text/CSV does not contain valid equipment rows",
+        )
+
+    response = await _bulk_create_equipment_items(
+        items=parsed_items,
+        skip_duplicates=True,
+        current_user=current_user,
+        db=db,
+    )
+
+    response.errors.extend(parse_errors)
+    response.skipped += len(parse_errors)
+    return response
 
 @router.get("/{equipment_id}/violations")
 async def get_equipment_violations(

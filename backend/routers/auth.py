@@ -95,28 +95,28 @@ async def login(
     # Обычный вход (Telegram временно отключен)
     if user_data.username and user_data.password:
         logger.info(f"Попытка обычного входа для пользователя: {user_data.username}")
-        
-        result = await db.execute(
-            select(User)
-            .options(selectinload(User.roles).selectinload(UserRole.role))
-            .where(User.username == user_data.username)
+    
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.roles).selectinload(UserRole.role))
+        .where(User.username == user_data.username)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        logger.warning(f"Попытка входа с несуществующим username: {user_data.username}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-        user = result.scalar_one_or_none()
-        
-        if not user:
-            logger.warning(f"Попытка входа с несуществующим username: {user_data.username}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect username or password",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        if not verify_password(user_data.password, user.hashed_password):
-            logger.warning(f"Неверный пароль для пользователя: {user_data.username}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect username or password",
-                headers={"WWW-Authenticate": "Bearer"},
+    
+    if not verify_password(user_data.password, user.hashed_password):
+        logger.warning(f"Неверный пароль для пользователя: {user_data.username}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
             )
     else:
         raise HTTPException(

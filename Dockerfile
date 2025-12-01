@@ -30,11 +30,14 @@ FROM python:3.11-slim AS backend-builder
 
 WORKDIR /app
 
-# Установка системных зависимостей для компиляции
+# Установка системных зависимостей для компиляции и OCR
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     python3-dev \
     libpq-dev \
+    tesseract-ocr \
+    tesseract-ocr-rus \
+    tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 # Установка Python зависимостей
@@ -49,11 +52,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Установка runtime зависимостей (включая Node.js для Frontend и curl для health check)
+# Установка runtime зависимостей (включая Node.js для Frontend, curl и Tesseract OCR)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
     gnupg \
+    tesseract-ocr \
+    tesseract-ocr-rus \
+    tesseract-ocr-eng \
     && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*

@@ -9,12 +9,14 @@ import EquipmentCard from '@/components/equipment/EquipmentCard'
 import EquipmentHistory from '@/components/equipment/EquipmentHistory'
 import EquipmentBulkForm from '@/components/equipment/EquipmentBulkForm'
 import EquipmentCsvUpload from '@/components/equipment/EquipmentCsvUpload'
+import EquipmentOcrImport from '@/components/equipment/EquipmentOcrImport'
 
 export default function EquipmentPage() {
   const { isAuthenticated } = useAuthStore()
   const [showForm, setShowForm] = useState(false)
   const [showCsvUpload, setShowCsvUpload] = useState(false)
   const [showBulk, setShowBulk] = useState(false)
+  const [showOcrImport, setShowOcrImport] = useState(false)
   const [selectedEquipment, setSelectedEquipment] = useState<number | null>(null)
   const [showHistory, setShowHistory] = useState<number | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -43,6 +45,15 @@ export default function EquipmentPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M3 7h18M3 12h18M3 17h18" />
                 </svg>
                 Импорт CSV
+              </button>
+              <button
+                onClick={() => setShowOcrImport(true)}
+                className="inline-flex items-center justify-center px-4 py-2 border border-purple-200 text-sm font-semibold rounded-lg text-purple-700 bg-purple-50 hover:bg-purple-100 shadow-soft transition-all duration-200 w-full sm:w-auto"
+              >
+                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M3 5h18M8 5v14m8-14v14M5 9h14M5 13h14M5 17h6" />
+                </svg>
+                Импорт с фото
               </button>
               <button
                 onClick={() => setShowBulk(true)}
@@ -134,6 +145,16 @@ export default function EquipmentPage() {
             onClose={() => setShowCsvUpload(false)}
             onSuccess={() => {
               setShowCsvUpload(false)
+              triggerRefresh()
+            }}
+          />
+        )}
+
+        {showOcrImport && (
+          <EquipmentOcrImport
+            onClose={() => setShowOcrImport(false)}
+            onSuccess={() => {
+              setShowOcrImport(false)
               triggerRefresh()
             }}
           />
