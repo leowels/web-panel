@@ -93,8 +93,13 @@ async def login(
     user = None
     
     # Обычный вход (Telegram временно отключен)
-    if user_data.username and user_data.password:
-        logger.info(f"Попытка обычного входа для пользователя: {user_data.username}")
+    if not user_data.username or not user_data.password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username and password are required"
+        )
+    
+    logger.info(f"Попытка обычного входа для пользователя: {user_data.username}")
     
     result = await db.execute(
         select(User)
@@ -117,11 +122,6 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
-            )
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username and password are required"
         )
     
     if not user.is_active:
