@@ -96,7 +96,8 @@ EXPOSE 3000 8000
 
 # Health check для Timeweb Cloud
 # Проверяем Backend (основной сервис) - Frontend может запускаться дольше
-HEALTHCHECK --interval=10s --timeout=5s --start-period=40s --retries=3 \
+# Увеличиваем start-period до 60s, чтобы дать время на запуск и импорт модулей
+HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1
 
 # Переменные окружения

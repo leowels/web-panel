@@ -22,11 +22,25 @@ cleanup() {
 # Обработка сигналов (совместимо с /bin/sh)
 trap 'cleanup' 15 2
 
+# Проверка доступности Python и модулей
+log "🔍 Проверка окружения..."
+which python3 || which python || (log "❌ Python не найден!" && exit 1)
+python3 --version || python --version || true
+log "PATH: $PATH"
+# Устанавливаем PYTHONPATH для поиска модулей в .local
+export PYTHONPATH=/home/appuser/.local/lib/python3.11/site-packages:$PYTHONPATH
+log "PYTHONPATH: $PYTHONPATH"
+
 # Запуск Backend
 log "📦 Запуск Backend на порту ${BACKEND_PORT:-8000}..."
 cd /app/backend
 export PORT=${BACKEND_PORT:-8000}
-python run.py > /proc/1/fd/1 2>&1 &
+# Используем python3, если доступен, иначе python
+PYTHON_CMD=$(which python3 2>/dev/null || which python 2>/dev/null || echo "python3")
+log "Используется Python: $PYTHON_CMD"
+$PYTHON_CMD --version || true
+$PYTHON_CMD -c "import sys; print('Python path:', sys.path)" || true
+$PYTHON_CMD run.py > /proc/1/fd/1 2>&1 &
 BACKEND_PID=$!
 
 # Ждем запуска Backend и проверяем готовность
@@ -54,6 +68,11 @@ if [ $BACKEND_READY -eq 0 ]; then
     ps aux | grep python | grep -v grep || true
     log "Проверка порта:"
     netstat -tlnp 2>/dev/null | grep ${BACKEND_PORT:-8000} || ss -tlnp 2>/dev/null | grep ${BACKEND_PORT:-8000} || true
+    log "Последние строки логов (если доступны):"
+    tail -20 /proc/1/fd/1 2>/dev/null || true
+    log "Проверка доступности Python модулей:"
+    $PYTHON_CMD -c "import uvicorn; print('uvicorn OK')" 2>&1 || log "⚠️ uvicorn не найден"
+    $PYTHON_CMD -c "import sys; sys.path.insert(0, '/app/backend'); from main import app; print('main import OK')" 2>&1 || log "⚠️ main import failed"
     exit 1
 fi
 
