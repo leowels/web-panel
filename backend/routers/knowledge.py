@@ -167,7 +167,7 @@ def extract_text_from_docx(file_path: str) -> str:
 
 @router.post("/upload", response_model=KnowledgeBaseResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
-    file: UploadFile = File(...),
+    file: UploadFile = File(),
     document_type: str = Form(...),  # fnp461, gost, manual, other
     section: Optional[str] = Form(None),
     clause_number: Optional[str] = Form(None),

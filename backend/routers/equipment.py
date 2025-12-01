@@ -614,7 +614,7 @@ def _parse_equipment_csv_text(decoded: str) -> (List[EquipmentBulkItem], List[di
 
 @router.post("/bulk/upload", response_model=EquipmentBulkResponse)
 async def bulk_upload_equipment(
-    file: UploadFile = File(...),
+    file: UploadFile = File(),
     skip_duplicates: bool = True,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

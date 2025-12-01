@@ -107,7 +107,7 @@ async def get_files(
 
 @router.post("/upload")
 async def upload_file(
-    file: UploadFile = File(...),
+    file: UploadFile = File(),
     equipment_id: Optional[int] = None,
     inspection_id: Optional[int] = None,
     violation_id: Optional[int] = None,
