@@ -9,6 +9,7 @@ import logging
 import csv
 import io
 import re
+import os
 from pathlib import Path
 
 from PIL import Image
@@ -304,18 +305,38 @@ def _ocr_image_to_text(image_path: str) -> str:
     Используется как бесплатный локальный OCR.
     """
     try:
+        # Открываем изображение
         img = Image.open(image_path)
+        logger.info(f"Opened image: {img.format}, size: {img.size}, mode: {img.mode}")
+        
+        # Конвертируем в RGB, если нужно (для форматов с прозрачностью или других режимов)
+        if img.mode != 'RGB':
+            logger.info(f"Converting image from {img.mode} to RGB")
+            # Создаем белый фон для изображений с прозрачностью
+            rgb_img = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'RGBA':
+                rgb_img.paste(img, mask=img.split()[3])  # Используем альфа-канал как маску
+            else:
+                rgb_img.paste(img)
+            img = rgb_img
+        
+        # Убеждаемся, что изображение в правильном формате для pytesseract
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+            
     except Exception as e:
-        logger.error(f"Failed to open image for OCR: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to open image for OCR: {e}")
+        logger.error(f"Failed to open/process image for OCR: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to open image for OCR: {str(e)}")
 
     try:
         # Русский + английский, таблицы на ПС обычно на русском
-        text = pytesseract.image_to_string(img, lang="rus+eng")
+        # Используем дополнительную обработку для лучшего распознавания таблиц
+        text = pytesseract.image_to_string(img, lang="rus+eng", config='--psm 6')
+        logger.info(f"OCR completed, extracted {len(text)} characters")
         return text
     except Exception as e:
         logger.error(f"OCR error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"OCR error: {e}")
+        raise HTTPException(status_code=500, detail=f"OCR error: {str(e)}")
 
 
 @router.get("", response_model=List[EquipmentResponse])
@@ -1068,8 +1089,37 @@ async def ocr_import_equipment(
         if suffix in {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"} or (
             file_obj.mime_type and file_obj.mime_type.startswith("image/")
         ):
-            logger.info(f"Running OCR for equipment import on image file: {file_obj.file_path}")
-            decoded = _ocr_image_to_text(file_obj.file_path)
+            # Проверяем существование файла и нормализуем путь
+            # Файлы сохраняются как относительные пути типа "uploads/filename"
+            file_path_str = file_obj.file_path
+            
+            # Пробуем разные варианты пути
+            possible_paths = [
+                file_path_str,  # Как есть (если абсолютный)
+                os.path.join("/app/backend", file_path_str),  # Относительно backend
+                os.path.join("/app", file_path_str),  # Относительно корня
+            ]
+            
+            actual_path = None
+            for path in possible_paths:
+                if os.path.exists(path):
+                    actual_path = path
+                    break
+            
+            if not actual_path:
+                # Если ни один путь не найден, пробуем найти файл по имени в uploads
+                filename = os.path.basename(file_path_str)
+                uploads_path = os.path.join("/app/backend", "uploads", filename)
+                if os.path.exists(uploads_path):
+                    actual_path = uploads_path
+                else:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Image file not found on disk. Tried: {possible_paths + [uploads_path]}",
+                    )
+            
+            logger.info(f"Running OCR for equipment import on image file: {actual_path}")
+            decoded = _ocr_image_to_text(actual_path)
         else:
             # Иначе считаем, что это текст/CSV
             try:
