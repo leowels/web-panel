@@ -59,7 +59,11 @@ export const useAuthStore = create<AuthState>()(
           })
           set({ user: userResponse.data })
         } catch (error: any) {
-          throw new Error(error.response?.data?.detail || 'Ошибка входа')
+          throw new Error(
+            error?.response?.data?.detail ||
+            error?.message ||
+            'Ошибка входа'
+          )
         }
       },
 
@@ -81,7 +85,11 @@ export const useAuthStore = create<AuthState>()(
           })
           set({ user: userResponse.data })
         } catch (error: any) {
-          throw new Error(error.response?.data?.detail || 'Ошибка регистрации')
+          throw new Error(
+            error?.response?.data?.detail ||
+            error?.message ||
+            'Ошибка регистрации'
+          )
         }
       },
 
