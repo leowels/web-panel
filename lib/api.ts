@@ -18,8 +18,7 @@ export function assertApiUrlConfigured(): void {
   const isProduction = process.env.NODE_ENV === 'production'
 
   if (!publicApiUrl && isProduction && !isLocalhost) {
-    throw new Error('API URL не настроен: задайте NEXT_PUBLIC_API_URL для frontend-деплоя (например, Netlify).')
+    throw new Error('API URL не настроен: задайте NEXT_PUBLIC_API_URL для frontend-деплоя (например, Vercel/Netlify).')
   }
 }
-
 
