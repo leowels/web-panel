@@ -97,8 +97,8 @@ EXPOSE 3000 8000
 # Health check для Timeweb Cloud
 # Проверяем Backend (основной сервис) - Frontend может запускаться дольше
 # Увеличиваем start-period до 60s, чтобы дать время на запуск и импорт модулей
-HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
+HEALTHCHECK --interval=10s --timeout=5s --start-period=90s --retries=5 \
+    CMD curl -f http://localhost:8000/health || curl -f http://localhost:8000/api/health || exit 1
 
 # Переменные окружения
 ENV PYTHONUNBUFFERED=1
@@ -111,4 +111,3 @@ ENV PATH=/home/appuser/.local/bin:$PATH
 # Запуск через entrypoint
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["/app/docker-entrypoint.sh"]
-
