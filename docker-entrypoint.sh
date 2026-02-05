@@ -5,6 +5,14 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
+BACKEND_STARTUP_TIMEOUT=${BACKEND_STARTUP_TIMEOUT:-120}
+BACKEND_CHECK_INTERVAL=${BACKEND_CHECK_INTERVAL:-2}
+BACKEND_MAX_ATTEMPTS=$((BACKEND_STARTUP_TIMEOUT / BACKEND_CHECK_INTERVAL))
+
+if [ "$BACKEND_MAX_ATTEMPTS" -lt 1 ]; then
+    BACKEND_MAX_ATTEMPTS=1
+fi
+
 health_ok() {
     curl -f -s "http://localhost:${BACKEND_PORT:-8000}/health" > /dev/null 2>&1 || \
     curl -f -s "http://localhost:${BACKEND_PORT:-8000}/api/health" > /dev/null 2>&1
@@ -49,10 +57,10 @@ $PYTHON_CMD run.py > /proc/1/fd/1 2>&1 &
 BACKEND_PID=$!
 
 # Ждем запуска Backend и проверяем готовность
-log "⏳ Ожидание готовности Backend..."
+log "⏳ Ожидание готовности Backend (таймаут ${BACKEND_STARTUP_TIMEOUT}s, интервал ${BACKEND_CHECK_INTERVAL}s)..."
 BACKEND_READY=0
-for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-    sleep 2
+for i in $(seq 1 "$BACKEND_MAX_ATTEMPTS"); do
+    sleep "$BACKEND_CHECK_INTERVAL"
     # Проверяем, что процесс еще работает
     if ! kill -0 $BACKEND_PID 2>/dev/null; then
         log "❌ Backend процесс завершился!"
@@ -64,11 +72,11 @@ for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
         log "✅ Backend готов и отвечает на запросы!"
         break
     fi
-    log "⏳ Попытка $i/20: Backend еще не готов..."
+    log "⏳ Попытка $i/$BACKEND_MAX_ATTEMPTS: Backend еще не готов..."
 done
 
 if [ $BACKEND_READY -eq 0 ]; then
-    log "❌ Backend не отвечает после 40 секунд ожидания!"
+    log "❌ Backend не отвечает после ${BACKEND_STARTUP_TIMEOUT} секунд ожидания!"
     log "Проверка процесса:"
     ps aux | grep python | grep -v grep || true
     log "Проверка порта:"

@@ -27,9 +27,8 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
 # Простой health check
-HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
+HEALTHCHECK --interval=15s --timeout=5s --start-period=120s --retries=8 \
     CMD curl -f http://localhost:8000/health || curl -f http://localhost:8000/api/health || exit 1
 
 # Запуск только Backend
 CMD ["python", "backend/run.py"]
-

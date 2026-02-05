@@ -29,6 +29,7 @@ RUN npm run build
 FROM python:3.11-slim AS backend-builder
 
 WORKDIR /app
+ENV PATH=/root/.local/bin:$PATH
 
 # Установка системных зависимостей для компиляции и OCR
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -97,7 +98,7 @@ EXPOSE 3000 8000
 # Health check для Timeweb Cloud
 # Проверяем Backend (основной сервис) - Frontend может запускаться дольше
 # Увеличиваем start-period до 60s, чтобы дать время на запуск и импорт модулей
-HEALTHCHECK --interval=10s --timeout=5s --start-period=90s --retries=5 \
+HEALTHCHECK --interval=15s --timeout=5s --start-period=180s --retries=8 \
     CMD curl -f http://localhost:8000/health || curl -f http://localhost:8000/api/health || exit 1
 
 # Переменные окружения
