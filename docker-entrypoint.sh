@@ -5,6 +5,11 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
+health_ok() {
+    curl -f -s "http://localhost:${BACKEND_PORT:-8000}/health" > /dev/null 2>&1 || \
+    curl -f -s "http://localhost:${BACKEND_PORT:-8000}/api/health" > /dev/null 2>&1
+}
+
 log "🚀 Запуск приложения..."
 
 # Функция для остановки процессов
@@ -46,7 +51,7 @@ BACKEND_PID=$!
 # Ждем запуска Backend и проверяем готовность
 log "⏳ Ожидание готовности Backend..."
 BACKEND_READY=0
-for i in 1 2 3 4 5 6 7 8 9 10; do
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
     sleep 2
     # Проверяем, что процесс еще работает
     if ! kill -0 $BACKEND_PID 2>/dev/null; then
@@ -54,16 +59,16 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
         exit 1
     fi
     # Проверяем, что Backend отвечает на health check
-    if curl -f -s http://localhost:${BACKEND_PORT:-8000}/api/health > /dev/null 2>&1; then
+    if health_ok; then
         BACKEND_READY=1
         log "✅ Backend готов и отвечает на запросы!"
         break
     fi
-    log "⏳ Попытка $i/10: Backend еще не готов..."
+    log "⏳ Попытка $i/20: Backend еще не готов..."
 done
 
 if [ $BACKEND_READY -eq 0 ]; then
-    log "❌ Backend не отвечает после 20 секунд ожидания!"
+    log "❌ Backend не отвечает после 40 секунд ожидания!"
     log "Проверка процесса:"
     ps aux | grep python | grep -v grep || true
     log "Проверка порта:"
@@ -148,4 +153,3 @@ if [ $EXIT_CODE -ne 0 ]; then
     log "❌ Один из процессов завершился с ошибкой (код: $EXIT_CODE)"
     exit $EXIT_CODE
 fi
-

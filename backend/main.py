@@ -307,6 +307,12 @@ async def api_root():
         }
     }
 
+
+@app.get("/health")
+async def health_check_compat():
+    """Совместимый health endpoint для платформ, ожидающих /health."""
+    return await health_check()
+
 # Проксирование всех не-API запросов на Frontend
 # В production отключено - Frontend должен обслуживать запросы сам через веб-сервер
 # Включается по умолчанию (можно выключить переменной ENABLE_FRONTEND_PROXY=false)

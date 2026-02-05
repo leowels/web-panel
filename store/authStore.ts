@@ -1,13 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import axios from 'axios'
-
-// Используем относительный путь для прокси Next.js (в браузере)
-// В браузере window !== undefined, поэтому используем пустую строку
-// Next.js автоматически проксирует /api/* на Backend через rewrites
-const API_URL = typeof window !== 'undefined' 
-  ? (process.env.NEXT_PUBLIC_API_URL || '') 
-  : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
+import { API_URL, assertApiUrlConfigured } from '@/lib/api'
 
 interface Role {
   id: number
@@ -51,6 +45,7 @@ export const useAuthStore = create<AuthState>()(
 
       login: async (username: string, password: string) => {
         try {
+          assertApiUrlConfigured()
           const response = await axios.post(`${API_URL}/api/auth/login`, {
             username,
             password,
@@ -64,12 +59,17 @@ export const useAuthStore = create<AuthState>()(
           })
           set({ user: userResponse.data })
         } catch (error: any) {
-          throw new Error(error.response?.data?.detail || 'Ошибка входа')
+          throw new Error(
+            error?.response?.data?.detail ||
+            error?.message ||
+            'Ошибка входа'
+          )
         }
       },
 
       register: async (username: string, email: string, password: string, fullName?: string) => {
         try {
+          assertApiUrlConfigured()
           const response = await axios.post(`${API_URL}/api/auth/register`, {
             username,
             email,
@@ -85,7 +85,11 @@ export const useAuthStore = create<AuthState>()(
           })
           set({ user: userResponse.data })
         } catch (error: any) {
-          throw new Error(error.response?.data?.detail || 'Ошибка регистрации')
+          throw new Error(
+            error?.response?.data?.detail ||
+            error?.message ||
+            'Ошибка регистрации'
+          )
         }
       },
 
