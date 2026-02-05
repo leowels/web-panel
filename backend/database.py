@@ -3,6 +3,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import inspect, text
 import logging
 import os
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 # Поддержка запуска как скрипта и как модуля
 try:
@@ -37,13 +38,39 @@ if not _raw_db_url:
         # Fallback на SQLite для разработки
         _raw_db_url = "sqlite+aiosqlite:///./inspectorhub.db"
 
-# Конвертируем postgresql:// в postgresql+asyncpg:// для SQLAlchemy async
-if _raw_db_url.startswith("postgresql://"):
-    DATABASE_URL = _raw_db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-elif _raw_db_url.startswith("postgresql+asyncpg://"):
-    DATABASE_URL = _raw_db_url
-else:
-    DATABASE_URL = _raw_db_url
+def _normalize_database_url(raw_url: str) -> tuple[str, str | None]:
+    """
+    Нормализует DATABASE_URL для SQLAlchemy + asyncpg.
+
+    В managed PostgreSQL часто используется `?sslmode=require`,
+    но asyncpg не понимает параметр `sslmode` в query-строке.
+    Мы удаляем его из URL и применяем через connect_args.
+    """
+    if raw_url.startswith("postgresql://"):
+        normalized = raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    else:
+        normalized = raw_url
+
+    if not normalized.startswith("postgresql+asyncpg://"):
+        return normalized, None
+
+    parsed = urlsplit(normalized)
+    query_items = parse_qsl(parsed.query, keep_blank_values=True)
+
+    sslmode = None
+    filtered_query: list[tuple[str, str]] = []
+    for key, value in query_items:
+        if key.lower() == "sslmode":
+            sslmode = value.lower()
+        else:
+            filtered_query.append((key, value))
+
+    cleaned_query = urlencode(filtered_query)
+    cleaned_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, cleaned_query, parsed.fragment))
+    return cleaned_url, sslmode
+
+
+DATABASE_URL, db_sslmode = _normalize_database_url(_raw_db_url)
 
 # Предупреждение о SQLite в production
 if DATABASE_URL.startswith("sqlite") and os.getenv("ENVIRONMENT") == "production":
@@ -58,8 +85,16 @@ if DATABASE_URL.startswith("sqlite") and os.getenv("ENVIRONMENT") == "production
 connect_args = {}
 if DATABASE_URL.startswith("postgresql+asyncpg://") or DATABASE_URL.startswith("postgresql://"):
     # Для asyncpg SSL настраивается через connect_args
-    # Проверяем, требуется ли SSL (по умолчанию для внешних БД - да)
-    ssl_required = os.getenv("POSTGRESQL_SSL", "true").lower() == "true"
+    # Приоритет:
+    # 1) sslmode из DATABASE_URL (если задан)
+    # 2) POSTGRESQL_SSL (иначе, по умолчанию false для локальных/обычных инсталляций)
+    if db_sslmode in {"require", "verify-ca", "verify-full"}:
+        ssl_required = True
+    elif db_sslmode in {"disable", "allow", "prefer"}:
+        ssl_required = False
+    else:
+        ssl_required = os.getenv("POSTGRESQL_SSL", "false").lower() == "true"
+
     if ssl_required:
         import ssl
         # Создаем SSL контекст без проверки сертификата (для self-signed сертификатов)
@@ -127,4 +162,3 @@ def _apply_custom_migrations(sync_conn):
             logger.info(f"✓ Applied migration: {stmt}")
         except Exception as exc:
             logger.warning(f"⚠️ Failed to apply migration '{stmt}': {exc}")
-
