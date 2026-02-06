@@ -634,4 +634,3 @@ async def get_equipment_ai_risk(
             status_code=500,
             detail=f"AI risk assessment error: {str(e)}"
         )
-

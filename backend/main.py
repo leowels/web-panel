@@ -7,6 +7,32 @@ import sys
 import logging
 import httpx
 from datetime import datetime
+from pathlib import Path
+
+# Загружаем переменные окружения из .env файла ДО всех импортов
+# Это критично, так как auth.py проверяет SECRET_KEY при импорте
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(backend_dir)
+env_paths = [
+    os.path.join(backend_dir, ".env"),
+    os.path.join(backend_dir, "ENV_BACKEND.txt"),
+    os.path.join(parent_dir, ".env"),
+]
+
+try:
+    from dotenv import load_dotenv
+    loaded = False
+    for env_path in env_paths:
+        if os.path.exists(env_path):
+            load_dotenv(env_path, override=False)
+            print(f"[INFO] Загружены переменные окружения из: {env_path}")
+            loaded = True
+            break
+    if not loaded:
+        print(f"[WARNING] Файлы с переменными окружения не найдены. Проверялись пути: {env_paths}")
+        print(f"[INFO] SECRET_KEY из окружения: {'установлен' if os.getenv('SECRET_KEY') else 'НЕ установлен'}")
+except ImportError:
+    print("[WARNING] python-dotenv не установлен, переменные окружения не загружены из файла")
 
 # Настройка логирования с временными метками
 logging.basicConfig(

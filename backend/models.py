@@ -81,6 +81,8 @@ class Equipment(Base):
     cto_date = Column(DateTime, nullable=True, index=True)  # Дата ЧТО
     installation_location = Column(String, nullable=True)  # Место установки
     status = Column(String, default="active", index=True)  # active, inactive, archived
+    map_x = Column(Float, nullable=True)  # Координата X на карте (0-100%)
+    map_y = Column(Float, nullable=True)  # Координата Y на карте (0-100%)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -426,4 +428,3 @@ class Report(Base):
     completed_at = Column(DateTime, nullable=True)
     
     generator = relationship("User")
-

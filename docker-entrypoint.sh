@@ -7,6 +7,24 @@ log() {
 
 log "🚀 Запуск приложения..."
 
+# Загружаем переменные окружения из файла ПЕРЕД всеми остальными операциями
+# Это критично, так как некоторые модули проверяют переменные при импорте
+if [ -f "/app/backend/ENV_BACKEND.txt" ]; then
+    log "📄 Загрузка переменных окружения из ENV_BACKEND.txt..."
+    set -a
+    . /app/backend/ENV_BACKEND.txt
+    set +a
+    log "✅ Переменные окружения загружены"
+elif [ -f "/app/backend/.env" ]; then
+    log "📄 Загрузка переменных окружения из .env..."
+    set -a
+    . /app/backend/.env
+    set +a
+    log "✅ Переменные окружения загружены"
+else
+    log "⚠️ Файлы с переменными окружения не найдены (ENV_BACKEND.txt или .env)"
+fi
+
 # Функция для остановки процессов
 cleanup() {
     log "🛑 Получен сигнал остановки, завершаем процессы..."
@@ -30,6 +48,14 @@ log "PATH: $PATH"
 # Устанавливаем PYTHONPATH для поиска модулей в .local
 export PYTHONPATH=/home/appuser/.local/lib/python3.11/site-packages:$PYTHONPATH
 log "PYTHONPATH: $PYTHONPATH"
+
+# Проверяем критичные переменные
+if [ -z "$SECRET_KEY" ]; then
+    log "⚠️ SECRET_KEY не установлен! Приложение может не запуститься."
+fi
+if [ -z "$DATABASE_URL" ] && [ -z "$POSTGRESQL_HOST" ]; then
+    log "⚠️ DATABASE_URL или POSTGRESQL_HOST не установлены! Приложение может не запуститься."
+fi
 
 # Запуск Backend
 log "📦 Запуск Backend на порту ${BACKEND_PORT:-8000}..."

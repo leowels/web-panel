@@ -20,6 +20,7 @@ export default function Sidebar() {
     { name: 'Дашборд', href: '/dashboard', icon: DashboardIcon },
     { name: 'Пользователи', href: '/users', icon: UsersIcon },
     { name: 'Оборудование', href: '/equipment', icon: EquipmentIcon },
+    { name: 'Карта цеха', href: '/workshop-map', icon: EquipmentIcon },
     { name: 'Чек-листы', href: '/checklists', icon: ChecklistIcon },
     { name: 'Осмотры', href: '/inspections', icon: InspectionIcon },
     { name: 'Нарушения', href: '/violations', icon: ViolationIcon },

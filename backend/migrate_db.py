@@ -218,6 +218,19 @@ MIGRATIONS = [
         ],
     },
     {
+        "name": "equipment map coordinates",
+        "statements": [
+            """
+            ALTER TABLE IF EXISTS equipment
+            ADD COLUMN IF NOT EXISTS map_x REAL
+            """,
+            """
+            ALTER TABLE IF EXISTS equipment
+            ADD COLUMN IF NOT EXISTS map_y REAL
+            """,
+        ],
+    },
+    {
         "name": "indexes",
         "statements": [
             "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)",

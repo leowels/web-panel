@@ -41,6 +41,8 @@ class EquipmentCreate(BaseModel):
     inventory_number: Optional[str] = None
     position: Optional[str] = None
     workshop: Optional[str] = None
+    map_x: Optional[float] = None  # Координата X на карте (0-100%)
+    map_y: Optional[float] = None  # Координата Y на карте (0-100%)
     status: Optional[str] = "active"
 
 class EquipmentUpdate(BaseModel):
@@ -55,6 +57,8 @@ class EquipmentUpdate(BaseModel):
     inventory_number: Optional[str] = None
     position: Optional[str] = None
     workshop: Optional[str] = None
+    map_x: Optional[float] = None  # Координата X на карте (0-100%)
+    map_y: Optional[float] = None  # Координата Y на карте (0-100%)
     status: Optional[str] = None
 
 class EquipmentResponse(BaseModel):
@@ -64,6 +68,8 @@ class EquipmentResponse(BaseModel):
     inventory_number: Optional[str]
     position: Optional[str]
     workshop: Optional[str]
+    map_x: Optional[float]  # Координата X на карте (0-100%)
+    map_y: Optional[float]  # Координата Y на карте (0-100%)
     load_capacity: Optional[float]
     manufacturer: Optional[str]
     installation_date: Optional[datetime]
@@ -159,6 +165,8 @@ def _equipment_to_response(equipment: Equipment) -> EquipmentResponse:
         inventory_number=equipment.inventory_number,
         position=equipment.position,
         workshop=equipment.workshop,
+        map_x=equipment.map_x,
+        map_y=equipment.map_y,
         load_capacity=equipment.load_capacity,
         manufacturer=equipment.manufacturer,
         installation_date=equipment.installation_date,
@@ -1232,4 +1240,3 @@ async def get_equipment_violations(
             "workshop": equipment.workshop
         }
     }
-

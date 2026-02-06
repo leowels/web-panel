@@ -6,6 +6,34 @@ import sys
 import os
 import logging
 from datetime import datetime
+from pathlib import Path
+
+# Определяем пути до загрузки .env
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(backend_dir)
+
+# Загружаем переменные окружения из .env файла ДО настройки логирования
+# Пробуем несколько возможных путей
+env_paths = [
+    os.path.join(backend_dir, ".env"),
+    os.path.join(backend_dir, "ENV_BACKEND.txt"),
+    os.path.join(parent_dir, ".env"),
+]
+
+try:
+    from dotenv import load_dotenv
+    loaded = False
+    for env_path in env_paths:
+        if os.path.exists(env_path):
+            load_dotenv(env_path, override=False)  # override=False - не перезаписывать существующие переменные
+            print(f"[INFO] Загружены переменные окружения из: {env_path}")
+            loaded = True
+            break
+    if not loaded:
+        print(f"[WARNING] Файлы с переменными окружения не найдены. Проверялись пути: {env_paths}")
+        print(f"[INFO] SECRET_KEY из окружения: {'установлен' if os.getenv('SECRET_KEY') else 'НЕ установлен'}")
+except ImportError:
+    print("[WARNING] python-dotenv не установлен, переменные окружения не загружены из файла")
 
 # Настройка логирования с временными метками
 logging.basicConfig(
@@ -13,10 +41,6 @@ logging.basicConfig(
     format='%(asctime)s | %(levelname)s | %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
-
-# Добавляем родительскую директорию в путь для абсолютных импортов
-backend_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(backend_dir)
 
 # Добавляем пути в sys.path
 if parent_dir not in sys.path:
