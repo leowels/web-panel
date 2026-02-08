@@ -313,6 +313,18 @@ class SystemSettings(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
+# БЛОК 11.1: Карта цеха (конфигурация)
+class WorkshopMap(Base):
+    __tablename__ = "workshop_maps"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    workshop = Column(String, unique=True, index=True)
+    data = Column(JSON, nullable=False)  # элементы карты + настройки
+    background_path = Column(String, nullable=True)  # путь к фону карты
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
 # БЛОК 12: Refresh токены
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"

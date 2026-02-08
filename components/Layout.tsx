@@ -9,11 +9,13 @@ import AIPanel from '@/components/AIPanel'
 
 interface LayoutProps {
   children: ReactNode
+  fullWidth?: boolean
 }
 
-export default function Layout({ children }: LayoutProps) {
+export default function Layout({ children, fullWidth = false }: LayoutProps) {
   const { user } = useAuthStore()
   const [showAIPanel, setShowAIPanel] = useState(false)
+  const containerClass = fullWidth ? 'max-w-none' : 'max-w-7xl'
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -21,7 +23,7 @@ export default function Layout({ children }: LayoutProps) {
       <div className="flex flex-1 flex-col lg:flex-row">
         <Sidebar />
         <main className="flex-1 w-full">
-          <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:py-8 lg:pb-12">
+          <div className={`w-full ${containerClass} mx-auto px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:py-8 lg:pb-12`}>
             {children}
           </div>
         </main>

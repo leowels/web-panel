@@ -26,9 +26,10 @@ interface InspectionWizardProps {
   inspectionId: number | null
   onClose: () => void
   onSuccess: () => void
+  initialEquipmentId?: number | null
 }
 
-export default function InspectionWizard({ inspectionId, onClose, onSuccess }: InspectionWizardProps) {
+export default function InspectionWizard({ inspectionId, onClose, onSuccess, initialEquipmentId }: InspectionWizardProps) {
   const { token } = useAuthStore()
   const { addNotification } = useNotificationStore()
   const [step, setStep] = useState(1)
@@ -48,6 +49,12 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess }: I
       fetchInspection()
     }
   }, [inspectionId])
+
+  useEffect(() => {
+    if (!inspectionId && initialEquipmentId) {
+      setEquipmentId(initialEquipmentId)
+    }
+  }, [inspectionId, initialEquipmentId])
 
   const fetchEquipment = async () => {
     try {
@@ -416,4 +423,3 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess }: I
     </div>
   )
 }
-

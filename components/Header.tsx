@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/authStore'
@@ -41,7 +41,7 @@ export default function Header({ user, onAIClick }: HeaderProps) {
               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
-              ИИ Помощник
+              ИИ помощник
             </button>
 
             <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 bg-gray-50 sm:bg-transparent px-3 py-3 sm:p-0 rounded-xl border border-gray-200 sm:border-none">
@@ -67,4 +67,3 @@ export default function Header({ user, onAIClick }: HeaderProps) {
     </header>
   )
 }
-

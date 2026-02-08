@@ -14,14 +14,14 @@ from pathlib import Path
 try:
     from backend.models import (
         Report, Equipment, Violation, Task, User, UserActivity,
-        Inspection, Permit
+        Inspection, Permit, KnowledgeBase
     )
     from backend.database import get_db
     from backend.auth import get_current_user, require_permission
 except ImportError:
     from ..models import (
         Report, Equipment, Violation, Task, User, UserActivity,
-        Inspection, Permit
+        Inspection, Permit, KnowledgeBase
     )
     from ..database import get_db
     from ..auth import get_current_user, require_permission
@@ -36,6 +36,16 @@ class ReportGenerateRequest(BaseModel):
     date_to: Optional[date] = None
     file_format: str = "pdf"  # pdf, docx, xlsx
     parameters: Optional[Dict[str, Any]] = None
+
+class ReportAIDraftRequest(BaseModel):
+    type: str  # shift_report, violation_summary, equipment_status, task_summary
+    equipment_ids: Optional[List[int]] = None
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    parameters: Optional[Dict[str, Any]] = None
+
+class ReportAIDraftResponse(BaseModel):
+    content: str
 
 class ReportResponse(BaseModel):
     id: int
@@ -260,6 +270,184 @@ async def generate_equipment_status_report(
     
     return report_data
 
+async def _build_violation_summary_data(
+    equipment_ids: List[int],
+    date_from: Optional[date],
+    date_to: Optional[date],
+    db: AsyncSession
+) -> Dict[str, Any]:
+    query = select(Violation)
+    if equipment_ids:
+        query = query.where(Violation.equipment_id.in_(equipment_ids))
+    if date_from:
+        query = query.where(Violation.created_at >= datetime.combine(date_from, datetime.min.time()))
+    if date_to:
+        query = query.where(Violation.created_at <= datetime.combine(date_to, datetime.max.time()))
+    
+    result = await db.execute(query)
+    violations = result.scalars().all()
+    
+    by_severity = {}
+    by_status = {}
+    by_equipment = {}
+    for v in violations:
+        by_severity[v.severity] = by_severity.get(v.severity, 0) + 1
+        by_status[v.status] = by_status.get(v.status, 0) + 1
+        eq_key = str(v.equipment_id or "unknown")
+        by_equipment[eq_key] = by_equipment.get(eq_key, 0) + 1
+    
+    top_equipment = sorted(by_equipment.items(), key=lambda x: x[1], reverse=True)[:10]
+    
+    return {
+        "total_violations": len(violations),
+        "by_severity": by_severity,
+        "by_status": by_status,
+        "top_equipment": [{"equipment_id": k, "count": v} for k, v in top_equipment],
+    }
+
+async def _build_task_summary_data(
+    equipment_ids: List[int],
+    date_from: Optional[date],
+    date_to: Optional[date],
+    db: AsyncSession
+) -> Dict[str, Any]:
+    query = select(Task)
+    if equipment_ids:
+        query = query.where(Task.equipment_id.in_(equipment_ids))
+    if date_from:
+        query = query.where(Task.created_at >= datetime.combine(date_from, datetime.min.time()))
+    if date_to:
+        query = query.where(Task.created_at <= datetime.combine(date_to, datetime.max.time()))
+    
+    result = await db.execute(query)
+    tasks = result.scalars().all()
+    
+    by_status = {}
+    by_priority = {}
+    overdue = 0
+    now = datetime.utcnow()
+    for t in tasks:
+        by_status[t.status] = by_status.get(t.status, 0) + 1
+        by_priority[t.priority] = by_priority.get(t.priority, 0) + 1
+        if t.due_date and t.due_date < now and t.status != "completed":
+            overdue += 1
+    
+    return {
+        "total_tasks": len(tasks),
+        "by_status": by_status,
+        "by_priority": by_priority,
+        "overdue_tasks": overdue,
+    }
+
+async def _build_report_data_for_ai(
+    request: ReportAIDraftRequest,
+    db: AsyncSession
+) -> Dict[str, Any]:
+    equipment_ids = request.equipment_ids or []
+    
+    if request.type == "shift_report":
+        if not request.date_from or not request.date_to:
+            raise ValueError("date_from and date_to are required for shift_report")
+        report_data = await generate_shift_report_content(
+            equipment_ids,
+            request.date_from,
+            request.date_to,
+            db
+        )
+        return {
+            "type": request.type,
+            "period": report_data.get("period"),
+            "summary": report_data.get("summary"),
+        }
+    
+    if request.type == "equipment_status":
+        report_data = await generate_equipment_status_report(
+            equipment_ids,
+            db
+        )
+        return {
+            "type": request.type,
+            "generated_at": report_data.get("generated_at"),
+            "summary": report_data.get("summary"),
+        }
+    
+    if request.type == "violation_summary":
+        summary = await _build_violation_summary_data(
+            equipment_ids,
+            request.date_from,
+            request.date_to,
+            db
+        )
+        return {
+            "type": request.type,
+            "period": {
+                "from": request.date_from.isoformat() if request.date_from else None,
+                "to": request.date_to.isoformat() if request.date_to else None,
+            },
+            "summary": summary,
+        }
+    
+    if request.type == "task_summary":
+        summary = await _build_task_summary_data(
+            equipment_ids,
+            request.date_from,
+            request.date_to,
+            db
+        )
+        return {
+            "type": request.type,
+            "period": {
+                "from": request.date_from.isoformat() if request.date_from else None,
+                "to": request.date_to.isoformat() if request.date_to else None,
+            },
+            "summary": summary,
+        }
+    
+    raise ValueError("Invalid report type")
+
+async def _build_reports_knowledge_context(
+    db: AsyncSession,
+    query_text: str,
+    limit: int = 6,
+    max_chars: int = 5000
+) -> str:
+    if not query_text or not query_text.strip():
+        return ""
+    
+    query = select(KnowledgeBase).where(
+        or_(
+            KnowledgeBase.title.ilike(f"%{query_text}%"),
+            KnowledgeBase.content.ilike(f"%{query_text}%"),
+            KnowledgeBase.section.ilike(f"%{query_text}%"),
+            KnowledgeBase.clause_number.ilike(f"%{query_text}%")
+        )
+    ).limit(limit)
+    
+    result = await db.execute(query)
+    items = result.scalars().all()
+    
+    if not items:
+        return ""
+    
+    parts = ["\n\n=== РЕЛЕВАНТНАЯ ДОКУМЕНТАЦИЯ ИЗ БАЗЫ ЗНАНИЙ ===\n"]
+    used = 0
+    for item in items:
+        header = f"[{item.document_type.upper()}] {item.title}"
+        meta = []
+        if item.section:
+            meta.append(f"Раздел: {item.section}")
+        if item.clause_number:
+            meta.append(f"Пункт: {item.clause_number}")
+        meta_text = "\n".join(meta) + "\n" if meta else ""
+        snippet = (item.content or "")[:800]
+        block = f"{header}\n{meta_text}{snippet}\n\n"
+        if used + len(block) > max_chars:
+            break
+        parts.append(block)
+        used += len(block)
+    
+    return "".join(parts)
+
 async def generate_report_file(report_data: Dict[str, Any], file_format: str, report_type: str, report_id: int) -> str:
     """Генерация файла отчета"""
     # Создаем директорию для отчетов если не существует
@@ -373,6 +561,75 @@ async def get_report(
         raise HTTPException(status_code=404, detail="Report not found")
     
     return _report_to_response(report)
+
+@router.post("/ai-draft", response_model=ReportAIDraftResponse)
+async def generate_report_ai_draft(
+    request: ReportAIDraftRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Сгенерировать AI-черновик отчета (без сохранения)"""
+    await require_permission(current_user, "reports:read", db)
+    
+    valid_types = ["shift_report", "violation_summary", "equipment_status", "task_summary"]
+    if request.type not in valid_types:
+        raise HTTPException(status_code=400, detail=f"Invalid report type. Must be one of: {valid_types}")
+    
+    try:
+        try:
+            from backend.ai_client import get_ai_client_async
+        except ImportError:
+            from ai_client import get_ai_client_async
+        
+        ai_client = await get_ai_client_async(db)
+        if not ai_client:
+            raise HTTPException(
+                status_code=400,
+                detail="AI не настроен. Перейдите в раздел 'Настройки' -> 'AI конфигурация' и настройте AI провайдера."
+            )
+        
+        report_data = await _build_report_data_for_ai(request, db)
+        knowledge_query = f"{request.type} {request.parameters or ''} ПТО ЧТО безопасность нарушения"
+        knowledge_context = await _build_reports_knowledge_context(db, knowledge_query)
+        
+        prompt = f"""Сформируй КРАТКИЙ черновик отчета на основе данных.
+
+Тип отчета: {request.type}
+Параметры: {request.parameters or {}}
+
+Данные:
+{report_data}
+{knowledge_context}
+
+Требования:
+- 5-10 коротких абзацев
+- Только факты и выводы по данным
+- Краткие рекомендации в конце (3-5 пунктов)
+- Официальный деловой стиль"""
+        
+        system_prompt = "Ты помощник для подготовки отчетов. Ответ только на русском. Пиши кратко, структурированно, без воды."
+        
+        ai_content = ai_client.generate_text(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            max_tokens=1500,
+            temperature=0.4
+        )
+        
+        activity = UserActivity(
+            user_id=current_user.id,
+            action_type="create",
+            entity_type="report_ai_draft",
+            description=f"AI draft generated for report type: {request.type}"
+        )
+        db.add(activity)
+        await db.commit()
+        
+        return ReportAIDraftResponse(content=ai_content)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI generation error: {str(e)}")
 
 @router.post("/generate", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
 async def generate_report(

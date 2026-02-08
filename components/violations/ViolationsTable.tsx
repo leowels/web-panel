@@ -1,13 +1,18 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import axios from 'axios'
+import { format } from 'date-fns'
 import { useAuthStore } from '@/store/authStore'
 import { useNotificationStore } from '@/store/notificationStore'
-import { format } from 'date-fns'
+import { useAIContextStore } from '@/store/aiContextStore'
 import ViolationsBulkStatus from './ViolationsBulkStatus'
 
-const API_URL = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '') : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
+const API_URL =
+  typeof window !== 'undefined'
+    ? process.env.NEXT_PUBLIC_API_URL || ''
+    : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 interface Violation {
   id: number
@@ -33,12 +38,7 @@ interface Violation {
   reported_by?: number | null
   attachment_meta?: Record<string, any> | null
   ai_classification?: {
-    type?: string
-    severity?: string
-    norm_block?: string
     confidence?: number
-    gost_reference?: string
-    labels?: string[]
   } | null
   ai_recommendations?: {
     quote?: string
@@ -58,19 +58,34 @@ interface ViolationsTableProps {
   refreshKey?: number
 }
 
+type WorkflowBusyAction = 'task' | 'act' | null
+
 export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: ViolationsTableProps) {
-  const { token } = useAuthStore()
+  const router = useRouter()
+  const { token, user } = useAuthStore()
   const { addNotification } = useNotificationStore()
+  const { setFilters, setSelection } = useAIContextStore()
   const [violations, setViolations] = useState<Violation[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('')
   const [severityFilter, setSeverityFilter] = useState('')
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [showBulkStatus, setShowBulkStatus] = useState(false)
+  const [workflowBusy, setWorkflowBusy] = useState<{ action: WorkflowBusyAction; id: number | null }>({
+    action: null,
+    id: null,
+  })
 
   useEffect(() => {
     fetchViolations()
   }, [statusFilter, severityFilter, refreshKey])
+
+  useEffect(() => {
+    setFilters({
+      status: statusFilter,
+      severity: severityFilter,
+    })
+  }, [statusFilter, severityFilter, setFilters])
 
   const fetchViolations = async () => {
     setLoading(true)
@@ -78,7 +93,7 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
       const params = new URLSearchParams()
       if (statusFilter) params.append('status', statusFilter)
       if (severityFilter) params.append('severity', severityFilter)
-      
+
       const response = await axios.get(`${API_URL}/api/violations?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -91,33 +106,28 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
   }
 
   const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case 'critical':
-        return 'bg-red-100 text-red-800'
-      case 'high':
-        return 'bg-orange-100 text-orange-800'
-      case 'medium':
-        return 'bg-yellow-100 text-yellow-800'
-      case 'low':
-        return 'bg-blue-100 text-blue-800'
-      default:
-        return 'bg-gray-100 text-gray-800'
-    }
+    if (severity === 'critical') return 'bg-red-100 text-red-800'
+    if (severity === 'high') return 'bg-orange-100 text-orange-800'
+    if (severity === 'medium') return 'bg-yellow-100 text-yellow-800'
+    if (severity === 'low') return 'bg-blue-100 text-blue-800'
+    return 'bg-gray-100 text-gray-800'
   }
 
   const getSeverityText = (severity: string) => {
-    switch (severity) {
-      case 'critical':
-        return 'Критическое'
-      case 'high':
-        return 'Высокое'
-      case 'medium':
-        return 'Среднее'
-      case 'low':
-        return 'Низкое'
-      default:
-        return severity
-    }
+    if (severity === 'critical') return 'Критическое'
+    if (severity === 'high') return 'Высокое'
+    if (severity === 'medium') return 'Среднее'
+    if (severity === 'low') return 'Низкое'
+    return severity
+  }
+
+  const handleViewViolation = (violation: Violation) => {
+    setSelection({
+      type: 'нарушение',
+      id: violation.id,
+      label: violation.violation_type || violation.violation_type_description || violation.description?.slice(0, 80),
+    })
+    onView(violation.id)
   }
 
   const renderAIInsights = (violation: Violation) => {
@@ -130,15 +140,12 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
       (violation.ai_recommendations?.requirements && violation.ai_recommendations.requirements.length > 0) ||
       typeof violation.ai_classification?.confidence === 'number'
 
-    if (!hasAIData) {
-      return null
-    }
+    if (!hasAIData) return null
 
     const requirements =
       violation.requirements && violation.requirements.length > 0
         ? violation.requirements
         : violation.ai_recommendations?.requirements || []
-
     const confidence =
       typeof violation.ai_classification?.confidence === 'number'
         ? `${Math.round(violation.ai_classification.confidence * 100)}%`
@@ -158,33 +165,27 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
             </span>
           )}
         </div>
-        {violation.violation_type_description || violation.violation_type ? (
+        {(violation.violation_type_description || violation.violation_type) && (
           <div className="text-xs font-semibold text-primary-800">
             {violation.violation_type_description || violation.violation_type}
           </div>
-        ) : null}
+        )}
         {violation.norm_reference && (
           <div className="text-xs text-gray-600">
             Норматив: <span className="font-medium">{violation.norm_reference}</span>
           </div>
         )}
         {violation.recommended_act_text && (
-          <div className="text-xs text-gray-600 italic">
-            «{violation.recommended_act_text}»
-          </div>
+          <div className="text-xs text-gray-600 italic">«{violation.recommended_act_text}»</div>
         )}
-        {requirements && requirements.length > 0 && (
+        {requirements.length > 0 && (
           <div className="text-xs text-gray-600">
             <span className="font-semibold text-gray-700">Требования:</span>
             <ul className="list-disc list-inside space-y-0.5 mt-1">
               {requirements.slice(0, 3).map((req, idx) => (
                 <li key={idx}>{req}</li>
               ))}
-              {requirements.length > 3 && (
-                <li className="text-gray-400">
-                  + ещё {requirements.length - 3}
-                </li>
-              )}
+              {requirements.length > 3 && <li className="text-gray-400">+ еще {requirements.length - 3}</li>}
             </ul>
           </div>
         )}
@@ -194,24 +195,87 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
-      setSelectedIds(violations.map(v => v.id))
+      setSelectedIds(violations.map((v) => v.id))
     } else {
       setSelectedIds([])
     }
   }
 
   const handleSelectOne = (id: number) => {
-    setSelectedIds(prev => 
-      prev.includes(id) 
-        ? prev.filter(selectedId => selectedId !== id)
-        : [...prev, id]
-    )
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]))
   }
 
   const handleBulkSuccess = () => {
     setSelectedIds([])
     setShowBulkStatus(false)
     fetchViolations()
+  }
+
+  const handleCreateTaskFromViolation = async (violation: Violation) => {
+    if (!token) {
+      addNotification('Ошибка авторизации', 'error')
+      return
+    }
+
+    setWorkflowBusy({ action: 'task', id: violation.id })
+    try {
+      const response = await axios.post(
+        `${API_URL}/api/workflow/violations/${violation.id}/task`,
+        {
+          title: violation.violation_type
+            ? `Устранить нарушение: ${violation.violation_type}`
+            : `Устранить нарушение #${violation.id}`,
+          description: violation.description,
+          due_date: violation.deadline ? `${violation.deadline.split('T')[0]}T00:00:00` : null,
+          force_create: false,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+
+      if (response.data?.created) {
+        addNotification(`Задача #${response.data.task_id} создана`, 'success')
+      } else {
+        addNotification(`Использована существующая задача #${response.data.task_id}`, 'warning')
+      }
+    } catch (error: any) {
+      addNotification(error.response?.data?.detail || 'Ошибка создания задачи', 'error')
+    } finally {
+      setWorkflowBusy({ action: null, id: null })
+    }
+  }
+
+  const handleCreateActFromViolation = async (violation: Violation) => {
+    if (!token) {
+      addNotification('Ошибка авторизации', 'error')
+      return
+    }
+
+    setWorkflowBusy({ action: 'act', id: violation.id })
+    try {
+      const response = await axios.post(
+        `${API_URL}/api/workflow/violations/${violation.id}/act`,
+        {
+          organization: user?.organization || undefined,
+          force_create: false,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+
+      const actId = response.data?.act_id
+      if (response.data?.created) {
+        addNotification(`Акт ${response.data.act_number} создан`, 'success')
+      } else {
+        addNotification(`Использован существующий акт ${response.data.act_number}`, 'warning')
+      }
+
+      if (actId) {
+        router.push(`/acts?act_id=${actId}`)
+      }
+    } catch (error: any) {
+      addNotification(error.response?.data?.detail || 'Ошибка создания акта', 'error')
+    } finally {
+      setWorkflowBusy({ action: null, id: null })
+    }
   }
 
   return (
@@ -239,8 +303,7 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
             <option value="low">Низкое</option>
           </select>
         </div>
-        
-        {/* Кнопки массовых операций */}
+
         {selectedIds.length > 0 && (
           <div className="mt-4 p-4 bg-gradient-to-r from-primary-50 to-blue-50 border-2 border-primary-200 rounded-xl shadow-soft">
             <div className="flex flex-wrap items-center gap-3">
@@ -248,9 +311,7 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
                 <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span className="text-sm font-bold text-primary-700">
-                  Выбрано: {selectedIds.length}
-                </span>
+                <span className="text-sm font-bold text-primary-700">Выбрано: {selectedIds.length}</span>
               </div>
               <button
                 onClick={() => setShowBulkStatus(true)}
@@ -293,13 +354,13 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
                       className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
                     />
                   </th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[25%]">Описание</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[15%]">Оборудование</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[24%]">Описание</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[14%]">Оборудование</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[12%]">ФНП/ГОСТ</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Критичность</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Статус</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[10%]">Срок</th>
-                  <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-[8%]">Действия</th>
+                  <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-[20%]">Workflow</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -314,14 +375,19 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
                       />
                     </td>
                     <td className="px-3 py-3">
-                      <div className="text-sm text-gray-900 break-words" style={{ 
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                        maxHeight: '3em'
-                      }}>{violation.description}</div>
-                    {renderAIInsights(violation)}
+                      <div
+                        className="text-sm text-gray-900 break-words"
+                        style={{
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          maxHeight: '3em',
+                        }}
+                      >
+                        {violation.description}
+                      </div>
+                      {renderAIInsights(violation)}
                     </td>
                     <td className="px-3 py-3 text-sm text-gray-600">
                       {violation.equipment ? (
@@ -329,9 +395,7 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
                           <div className="font-semibold text-gray-900 truncate">{violation.equipment.passport_number}</div>
                           <div className="text-xs text-gray-500 truncate">{violation.equipment.equipment_type}</div>
                           {violation.equipment.position && (
-                            <div className="text-xs text-gray-500 truncate">
-                              Поз: {violation.equipment.position}
-                            </div>
+                            <div className="text-xs text-gray-500 truncate">Поз: {violation.equipment.position}</div>
                           )}
                         </div>
                       ) : (
@@ -339,13 +403,15 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
                       )}
                     </td>
                     <td className="px-3 py-3 text-sm text-gray-500 break-words">
-                      <div style={{ 
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                        maxHeight: '3em'
-                      }}>
+                      <div
+                        style={{
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          maxHeight: '3em',
+                        }}
+                      >
                         {violation.fnp_clause || violation.gost_clause || '-'}
                       </div>
                     </td>
@@ -353,16 +419,16 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
                       <span className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${getSeverityColor(violation.severity)}`}>
                         {getSeverityText(violation.severity)}
                       </span>
-                    {violation.criticality_level && (
-                      <div className="mt-1 text-[11px] text-gray-500">
-                        AI: {getSeverityText(violation.criticality_level)}
-                      </div>
-                    )}
+                      {violation.criticality_level && (
+                        <div className="mt-1 text-[11px] text-gray-500">AI: {getSeverityText(violation.criticality_level)}</div>
+                      )}
                     </td>
                     <td className="px-3 py-3">
-                      <span className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${
-                        violation.status === 'resolved' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                      }`}>
+                      <span
+                        className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${
+                          violation.status === 'resolved' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                        }`}
+                      >
                         {violation.status === 'resolved' ? 'Устранено' : 'Открыто'}
                       </span>
                     </td>
@@ -370,20 +436,32 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
                       {violation.deadline ? format(new Date(violation.deadline), 'dd.MM.yyyy') : '-'}
                     </td>
                     <td className="px-3 py-3 text-right text-sm font-medium">
-                      <button
-                        onClick={() => onView(violation.id)}
-                        className="text-primary-600 hover:text-primary-900"
-                      >
-                        Открыть
-                      </button>
+                      <div className="inline-flex items-center gap-2">
+                        <button
+                          onClick={() => handleCreateTaskFromViolation(violation)}
+                          disabled={workflowBusy.action === 'task' && workflowBusy.id === violation.id}
+                          className="px-2.5 py-1 text-xs font-semibold rounded border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-60"
+                        >
+                          {workflowBusy.action === 'task' && workflowBusy.id === violation.id ? '...' : 'Задача'}
+                        </button>
+                        <button
+                          onClick={() => handleCreateActFromViolation(violation)}
+                          disabled={workflowBusy.action === 'act' && workflowBusy.id === violation.id}
+                          className="px-2.5 py-1 text-xs font-semibold rounded border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-60"
+                        >
+                          {workflowBusy.action === 'act' && workflowBusy.id === violation.id ? '...' : 'Акт'}
+                        </button>
+                        <button onClick={() => handleViewViolation(violation)} className="text-primary-600 hover:text-primary-900">
+                          Открыть
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          
-          {/* Мобильная версия - карточки */}
+
           <div className="lg:hidden divide-y divide-gray-200">
             {violations.map((violation) => (
               <div key={violation.id} className="p-4 hover:bg-gray-50">
@@ -395,46 +473,39 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
                     className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded mt-1"
                     onClick={(e) => e.stopPropagation()}
                   />
-                  <div className="flex-1 flex justify-between items-start">
-                    <div className="flex-1 min-w-0">
-                      <div 
-                        className="text-sm font-medium text-gray-900 mb-1"
-                        style={{
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          maxHeight: '3em'
-                        }}
-                      >
-                        {violation.description}
-                      </div>
-                  {renderAIInsights(violation)}
-                      {violation.equipment && (
-                        <div className="text-xs text-gray-600">
-                          <div className="font-semibold">{violation.equipment.passport_number}</div>
-                          <div>{violation.equipment.equipment_type}</div>
-                          {violation.equipment.position && (
-                            <div>Позиция: {violation.equipment.position}</div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => onView(violation.id)}
-                      className="ml-2 text-primary-600 hover:text-primary-900 text-sm font-medium"
+                  <div className="flex-1">
+                    <div
+                      className="text-sm font-medium text-gray-900 mb-1"
+                      style={{
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                        maxHeight: '3em',
+                      }}
                     >
-                      Открыть
-                    </button>
+                      {violation.description}
+                    </div>
+                    {renderAIInsights(violation)}
+                    {violation.equipment && (
+                      <div className="text-xs text-gray-600 mt-2">
+                        <div className="font-semibold">{violation.equipment.passport_number}</div>
+                        <div>{violation.equipment.equipment_type}</div>
+                        {violation.equipment.position && <div>Позиция: {violation.equipment.position}</div>}
+                      </div>
+                    )}
                   </div>
                 </div>
+
                 <div className="flex flex-wrap gap-2 mt-3 ml-6">
                   <span className={`px-2 py-1 text-xs font-medium rounded-full ${getSeverityColor(violation.severity)}`}>
                     {getSeverityText(violation.severity)}
                   </span>
-                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                    violation.status === 'resolved' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                  }`}>
+                  <span
+                    className={`px-2 py-1 text-xs font-medium rounded-full ${
+                      violation.status === 'resolved' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                    }`}
+                  >
                     {violation.status === 'resolved' ? 'Устранено' : 'Открыто'}
                   </span>
                   {violation.deadline && (
@@ -443,20 +514,37 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
                     </span>
                   )}
                   {(violation.fnp_clause || violation.gost_clause) && (
-                    <span className="px-2 py-1 text-xs text-gray-600">
-                      {violation.fnp_clause || violation.gost_clause}
-                    </span>
+                    <span className="px-2 py-1 text-xs text-gray-600">{violation.fnp_clause || violation.gost_clause}</span>
                   )}
+                </div>
+
+                <div className="mt-4 ml-6 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <button
+                    onClick={() => handleCreateTaskFromViolation(violation)}
+                    disabled={workflowBusy.action === 'task' && workflowBusy.id === violation.id}
+                    className="inline-flex items-center justify-center px-3 py-2 text-sm font-semibold rounded-lg border border-blue-200 text-blue-700 bg-blue-50 disabled:opacity-60"
+                  >
+                    {workflowBusy.action === 'task' && workflowBusy.id === violation.id ? 'Создание...' : 'Создать задачу'}
+                  </button>
+                  <button
+                    onClick={() => handleCreateActFromViolation(violation)}
+                    disabled={workflowBusy.action === 'act' && workflowBusy.id === violation.id}
+                    className="inline-flex items-center justify-center px-3 py-2 text-sm font-semibold rounded-lg border border-emerald-200 text-emerald-700 bg-emerald-50 disabled:opacity-60"
+                  >
+                    {workflowBusy.action === 'act' && workflowBusy.id === violation.id ? 'Создание...' : 'Создать акт'}
+                  </button>
+                  <button
+                    onClick={() => handleViewViolation(violation)}
+                    className="inline-flex items-center justify-center px-3 py-2 text-sm font-semibold rounded-lg border border-primary-200 text-primary-700 bg-primary-50"
+                  >
+                    Открыть
+                  </button>
                 </div>
               </div>
             ))}
           </div>
-          
-          {violations.length === 0 && (
-            <div className="p-6 text-center text-gray-500">
-              Нарушения не найдены
-            </div>
-          )}
+
+          {violations.length === 0 && <div className="p-6 text-center text-gray-500">Нарушения не найдены</div>}
         </div>
       )}
 
@@ -470,4 +558,3 @@ export default function ViolationsTable({ onEdit, onView, refreshKey = 0 }: Viol
     </div>
   )
 }
-

@@ -381,7 +381,7 @@ async def ai_search_knowledge(
 
 Верни только номера наиболее релевантных документов (первые 5)."""
         
-        system_prompt = "Ты помощник для поиска в базе знаний инспекции."
+        system_prompt = "Ты помощник для поиска в базе знаний инспекции. Ответ только на русском."
         
         ai_response = ai_client.generate_text(
             prompt=ai_prompt,
@@ -523,4 +523,3 @@ async def delete_knowledge_item(
     await db.delete(knowledge)
     await db.commit()
     return None
-

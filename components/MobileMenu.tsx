@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState } from 'react'
 import Link from 'next/link'
@@ -25,10 +25,11 @@ export default function MobileMenu() {
     { name: 'Карта цеха', href: '/workshop-map', icon: EquipmentIcon },
     { name: 'Чек-листы', href: '/checklists', icon: ChecklistIcon },
     { name: 'Осмотры', href: '/inspections', icon: InspectionIcon },
+    { name: 'Сквозной workflow', href: '/workflow', icon: InspectionIcon },
     { name: 'Нарушения', href: '/violations', icon: ViolationIcon },
     { name: 'Акты', href: '/acts', icon: ActIcon },
     { name: 'База знаний', href: '/knowledge', icon: KnowledgeIcon },
-    { name: 'Audit Log', href: '/audit', icon: AuditIcon },
+    { name: 'Журнал аудита', href: '/audit', icon: AuditIcon },
     { name: 'Настройки', href: '/settings', icon: SettingsIcon },
   ]
 
@@ -53,10 +54,7 @@ export default function MobileMenu() {
 
       {isOpen && (
         <>
-          <div
-            className="lg:hidden fixed inset-0 bg-black bg-opacity-60 z-30 backdrop-blur-sm"
-            onClick={() => setIsOpen(false)}
-          />
+          <div className="lg:hidden fixed inset-0 bg-black bg-opacity-60 z-30 backdrop-blur-sm" onClick={() => setIsOpen(false)} />
           <div
             className="lg:hidden fixed bottom-24 right-4 sm:right-6 z-40 bg-white rounded-xl shadow-strong p-3 min-w-[240px] max-h-[70vh] overflow-y-auto border border-gray-200"
             style={{ paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom))' }}
@@ -72,9 +70,7 @@ export default function MobileMenu() {
                         href={item.href}
                         onClick={() => setIsOpen(false)}
                         className={`flex items-center px-4 py-3 text-sm font-semibold rounded-lg transition-all duration-200 ${
-                          isActive
-                            ? 'bg-primary-50 text-primary-700 shadow-soft'
-                            : 'text-gray-700 hover:bg-gray-50'
+                          isActive ? 'bg-primary-50 text-primary-700 shadow-soft' : 'text-gray-700 hover:bg-gray-50'
                         }`}
                       >
                         <Icon className={`w-5 h-5 mr-3 ${isActive ? 'text-primary-700' : 'text-gray-500'}`} />
@@ -91,4 +87,3 @@ export default function MobileMenu() {
     </>
   )
 }
-

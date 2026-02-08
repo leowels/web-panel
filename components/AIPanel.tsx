@@ -1,45 +1,118 @@
-'use client'
+﻿'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { usePathname, useSearchParams } from 'next/navigation'
 import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 import { useNotificationStore } from '@/store/notificationStore'
+import { useAIContextStore } from '@/store/aiContextStore'
 
 interface AIPanelProps {
   onClose: () => void
   onPaste?: (text: string) => void
 }
 
-const API_URL = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '') : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
+const API_URL =
+  typeof window !== 'undefined'
+    ? (process.env.NEXT_PUBLIC_API_URL || '')
+    : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
 
-export default function AIPanel({ onClose, onPaste }: AIPanelProps) {
-  const { token } = useAuthStore()
+export default function AIPanel({ onClose }: AIPanelProps) {
+  const { token, user } = useAuthStore()
   const { addNotification } = useNotificationStore()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const { page, filters, selection, setPage } = useAIContextStore()
   const [prompt, setPrompt] = useState('')
   const [context, setContext] = useState('')
-  const [result, setResult] = useState('')
+  const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [webFallback, setWebFallback] = useState<{ required: boolean; query?: string | null }>({
+    required: false,
+    query: null,
+  })
+  const [quickPrompts, setQuickPrompts] = useState<string[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false)
+  const [suggestionsMeta, setSuggestionsMeta] = useState<string | null>(null)
+  const [responseMode, setResponseMode] = useState<'brief' | 'detailed' | 'conclusions'>('brief')
 
-  const handleGenerate = async () => {
-    if (!prompt.trim()) return
+  const templates = [
+    {
+      label: 'Сформировать акт',
+      prompt: 'Сформируй черновик акта по выбранному объекту. Формат: вводная, факты, нарушения, требования, срок.',
+    },
+    {
+      label: 'Сформировать предписание',
+      prompt: 'Сформируй предписание по выбранному объекту. Формат: основание, нарушения, требования, срок устранения.',
+    },
+    {
+      label: 'Сводка по рискам',
+      prompt: 'Сделай краткую сводку по рискам и проблемам по текущим данным.',
+    },
+  ]
 
+  const isAllowed = useMemo(() => {
+    const roles = user?.roles?.map((r) => r.name) || []
+    return roles.includes('admin') || roles.includes('inspector')
+  }, [user])
+
+  useEffect(() => {
+    const queryObj: Record<string, string> = {}
+    searchParams?.forEach((value, key) => {
+      queryObj[key] = value
+    })
+    setPage(pathname || '', queryObj)
+  }, [pathname, searchParams, setPage])
+
+  const contextText = useMemo(() => {
+    const lines: string[] = []
+    if (page?.path) {
+      lines.push(`Текущая страница: ${page.path}`)
+    }
+    const queryEntries = Object.entries(page?.query || {}).filter(([, v]) => v !== undefined && v !== '')
+    if (queryEntries.length) {
+      lines.push(`Параметры: ${queryEntries.map(([k, v]) => `${k}=${v}`).join(', ')}`)
+    }
+    if (selection) {
+      const label = selection.label ? ` (${selection.label})` : ''
+      lines.push(`Выбранный объект: ${selection.type} #${selection.id}${label}`)
+    }
+    const filterEntries = Object.entries(filters || {}).filter(([, v]) => v !== undefined && v !== '' && v !== null)
+    if (filterEntries.length) {
+      lines.push(`Фильтры: ${filterEntries.map(([k, v]) => `${k}=${v}`).join(', ')}`)
+    }
+    return lines.join('\n')
+  }, [page, filters, selection])
+
+  const handleSend = async () => {
+    if (!prompt.trim() || !isAllowed) return
+
+    const current = prompt.trim()
+    setPrompt('')
     setLoading(true)
     setError('')
-    setResult('')
+    setWebFallback({ required: false, query: null })
+    setMessages((prev) => [...prev, { role: 'user', content: current }])
 
     try {
       const response = await axios.post(
-        `${API_URL}/api/ai/generate`,
-        { prompt, context: context || undefined },
+        `${API_URL}/api/ai/chat`,
         {
-          headers: { Authorization: `Bearer ${token}` },
-        }
+          message: current,
+          context: [contextText, context].filter(Boolean).join('\n'),
+          history: messages.slice(-8),
+          response_mode: responseMode,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
       )
-      setResult(response.data.result)
-      addNotification('Текст успешно сгенерирован', 'success')
+      const answer = response.data.answer || ''
+      setMessages((prev) => [...prev, { role: 'assistant', content: answer }])
+      if (response.data.web_fallback) {
+        setWebFallback({ required: true, query: response.data.web_query || null })
+      }
     } catch (err: any) {
-      const errorMsg = err.response?.data?.detail || 'Ошибка генерации'
+      const errorMsg = err.response?.data?.detail || 'Ошибка чата'
       setError(errorMsg)
       addNotification(errorMsg, 'error')
     } finally {
@@ -47,36 +120,47 @@ export default function AIPanel({ onClose, onPaste }: AIPanelProps) {
     }
   }
 
-  const handleCopy = () => {
-    if (result) {
-      navigator.clipboard.writeText(result)
-      addNotification('Текст скопирован в буфер обмена', 'success')
+  useEffect(() => {
+    if (!isAllowed || !token) return
+    let active = true
+    const loadSuggestions = async () => {
+      setSuggestionsLoading(true)
+      try {
+        const response = await axios.get(`${API_URL}/api/ai/suggestions`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!active) return
+        const suggestions = response.data?.suggestions || []
+        setQuickPrompts(suggestions)
+        if (response.data?.generated_at) {
+          const ts = new Date(response.data.generated_at)
+          setSuggestionsMeta(Number.isNaN(ts.getTime()) ? null : ts.toLocaleString('ru-RU'))
+        }
+      } catch {
+        if (!active) return
+        setQuickPrompts([
+          'Сделай краткий отчет по текущим нарушениям',
+          'Сводка по задачам в работе',
+          'Список актов в черновике',
+          'ПТО/ЧТО в ближайшие 30 дней',
+        ])
+        setSuggestionsMeta(null)
+      } finally {
+        if (active) setSuggestionsLoading(false)
+      }
     }
-  }
-
-  const handlePasteToEditor = () => {
-    if (result && onPaste) {
-      onPaste(result)
-      addNotification('Текст вставлен в редактор', 'success')
+    loadSuggestions()
+    return () => {
+      active = false
     }
-  }
-
-  const quickPrompts = [
-    'Создать шаблон отчета',
-    'Проверить документ на соответствие требованиям',
-    'Сгенерировать техническое описание',
-    'Составить протокол совещания',
-  ]
+  }, [isAllowed, token])
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
         <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-          <h2 className="text-2xl font-semibold text-gray-900">ИИ Помощник</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
-          >
+          <h2 className="text-2xl font-semibold text-gray-900">ИИ помощник</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -84,10 +168,14 @@ export default function AIPanel({ onClose, onPaste }: AIPanelProps) {
         </div>
 
         <div className="p-6 flex-1 overflow-y-auto space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Контекст (опционально)
-            </label>
+          {!isAllowed && (
+            <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
+              Доступ к ИИ только для ролей `admin` и `inspector`.
+            </div>
+          )}
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Контекст (опционально)</label>
             <textarea
               value={context}
               onChange={(e) => setContext(e.target.value)}
@@ -96,30 +184,63 @@ export default function AIPanel({ onClose, onPaste }: AIPanelProps) {
               placeholder="Добавьте контекст для более точного ответа..."
             />
           </div>
+          {contextText && (
+            <div className="text-xs text-gray-500 whitespace-pre-wrap border border-gray-200 rounded-lg p-2 bg-white">
+              {contextText}
+            </div>
+          )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Запрос
-            </label>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={4}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              placeholder="Опишите, что вам нужно..."
-            />
+          <div className="border border-gray-200 rounded-lg p-3 max-h-80 overflow-y-auto bg-gray-50 space-y-3">
+            {messages.length === 0 && (
+              <div className="text-sm text-gray-500">Задайте вопрос по актам, отчетам или базе знаний.</div>
+            )}
+            {messages.map((m, idx) => (
+              <div
+                key={idx}
+                className={`p-3 rounded-lg ${m.role === 'user' ? 'bg-white border border-gray-200' : 'bg-blue-50 border border-blue-100'}`}
+              >
+                <div className="text-xs text-gray-500 mb-1">{m.role === 'user' ? 'Вы' : 'ИИ'}</div>
+                <div className="text-sm whitespace-pre-wrap">{m.content}</div>
+              </div>
+            ))}
           </div>
 
           <div>
-            <p className="text-sm font-medium text-gray-700 mb-2">Быстрые запросы:</p>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <p className="text-sm font-medium text-gray-700">Актуальные запросы по данным проекта</p>
+              {suggestionsMeta && (
+                <p className="text-xs text-gray-500">Обновлено: {suggestionsMeta}</p>
+              )}
+            </div>
+            {suggestionsLoading ? (
+              <div className="text-sm text-gray-500">Подбираем запросы по данным проекта...</div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {quickPrompts.map((quickPrompt, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setPrompt(quickPrompt)}
+                    className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    {quickPrompt}
+                  </button>
+                ))}
+                {quickPrompts.length === 0 && (
+                  <div className="text-sm text-gray-500">Нет актуальных предложений.</div>
+                )}
+              </div>
+            )}
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-700 mb-2">Шаблоны</p>
             <div className="flex flex-wrap gap-2">
-              {quickPrompts.map((quickPrompt, index) => (
+              {templates.map((tpl) => (
                 <button
-                  key={index}
-                  onClick={() => setPrompt(quickPrompt)}
-                  className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                  key={tpl.label}
+                  onClick={() => setPrompt(tpl.prompt)}
+                  className="px-3 py-1 text-sm bg-primary-50 text-primary-700 border border-primary-200 rounded-lg hover:bg-primary-100 transition-colors"
                 >
-                  {quickPrompt}
+                  {tpl.label}
                 </button>
               ))}
             </div>
@@ -131,69 +252,75 @@ export default function AIPanel({ onClose, onPaste }: AIPanelProps) {
             </div>
           )}
 
-          {result && (
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  Результат:
-                </label>
-                <div className="flex space-x-2">
-                  <button
-                    onClick={handleCopy}
-                    className="text-sm text-primary-600 hover:text-primary-700 flex items-center"
-                  >
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Копировать
-                  </button>
-                  {onPaste && (
-                    <button
-                      onClick={handlePasteToEditor}
-                      className="text-sm text-primary-600 hover:text-primary-700 flex items-center"
-                    >
-                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                      </svg>
-                      Вставить
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 whitespace-pre-wrap max-h-96 overflow-y-auto">
-                {result}
-              </div>
+          {webFallback.required && (
+            <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
+              Внешний поиск недоступен или не дал результатов. Запрос: {webFallback.query || 'не указан'}
             </div>
           )}
         </div>
 
-        <div className="p-6 border-t border-gray-200 flex space-x-3">
-          <button
-            onClick={handleGenerate}
-            disabled={loading || !prompt.trim()}
-            className="flex-1 bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? (
-              <span className="flex items-center justify-center">
-                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Генерация...
-              </span>
-            ) : (
-              'Сгенерировать'
-            )}
-          </button>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-          >
-            Закрыть
-          </button>
+        <div className="p-6 border-t border-gray-200 space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Запрос</label>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={3}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              placeholder="Опишите, что нужно..."
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: 'brief', label: 'Кратко' },
+              { id: 'detailed', label: 'С деталями' },
+              { id: 'conclusions', label: 'Только выводы' },
+            ].map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() => setResponseMode(mode.id as 'brief' | 'detailed' | 'conclusions')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors ${
+                  responseMode === mode.id
+                    ? 'bg-primary-600 text-white border-primary-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex space-x-3">
+            <button
+              onClick={handleSend}
+              disabled={loading || !prompt.trim() || !isAllowed}
+              className="flex-1 bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? (
+                <span className="flex items-center justify-center">
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    />
+                  </svg>
+                  Отправка...
+                </span>
+              ) : (
+                'Отправить'
+              )}
+            </button>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+            >
+              Закрыть
+            </button>
+          </div>
         </div>
       </div>
     </div>
   )
 }
-

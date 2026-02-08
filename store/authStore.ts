@@ -1,12 +1,9 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import axios from 'axios'
 
-// Используем относительный путь для прокси Next.js (в браузере)
-// В браузере window !== undefined, поэтому используем пустую строку
-// Next.js автоматически проксирует /api/* на Backend через rewrites
-const API_URL = typeof window !== 'undefined' 
-  ? (process.env.NEXT_PUBLIC_API_URL || '') 
+const API_URL = typeof window !== 'undefined'
+  ? (process.env.NEXT_PUBLIC_API_URL || '')
   : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
 
 interface Role {
@@ -21,7 +18,7 @@ interface User {
   full_name: string | null
   organization?: string | null
   is_active?: boolean
-  roles?: Role[]  // API возвращает массив {id, name}
+  roles?: Role[]
 }
 
 interface AuthState {
@@ -34,7 +31,7 @@ interface AuthState {
   fetchUser: () => Promise<void>
 }
 
-const storage = typeof window !== 'undefined' 
+const storage = typeof window !== 'undefined'
   ? createJSONStorage(() => localStorage)
   : {
       getItem: () => null,
@@ -57,8 +54,7 @@ export const useAuthStore = create<AuthState>()(
           })
           const { access_token } = response.data
           set({ token: access_token, isAuthenticated: true })
-          
-          // Fetch user data
+
           const userResponse = await axios.get(`${API_URL}/api/users/me`, {
             headers: { Authorization: `Bearer ${access_token}` },
           })
@@ -68,25 +64,8 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      register: async (username: string, email: string, password: string, fullName?: string) => {
-        try {
-          const response = await axios.post(`${API_URL}/api/auth/register`, {
-            username,
-            email,
-            password,
-            full_name: fullName,
-          })
-          const { access_token } = response.data
-          set({ token: access_token, isAuthenticated: true })
-          
-          // Fetch user data
-          const userResponse = await axios.get(`${API_URL}/api/users/me`, {
-            headers: { Authorization: `Bearer ${access_token}` },
-          })
-          set({ user: userResponse.data })
-        } catch (error: any) {
-          throw new Error(error.response?.data?.detail || 'Ошибка регистрации')
-        }
+      register: async (_username: string, _email: string, _password: string, _fullName?: string) => {
+        throw new Error('Регистрация отключена. Пользователи создаются администратором.')
       },
 
       logout: () => {
@@ -103,7 +82,6 @@ export const useAuthStore = create<AuthState>()(
           })
           set({ user: response.data })
         } catch (error) {
-          // Token invalid, logout
           get().logout()
         }
       },

@@ -55,6 +55,135 @@ class ActResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class ActDraftResponse(BaseModel):
+    content: str
+
+async def _generate_act_ai_content(act: Act, db: AsyncSession) -> str:
+    """Generate act content via AI without persisting."""
+    try:
+        from backend.ai_client import get_ai_client_async
+    except ImportError:
+        from ai_client import get_ai_client_async
+    
+    ai_client = await get_ai_client_async(db)
+    if not ai_client:
+        raise HTTPException(
+            status_code=400,
+            detail="AI не настроен. Перейдите в раздел 'Настройки' -> 'AI конфигурация' и настройте AI провайдера."
+        )
+    
+    violations_result = await db.execute(
+        select(Violation).where(Violation.id.in_([av.violation_id for av in act.violations]))
+    )
+    violations = violations_result.scalars().all()
+    
+    violations_text = "\n".join([f"- {v.description}" for v in violations])
+    
+    knowledge_context = ""
+    try:
+        try:
+            from backend.models import KnowledgeBase
+        except ImportError:
+            from ..models import KnowledgeBase
+        
+        query = select(KnowledgeBase).where(
+            KnowledgeBase.document_type.in_(["fnp461", "gost"])
+        ).limit(10)
+        
+        result = await db.execute(query)
+        knowledge_items = result.scalars().all()
+        
+        if knowledge_items:
+            knowledge_context = "\n\n=== РЕЛЕВАНТНАЯ ДОКУМЕНТАЦИЯ ИЗ БАЗЫ ЗНАНИЙ ===\n"
+            
+            violation_keywords = []
+            for v in violations:
+                words = v.description.lower().split()
+                violation_keywords.extend([w for w in words if len(w) > 4])
+            
+            def extract_relevant_content(content: str, keywords: list, max_length: int = 8000) -> str:
+                if not keywords:
+                    return content[:max_length] + ("..." if len(content) > max_length else "")
+                
+                content_lower = content.lower()
+                relevant_parts = []
+                
+                for keyword in keywords[:10]:
+                    pos = content_lower.find(keyword)
+                    if pos != -1:
+                        start = max(0, pos - 1500)
+                        end = min(len(content), pos + len(keyword) + 1500)
+                        relevant_parts.append((start, end))
+                
+                if relevant_parts:
+                    relevant_parts.sort()
+                    result = content[relevant_parts[0][0]:relevant_parts[-1][1]]
+                    if len(result) > max_length:
+                        result = result[:max_length] + "\n[Документ продолжается]"
+                    return result
+                else:
+                    return content[:max_length] + ("..." if len(content) > max_length else "")
+            
+            for item in knowledge_items[:12]:
+                doc_type_name = {
+                    "fnp461": "ФНП 461",
+                    "gost": "ГОСТ",
+                    "manual": "Методичка"
+                }.get(item.document_type, item.document_type.upper())
+                
+                knowledge_context += f"\n{'='*50}\n[{doc_type_name}] {item.title}\n{'='*50}\n"
+                if item.section:
+                    knowledge_context += f"Раздел: {item.section}\n"
+                if item.clause_number:
+                    knowledge_context += f"Пункт: {item.clause_number}\n"
+                knowledge_context += "\n"
+                
+                if item.document_type in ["fnp461", "gost"]:
+                    content_preview = extract_relevant_content(
+                        item.content,
+                        violation_keywords,
+                        max_length=8000
+                    )
+                else:
+                    content_preview = extract_relevant_content(
+                        item.content,
+                        violation_keywords,
+                        max_length=4000
+                    )
+                
+                knowledge_context += f"{content_preview}\n\n"
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Не удалось загрузить базу знаний: {e}")
+    
+    prompt = f"""Создай КРАТКИЙ и четкий текст предписания (акта) инспекции:
+
+Организация: {act.organization or 'Не указано'}
+Номер акта: {act.act_number}
+Дата: {act.act_date.strftime('%d.%m.%Y')}
+
+Нарушения:
+{violations_text}
+{knowledge_context}
+
+Требования:
+- Текст должен быть КРАТКИМ и структурированным
+- Только суть, без лишних слов
+- Официальный стиль инспекции
+- Ссылки на ФНП 461/ГОСТ только если релевантны
+- Максимум 5-7 абзацев"""
+    
+    system_prompt = "Ты помощник для создания официальных документов инспекции. Ответ только на русском. Пиши КРАТКО, четко, структурированно. Только суть, без воды. Используй документацию только для релевантных ссылок."
+    
+    ai_content = ai_client.generate_text(
+        prompt=prompt,
+        system_prompt=system_prompt,
+        max_tokens=4000,
+        temperature=0.7
+    )
+    
+    return ai_content
+
 @router.get("", response_model=List[ActResponse])
 async def get_acts(
     skip: int = Query(0, ge=0),
@@ -364,7 +493,7 @@ async def generate_act_content(
 - Ссылки на ФНП 461/ГОСТ только если релевантны
 - Максимум 5-7 абзацев"""
         
-        system_prompt = "Ты помощник для создания официальных документов инспекции. Пиши КРАТКО, четко, структурированно. Только суть, без воды. Используй документацию только для релевантных ссылок."
+        system_prompt = "Ты помощник для создания официальных документов инспекции. Ответ только на русском. Пиши КРАТКО, четко, структурированно. Только суть, без воды. Используй документацию только для релевантных ссылок."
         
         ai_content = ai_client.generate_text(
             prompt=prompt,
@@ -411,6 +540,31 @@ async def generate_act_content(
             updated_at=updated_act.updated_at,
             violation_ids=[av.violation_id for av in updated_act.violations]
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI generation error: {str(e)}")
+
+@router.post("/{act_id}/generate-draft", response_model=ActDraftResponse)
+async def generate_act_draft(
+    act_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Сгенерировать черновик текста акта через ИИ (без сохранения)"""
+    await require_permission(current_user, "acts:update", db)
+    
+    result = await db.execute(
+        select(Act)
+        .options(selectinload(Act.violations))
+        .where(Act.id == act_id)
+    )
+    act = result.scalar_one_or_none()
+    
+    if not act:
+        raise HTTPException(status_code=404, detail="Act not found")
+    
+    try:
+        ai_content = await _generate_act_ai_content(act, db)
+        return ActDraftResponse(content=ai_content)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation error: {str(e)}")
 
@@ -653,4 +807,3 @@ async def delete_act(
     await db.delete(act)
     await db.commit()
     return None
-

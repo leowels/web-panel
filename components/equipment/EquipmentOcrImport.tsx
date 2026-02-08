@@ -125,6 +125,18 @@ export default function EquipmentOcrImport({ onClose, onSuccess }: EquipmentOcrI
             <p className="text-xs text-gray-500 mt-1">
               Поддерживаются фотографии (JPG, PNG и др.) и файлы CSV/текста с таблицей.
             </p>
+            {file && (
+              <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
+                <span>{file.name} • {(file.size / 1024).toFixed(1)} KB</span>
+                <button
+                  type="button"
+                  onClick={() => setFile(null)}
+                  className="text-accent-600 hover:text-accent-700"
+                >
+                  Очистить
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex space-x-3 pt-4">

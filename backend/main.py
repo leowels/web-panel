@@ -231,7 +231,7 @@ try:
     from backend.routers import (
         equipment, checklists, inspections, violations, acts, knowledge, 
         files, settings, audit, documents, tasks, permits, analytics, 
-        notifications, reports
+        notifications, reports, workshop_map, workflow
     )
     try:
         from backend.routers import ai
@@ -243,7 +243,7 @@ except ImportError:
         from .routers import (
             equipment, checklists, inspections, violations, acts, knowledge,
             files, settings, audit, documents, tasks, permits, analytics,
-            notifications, reports
+            notifications, reports, workshop_map, workflow
         )
         try:
             from .routers import ai
@@ -255,7 +255,7 @@ except ImportError:
             from routers import (
                 equipment, checklists, inspections, violations, acts, knowledge,
                 files, settings, audit, documents, tasks, permits, analytics,
-                notifications, reports
+                notifications, reports, workshop_map, workflow
             )
             try:
                 from routers import ai
@@ -267,7 +267,7 @@ except ImportError:
             import traceback
             traceback.print_exc()
             equipment = checklists = inspections = violations = acts = knowledge = files = settings = audit = documents = None
-            tasks = permits = analytics = notifications = reports = None
+            tasks = permits = analytics = notifications = reports = workshop_map = workflow = None
             ai = None
 
 if equipment:
@@ -281,6 +281,7 @@ if equipment:
     app.include_router(settings.router)
     app.include_router(audit.router)
     app.include_router(documents.router)
+    app.include_router(workshop_map.router)
 
 # Регистрация новых роутеров
 if tasks:
@@ -293,6 +294,8 @@ if notifications:
     app.include_router(notifications.router)
 if reports:
     app.include_router(reports.router)
+if workflow:
+    app.include_router(workflow.router)
 
 # Регистрация AI роутера (опционально)
 try:
@@ -329,7 +332,8 @@ async def api_root():
             "analytics": "/api/analytics",
             "notifications": "/api/notifications",
             "reports": "/api/reports",
-            "ai": "/api/ai"
+            "ai": "/api/ai",
+            "workflow": "/api/workflow"
         }
     }
 

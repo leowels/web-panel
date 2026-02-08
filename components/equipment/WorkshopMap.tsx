@@ -1,365 +1,40 @@
-'use client'
-
-import { useState, useEffect, useRef } from 'react'
+﻿'use client'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 import EquipmentCard from './EquipmentCard'
 import { getEquipmentTypeIcon } from '@/utils/equipmentMapIcons'
-import { CraneIcon, CraneBeamIcon, ColumnIcon, WallIcon, isCraneBeamType, isCraneType } from './WorkshopMapIcons'
-
+import { CraneBeamIcon, CraneIcon, ColumnIcon, WallIcon, isCraneBeamType, isCraneType } from './WorkshopMapIcons'
 const API_URL = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '') : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
-
-interface Equipment {
-  id: number
-  equipment_type: string
-  passport_number: string
-  inventory_number: string | null
-  position: string | null
-  workshop: string | null
-  load_capacity: number | null
-  manufacturer: string | null
-  installation_date: string | null
-  pto_date: string | null
-  cto_date: string | null
-  installation_location: string | null
-  status: string
-  map_x?: number | null  // Координата X на карте (0-100%)
-  map_y?: number | null  // Координата Y на карте (0-100%)
-}
-
-interface WorkshopMapProps {
-  workshop?: string  // Фильтр по цеху
-  onEquipmentClick?: (equipment: Equipment) => void
-}
-
-export default function WorkshopMap({ workshop, onEquipmentClick }: WorkshopMapProps) {
-  const { token } = useAuthStore()
-  const [equipment, setEquipment] = useState<Equipment[]>([])
-  const [loading, setLoading] = useState(true)
-  const [hoveredEquipment, setHoveredEquipment] = useState<Equipment | null>(null)
-  const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(null)
-  const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
-  const [mapElements, setMapElements] = useState<Array<{ id: string; type: string; x: number; y: number; width?: number; height?: number; radius?: number; color?: string }>>([])
-  const svgRef = useRef<SVGSVGElement>(null)
-
-  useEffect(() => {
-    fetchEquipment()
-    const saved = typeof window !== 'undefined' ? localStorage.getItem(`workshop_map_${workshop || 'default'}`) : null
-    if (saved) {
-      try {
-        setMapElements(JSON.parse(saved))
-      } catch {
-        setMapElements([])
-      }
-    } else {
-      setMapElements([])
-    }
-  }, [workshop, token])
-
-  const fetchEquipment = async () => {
-    try {
-      setLoading(true)
-      const params: any = { limit: 1000 }
-      if (workshop) {
-        params.workshop = workshop
-      }
-
-      const response = await axios.get(`${API_URL}/api/equipment`, {
-        params,
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-
-      // Только оборудование с координатами на карте
-      const equipmentWithCoords = response.data.filter(
-        (eq: Equipment) =>
-          eq.map_x != null &&
-          eq.map_y != null &&
-          typeof eq.map_x === 'number' &&
-          typeof eq.map_y === 'number'
-      )
-      setEquipment(equipmentWithCoords)
-    } catch (error) {
-      console.error('Ошибка загрузки оборудования:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleEquipmentHover = (e: React.MouseEvent<SVGCircleElement>, eq: Equipment) => {
-    setHoveredEquipment(eq)
-    if (svgRef.current) {
-      const rect = svgRef.current.getBoundingClientRect()
-      setTooltipPosition({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top - 10
-      })
-    }
-  }
-
-  const handleEquipmentClick = (eq: Equipment) => {
-    setSelectedEquipment(eq)
-    if (onEquipmentClick) {
-      onEquipmentClick(eq)
-    }
-  }
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active':
-        return '#10b981' // green
-      case 'inactive':
-        return '#ef4444' // red
-      case 'archived':
-        return '#6b7280' // gray
-      default:
-        return '#3b82f6' // blue
-    }
-  }
-
-  const getCoordinates = (eq: Equipment) => {
-    if (eq.map_x != null && eq.map_y != null) {
-      return { x: eq.map_x, y: eq.map_y }
-    }
-    return { x: 50, y: 50 }
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96 bg-gray-50 rounded-lg border border-gray-200">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Загрузка карты цеха...</p>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="relative">
-      {/* SVG Карта цеха */}
-      <div className="relative bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-        <svg
-          ref={svgRef}
-          viewBox="0 0 1000 600"
-          className="w-full h-auto min-h-[600px]"
-          preserveAspectRatio="xMidYMid meet"
-        >
-          {/* Фон цеха (можно заменить на реальный план) */}
-          <rect width="1000" height="600" fill="#f9fafb" />
-          
-          {/* Сетка для ориентира — карта пустая, оборудование добавляется вручную */}
-          <defs>
-            <pattern id="grid-workshop" width="50" height="50" patternUnits="userSpaceOnUse">
-              <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#e5e7eb" strokeWidth="0.5" />
-            </pattern>
-          </defs>
-          <rect width="1000" height="600" fill="url(#grid-workshop)" />
-
-          {/* Стены и колонны (из редактора) */}
-          {mapElements.map((el) => {
-            const x = (el.x / 100) * 1000
-            const y = (el.y / 100) * 600
-            if (el.type === 'wall') {
-              const w = Math.max(25, ((el.width || 5) / 100) * 500)
-              const h = Math.max(60, ((el.height || 20) / 100) * 400)
-              return <WallIcon key={el.id} id={el.id} x={x} y={y} width={w} height={h} fill={el.color || '#78716c'} stroke="#57534e" />
-            }
-            if (el.type === 'column') {
-              const r = Math.max(18, ((el.radius || 2) / 100) * 200)
-              return <ColumnIcon key={el.id} id={el.id} x={x} y={y} size={r * 2} fill={el.color || '#94a3b8'} stroke="#64748b" />
-            }
-            return null
-          })}
-
-          {/* Подсказка при пустой карте */}
-          {equipment.length === 0 && (
-            <text x="500" y="300" textAnchor="middle" fontSize="18" fill="#9ca3af" className="pointer-events-none">
-              Карта пуста. Добавьте оборудование в режиме редактирования.
-            </text>
-          )}
-
-          {/* Оборудование — только с координатами map_x, map_y */}
-          {equipment.map((eq) => {
-            const coords = getCoordinates(eq)
-            const x = (coords.x / 100) * 1000
-            const y = (coords.y / 100) * 600
-            const statusColor = getStatusColor(eq.status)
-            const isHovered = hoveredEquipment?.id === eq.id
-
-            return (
-              <g key={eq.id}>
-                {/* Тень при наведении */}
-                {isHovered && (
-                  <circle
-                    cx={x}
-                    cy={y}
-                    r="25"
-                    fill="rgba(0,0,0,0.1)"
-                    className="pointer-events-none"
-                  />
-                )}
-                
-                {/* Круг оборудования */}
-                <circle
-                  cx={x}
-                  cy={y}
-                  r="20"
-                  fill={statusColor}
-                  stroke="white"
-                  strokeWidth={isHovered ? "4" : "2"}
-                  className="cursor-pointer transition-all duration-200"
-                  style={{
-                    filter: isHovered ? 'drop-shadow(0 4px 6px rgba(0,0,0,0.3))' : 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))',
-                    transform: isHovered ? 'scale(1.2)' : 'scale(1)',
-                  }}
-                  onMouseEnter={(e) => handleEquipmentHover(e, eq)}
-                  onMouseLeave={() => setHoveredEquipment(null)}
-                  onClick={() => handleEquipmentClick(eq)}
-                />
-                
-                {/* Иконка типа оборудования */}
-                {isCraneBeamType(eq.equipment_type) ? (
-                  <CraneBeamIcon x={x} y={y} size={24} fill="white" />
-                ) : isCraneType(eq.equipment_type) ? (
-                  <CraneIcon x={x} y={y} size={24} fill="white" />
-                ) : (
-                  <text x={x} y={y + 6} textAnchor="middle" fontSize="14" fill="white" className="pointer-events-none select-none">
-                    {getEquipmentTypeIcon(eq.equipment_type)}
-                  </text>
-                )}
-
-                {/* Линия к подписи (если есть позиция) */}
-                {eq.position && (
-                  <line
-                    x1={x}
-                    y1={y + 20}
-                    x2={x}
-                    y2={y + 35}
-                    stroke="#6b7280"
-                    strokeWidth="1"
-                    strokeDasharray="2,2"
-                  />
-                )}
-                
-                {/* Подпись позиции */}
-                {eq.position && (
-                  <text
-                    x={x}
-                    y={y + 45}
-                    textAnchor="middle"
-                    fontSize="10"
-                    fill="#6b7280"
-                    className="pointer-events-none select-none font-medium"
-                  >
-                    {eq.position}
-                  </text>
-                )}
-              </g>
-            )
-          })}
-        </svg>
-
-        {/* Tooltip при наведении */}
-        {hoveredEquipment && (
-          <div
-            className="absolute z-10 bg-white rounded-lg shadow-lg border border-gray-200 p-3 min-w-[200px] pointer-events-none"
-            style={{
-              left: `${tooltipPosition.x}px`,
-              top: `${tooltipPosition.y}px`,
-              transform: 'translate(-50%, -100%)',
-            }}
-          >
-            <div className="flex items-start gap-2">
-              <div
-                className="w-3 h-3 rounded-full flex-shrink-0 mt-1"
-                style={{ backgroundColor: getStatusColor(hoveredEquipment.status) }}
-              />
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm text-gray-900 truncate">
-                  {hoveredEquipment.equipment_type}
-                </p>
-                <p className="text-xs text-gray-600 mt-1">
-                  Паспорт: {hoveredEquipment.passport_number}
-                </p>
-                {hoveredEquipment.inventory_number && (
-                  <p className="text-xs text-gray-600">
-                    Инв. №: {hoveredEquipment.inventory_number}
-                  </p>
-                )}
-                {hoveredEquipment.position && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Позиция: {hoveredEquipment.position}
-                  </p>
-                )}
-                <div className="mt-2 pt-2 border-t border-gray-100">
-                  <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                      hoveredEquipment.status === 'active'
-                        ? 'bg-green-100 text-green-800'
-                        : hoveredEquipment.status === 'inactive'
-                        ? 'bg-red-100 text-red-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}
-                  >
-                    {hoveredEquipment.status === 'active' ? 'Активно' : 
-                     hoveredEquipment.status === 'inactive' ? 'Неактивно' : 'Архив'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Легенда */}
-      <div className="mt-4 flex flex-wrap items-center gap-4 text-sm">
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-green-500"></div>
-          <span className="text-gray-700">Активное</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-red-500"></div>
-          <span className="text-gray-700">Неактивное</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-gray-500"></div>
-          <span className="text-gray-700">Архив</span>
-        </div>
-        <div className="ml-auto text-gray-500 text-xs">
-          Наведите курсор на оборудование для информации, кликните для подробностей
-        </div>
-      </div>
-
-      {/* Модальное окно с подробной информацией */}
-      {selectedEquipment && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900">
-                Оборудование: {selectedEquipment.equipment_type}
-              </h2>
-              <button
-                onClick={() => setSelectedEquipment(null)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="p-6">
-              <EquipmentCard
-                equipmentId={selectedEquipment.id}
-                onClose={() => setSelectedEquipment(null)}
-                onEdit={() => {
-                  // Можно открыть форму редактирования
-                  setSelectedEquipment(null)
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
+const FID='floor_1',LID='layer_default'
+type Eq={id:number;equipment_type:string;passport_number:string;inventory_number:string|null;position:string|null;status:string;map_x?:number|null;map_y?:number|null}
+type El={id:string;type:string;layerId:string;x:number;y:number;width?:number;height?:number;radius?:number;color?:string;label?:string;fontSize?:number;x2?:number;y2?:number}
+type Layer={id:string;name:string;visible:boolean;locked:boolean}
+type Floor={id:string;name:string;elements:El[];layers:Layer[];backgroundPath?:string|null}
+type Placement={floorId:string;x:number;y:number}
+type Data={settings:{gridSize:number;showGrid:boolean;gridOpacity:number};floors:Floor[];activeFloorId:string;equipmentPlacements:Record<string,Placement>}
+const norm=(raw:any,bg?:string|null):Data=>{if(!raw||!Array.isArray(raw.floors)){return{settings:{gridSize:Number(raw?.settings?.gridSize??50),showGrid:Boolean(raw?.settings?.showGrid??true),gridOpacity:Number(raw?.settings?.gridOpacity??0.35)},floors:[{id:FID,name:'Этаж 1',elements:Array.isArray(raw?.elements)?raw.elements.map((e:any)=>({...e,layerId:e?.layerId||LID})):[],layers:[{id:LID,name:'Основной слой',visible:true,locked:false}],backgroundPath:bg||null}],activeFloorId:FID,equipmentPlacements:{}}}const floors=raw.floors.map((f:any,i:number)=>{const layers=(Array.isArray(f?.layers)&&f.layers.length?f.layers:[{id:LID,name:'Основной слой',visible:true,locked:false}]).map((l:any,j:number)=>({id:String(l?.id||`layer_${j+1}`),name:String(l?.name||`Слой ${j+1}`),visible:Boolean(l?.visible??true),locked:Boolean(l?.locked??false)}));const ids=new Set(layers.map((l:Layer)=>l.id));return{id:String(f?.id||`floor_${i+1}`),name:String(f?.name||`Этаж ${i+1}`),elements:(Array.isArray(f?.elements)?f.elements:[]).map((e:any)=>({...e,layerId:ids.has(e?.layerId)?e.layerId:layers[0].id})),layers,backgroundPath:f?.backgroundPath??(i===0?bg:null)}});return{settings:{gridSize:Number(raw?.settings?.gridSize??50),showGrid:Boolean(raw?.settings?.showGrid??true),gridOpacity:Number(raw?.settings?.gridOpacity??0.35)},floors:floors.length?floors:[{id:FID,name:'Этаж 1',elements:[],layers:[{id:LID,name:'Основной слой',visible:true,locked:false}],backgroundPath:bg||null}],activeFloorId:floors.some((f:Floor)=>f.id===raw?.activeFloorId)?raw.activeFloorId:floors[0]?.id||FID,equipmentPlacements:raw?.equipmentPlacements&&typeof raw.equipmentPlacements==='object'?raw.equipmentPlacements:{}}}
+export default function WorkshopMap({workshop,onEquipmentClick,focusEquipmentId}:{workshop?:string;onEquipmentClick?:(e:Eq)=>void;focusEquipmentId?:number|null}){
+  const {token}=useAuthStore();const svgRef=useRef<SVGSVGElement>(null)
+  const [eq,setEq]=useState<Eq[]>([]);const [loading,setLoading]=useState(true);const [hover,setHover]=useState<Eq|null>(null);const [sel,setSel]=useState<Eq|null>(null);const [tip,setTip]=useState({x:0,y:0});const [q,setQ]=useState('');const [status,setStatus]=useState<'all'|'active'|'inactive'|'archived'>('all');const [data,setData]=useState<Data>(norm(undefined))
+  const floor=useMemo(()=>data.floors.find(f=>f.id===data.activeFloorId)||data.floors[0],[data]);const visible=useMemo(()=>new Set((floor?.layers||[]).filter(l=>l.visible).map(l=>l.id)),[floor]);const elements=(floor?.elements||[]).filter(e=>visible.has(e.layerId))
+  useEffect(()=>{(async()=>{try{setLoading(true);const params:any={limit:1000};if(workshop)params.workshop=workshop;const [er,mr]=await Promise.all([axios.get(`${API_URL}/api/equipment`,{params,headers:token?{Authorization:`Bearer ${token}`}:{}}),axios.get(`${API_URL}/api/workshop-map`,{params:{workshop:workshop||'default'},headers:token?{Authorization:`Bearer ${token}`}:{}})]);setEq(er.data);setData(norm(mr.data?.data,mr.data?.background_path))}catch{}finally{setLoading(false)}})()},[workshop,token])
+  const eqOnFloor=eq.map(e=>{const p=data.equipmentPlacements[String(e.id)];if(p&&p.floorId===floor?.id)return({...e,map_x:p.x,map_y:p.y});if(floor?.id===FID&&typeof e.map_x==='number'&&typeof e.map_y==='number')return e;return({...e,map_x:null,map_y:null})}).filter(e=>typeof e.map_x==='number'&&typeof e.map_y==='number')
+  useEffect(()=>{if(!focusEquipmentId)return;const placement=data.equipmentPlacements[String(focusEquipmentId)];if(placement&&placement.floorId&&data.activeFloorId!==placement.floorId){setData(p=>({...p,activeFloorId:placement.floorId}))}},[focusEquipmentId,data])
+  useEffect(()=>{if(!focusEquipmentId)return;const target=eqOnFloor.find(e=>e.id===focusEquipmentId);if(target){setSel(target)}},[focusEquipmentId,eqOnFloor])
+  const filtered=eqOnFloor.filter(e=>{if(status!=='all'&&e.status!==status)return false;if(!q)return true;const s=q.toLowerCase();return e.equipment_type.toLowerCase().includes(s)||e.passport_number.toLowerCase().includes(s)||(e.inventory_number||'').toLowerCase().includes(s)||(e.position||'').toLowerCase().includes(s)})
+  const color=(s:string)=>s==='active'?'#10b981':s==='inactive'?'#ef4444':s==='archived'?'#6b7280':'#3b82f6'
+  if(loading)return <div className='flex items-center justify-center h-96 bg-gray-50 rounded-lg border'><div className='animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600'/></div>
+  return <div className='relative'>
+    <div className='mb-3 flex flex-col sm:flex-row gap-3 sm:items-center'>
+      <input value={q} onChange={e=>setQ(e.target.value)} placeholder='Поиск по оборудованию' className='w-full sm:max-w-sm px-3 py-2 border rounded-lg text-sm'/>
+      <div className='flex gap-2 items-center text-sm'>{(['all','active','inactive','archived'] as const).map(s=><button key={s} onClick={()=>setStatus(s)} className={`px-2.5 py-1 rounded border ${status===s?'bg-primary-600 text-white border-primary-600':'bg-white border-gray-300 text-gray-700'}`}>{s==='all'?'Все':s==='active'?'Актив':s==='inactive'?'Неактив':'Архив'}</button>)}</div>
+      <select value={data.activeFloorId} onChange={e=>setData(p=>({...p,activeFloorId:e.target.value}))} className='sm:ml-auto px-3 py-2 border rounded-lg text-sm'>{data.floors.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select>
     </div>
-  )
+    <div className='relative bg-white rounded-lg border shadow-sm overflow-hidden'>
+      <svg ref={svgRef} viewBox='0 0 1000 600' className='w-full min-h-[600px]'><rect width='1000' height='600' fill='#f9fafb'/>{floor?.backgroundPath&&<image href={floor.backgroundPath} x='0' y='0' width='1000' height='600' preserveAspectRatio='xMidYMid meet'/>}<defs><pattern id='grid-workshop' width={data.settings.gridSize} height={data.settings.gridSize} patternUnits='userSpaceOnUse'><path d={`M ${data.settings.gridSize} 0 L 0 0 0 ${data.settings.gridSize}`} fill='none' stroke={`rgba(148,163,184,${data.settings.gridOpacity})`} strokeWidth='0.5'/></pattern></defs>{data.settings.showGrid&&<rect width='1000' height='600' fill='url(#grid-workshop)'/>}{elements.map(el=>{const x=(el.x/100)*1000,y=(el.y/100)*600;if(el.type==='wall'){const w=((el.width||5)/100)*1000,h=((el.height||20)/100)*600;return <WallIcon key={el.id} id={el.id} x={x} y={y} width={w} height={h} fill={el.color||'#78716c'} stroke='#57534e'/>}if(el.type==='column'){const r=Math.max(18,((el.radius||2)/100)*200);return <ColumnIcon key={el.id} id={el.id} x={x} y={y} size={r*2} fill={el.color||'#94a3b8'} stroke='#64748b'/>}if(el.type==='zone')return <g key={el.id}><rect x={x} y={y} width={((el.width||15)/100)*1000} height={((el.height||15)/100)*600} fill={el.color||'#dbeafe'} stroke='#3b82f6' strokeWidth='2' strokeDasharray='5,5'/>{el.label&&<text x={x+((el.width||15)/100)*500} y={y+((el.height||15)/100)*300} textAnchor='middle' fontSize='14' fill='#1e40af'>{el.label}</text>}</g>;if(el.type==='craneSpan')return <g key={el.id}><rect x={x} y={y} width={((el.width||10)/100)*1000} height={((el.height||10)/100)*600} fill={el.color||'rgba(14,165,233,0.15)'} stroke='#0284c7' strokeWidth='2' strokeDasharray='6,4'/><text x={x+((el.width||10)/100)*500} y={y+((el.height||10)/100)*300} textAnchor='middle' fontSize='12' fill='#075985'>{el.label||'Пролет'}</text></g>;if(el.type==='craneTrack'){const x2=((el.x2??el.x)/100)*1000,y2=((el.y2??el.y)/100)*600;return <g key={el.id}><line x1={x} y1={y} x2={x2} y2={y2} stroke={el.color||'#0f766e'} strokeWidth='4' strokeDasharray='8,6'/></g>}if(el.type==='text')return <text key={el.id} x={x} y={y} textAnchor='middle' fontSize={el.fontSize||14} fill={el.color||'#1f2937'}>{el.label||'Текст'}</text>;return null})}{filtered.map(e=>{const x=((e.map_x||0)/100)*1000,y=((e.map_y||0)/100)*600;const isFocused=focusEquipmentId===e.id;return <g key={e.id}>{isFocused&&<circle cx={x} cy={y} r='28' fill='none' stroke='#f59e0b' strokeWidth='3'/>}{hover?.id===e.id&&<circle cx={x} cy={y} r='25' fill='rgba(0,0,0,0.1)'/>}<circle cx={x} cy={y} r='20' fill={color(e.status)} stroke={isFocused?'#f59e0b':'white'} strokeWidth={hover?.id===e.id||isFocused?'4':'2'} onMouseEnter={ev=>{setHover(e);if(svgRef.current){const r=svgRef.current.getBoundingClientRect();setTip({x:ev.clientX-r.left,y:ev.clientY-r.top-10})}}} onMouseLeave={()=>setHover(null)} onClick={()=>{setSel(e);onEquipmentClick?.(e)}} className='cursor-pointer'/>{isCraneBeamType(e.equipment_type)?<CraneBeamIcon x={x} y={y} size={24} fill='white'/>:isCraneType(e.equipment_type)?<CraneIcon x={x} y={y} size={24} fill='white'/>:<g transform={`translate(${x}, ${y})`}>{getEquipmentTypeIcon(e.equipment_type,18,'white')}</g>}{e.position&&<text x={x} y={y+45} textAnchor='middle' fontSize='10' fill='#6b7280'>{e.position}</text>}</g>})}</svg>
+      {hover&&<div className='absolute z-10 bg-white rounded-lg shadow-lg border p-3 min-w-[200px] pointer-events-none' style={{left:`${tip.x}px`,top:`${tip.y}px`,transform:'translate(-50%,-100%)'}}><div className='text-sm font-semibold'>{hover.equipment_type}</div><div className='text-xs text-gray-600 mt-1'>Паспорт: {hover.passport_number}</div>{hover.inventory_number&&<div className='text-xs text-gray-600'>Инв. №: {hover.inventory_number}</div>}</div>}
+    </div>
+    {sel&&<div className='fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4'><div className='bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto'><div className='sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between'><h2 className='text-xl font-bold'>Оборудование: {sel.equipment_type}</h2><button onClick={()=>setSel(null)} className='text-gray-400 hover:text-gray-600'>×</button></div><div className='p-6'><EquipmentCard equipmentId={sel.id} onClose={()=>setSel(null)} onEdit={()=>setSel(null)}/></div></div></div>}
+  </div>
 }

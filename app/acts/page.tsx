@@ -1,15 +1,37 @@
-'use client'
+﻿'use client'
 
-import { useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useAuthStore } from '@/store/authStore'
 import Layout from '@/components/Layout'
 import ActsTable from '@/components/acts/ActsTable'
 import ActForm from '@/components/acts/ActForm'
 
-export default function ActsPage() {
+function ActsPageContent() {
   const { isAuthenticated } = useAuthStore()
+  const searchParams = useSearchParams()
   const [showForm, setShowForm] = useState(false)
   const [selectedAct, setSelectedAct] = useState<number | null>(null)
+  const [prefillEquipmentId, setPrefillEquipmentId] = useState<number | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    const actIdRaw = searchParams.get('act_id')
+    const actId = actIdRaw ? Number(actIdRaw) : null
+    if (actId && !Number.isNaN(actId)) {
+      setSelectedAct(actId)
+      setShowForm(true)
+      return
+    }
+
+    const eqIdRaw = searchParams.get('equipment_id')
+    const eqId = eqIdRaw ? Number(eqIdRaw) : null
+    if (eqId && !Number.isNaN(eqId)) {
+      setPrefillEquipmentId(eqId)
+      setSelectedAct(null)
+      setShowForm(true)
+    }
+  }, [searchParams])
 
   if (!isAuthenticated) {
     return null
@@ -38,33 +60,43 @@ export default function ActsPage() {
             </button>
           </div>
 
-        <ActsTable
-          onEdit={(id) => {
-            setSelectedAct(id)
-            setShowForm(true)
-          }}
-          onView={(id) => {
-            setSelectedAct(id)
-            setShowForm(true)
-          }}
-        />
-
-        {showForm && (
-          <ActForm
-            actId={selectedAct}
-            onClose={() => {
-              setShowForm(false)
-              setSelectedAct(null)
+          <ActsTable
+            onEdit={(id) => {
+              setSelectedAct(id)
+              setShowForm(true)
             }}
-            onSuccess={() => {
-              setShowForm(false)
-              setSelectedAct(null)
+            onView={(id) => {
+              setSelectedAct(id)
+              setShowForm(true)
             }}
+            refreshKey={refreshKey}
           />
-        )}
+
+          {showForm && (
+            <ActForm
+              actId={selectedAct}
+              prefillEquipmentId={prefillEquipmentId}
+              onClose={() => {
+                setShowForm(false)
+                setSelectedAct(null)
+              }}
+              onSuccess={() => {
+                setShowForm(false)
+                setSelectedAct(null)
+                setRefreshKey((prev) => prev + 1)
+              }}
+            />
+          )}
         </div>
       </div>
     </Layout>
   )
 }
 
+export default function ActsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ActsPageContent />
+    </Suspense>
+  )
+}

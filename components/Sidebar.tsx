@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -23,10 +23,11 @@ export default function Sidebar() {
     { name: 'Карта цеха', href: '/workshop-map', icon: EquipmentIcon },
     { name: 'Чек-листы', href: '/checklists', icon: ChecklistIcon },
     { name: 'Осмотры', href: '/inspections', icon: InspectionIcon },
+    { name: 'Сквозной workflow', href: '/workflow', icon: InspectionIcon },
     { name: 'Нарушения', href: '/violations', icon: ViolationIcon },
     { name: 'Акты', href: '/acts', icon: ActIcon },
     { name: 'База знаний', href: '/knowledge', icon: KnowledgeIcon },
-    { name: 'Audit Log', href: '/audit', icon: AuditIcon },
+    { name: 'Журнал аудита', href: '/audit', icon: AuditIcon },
     { name: 'Настройки', href: '/settings', icon: SettingsIcon },
   ]
 
@@ -58,4 +59,3 @@ export default function Sidebar() {
     </aside>
   )
 }
-

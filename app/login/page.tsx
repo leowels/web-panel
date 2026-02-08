@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -108,14 +108,10 @@ export default function LoginPage() {
 
         <div className="mt-6 text-center">
           <p className="text-sm text-gray-600">
-            Нет аккаунта?{' '}
-            <a href="/register" className="text-primary-600 hover:text-primary-700 font-medium">
-              Зарегистрироваться
-            </a>
+            Регистрация отключена. Пользователи создаются администратором.
           </p>
         </div>
       </div>
     </div>
   )
 }
-

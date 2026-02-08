@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 import { useNotificationStore } from '@/store/notificationStore'
@@ -25,6 +25,30 @@ export default function EquipmentBulkEdit({ selectedIds, onClose, onSuccess }: E
     manufacturer: '',
     installation_location: '',
   })
+  const [equipmentTypes, setEquipmentTypes] = useState<string[]>(EQUIPMENT_TYPES as unknown as string[])
+
+  useEffect(() => {
+    fetchEquipmentTypes()
+  }, [token])
+
+  const fetchEquipmentTypes = async () => {
+    try {
+      if (!token) {
+        setEquipmentTypes(EQUIPMENT_TYPES as unknown as string[])
+        return
+      }
+      const response = await axios.get(`${API_URL}/api/equipment/types`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (Array.isArray(response.data) && response.data.length > 0) {
+        setEquipmentTypes(response.data)
+      } else {
+        setEquipmentTypes(EQUIPMENT_TYPES as unknown as string[])
+      }
+    } catch {
+      setEquipmentTypes(EQUIPMENT_TYPES as unknown as string[])
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -112,7 +136,7 @@ export default function EquipmentBulkEdit({ selectedIds, onClose, onSuccess }: E
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-600 focus:border-primary-600 bg-white text-gray-900 font-medium"
               >
                 <option value="">Не изменять</option>
-                {EQUIPMENT_TYPES.map((type) => (
+                {equipmentTypes.map((type) => (
                   <option key={type} value={type}>
                     {type}
                   </option>

@@ -11,9 +11,10 @@ interface ViolationFormProps {
   violationId: number | null
   onClose: () => void
   onSuccess: () => void
+  initialEquipmentId?: number | null
 }
 
-export default function ViolationForm({ violationId, onClose, onSuccess }: ViolationFormProps) {
+export default function ViolationForm({ violationId, onClose, onSuccess, initialEquipmentId }: ViolationFormProps) {
   const { token } = useAuthStore()
   const { addNotification } = useNotificationStore()
   const [loading, setLoading] = useState(false)
@@ -103,6 +104,13 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
       setSelectedEquipmentIds([])
     }
   }, [violationId])
+
+  useEffect(() => {
+    if (!violationId && initialEquipmentId) {
+      setFormData((prev) => ({ ...prev, equipment_id: String(initialEquipmentId) }))
+      setSelectedEquipmentIds([String(initialEquipmentId)])
+    }
+  }, [violationId, initialEquipmentId])
 
   const fetchEquipment = async () => {
     try {
@@ -899,4 +907,3 @@ export default function ViolationForm({ violationId, onClose, onSuccess }: Viola
     </div>
   )
 }
-

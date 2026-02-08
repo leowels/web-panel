@@ -18,6 +18,7 @@ export default function EquipmentForm({ equipmentId, onClose, onSuccess }: Equip
   const { token } = useAuthStore()
   const { addNotification } = useNotificationStore()
   const [loading, setLoading] = useState(false)
+  const [equipmentTypes, setEquipmentTypes] = useState<string[]>(EQUIPMENT_TYPES as unknown as string[])
   const [formData, setFormData] = useState({
     equipment_type: '',
     passport_number: '',
@@ -34,10 +35,30 @@ export default function EquipmentForm({ equipmentId, onClose, onSuccess }: Equip
   })
 
   useEffect(() => {
+    fetchEquipmentTypes()
     if (equipmentId) {
       fetchEquipment()
     }
-  }, [equipmentId])
+  }, [equipmentId, token])
+
+  const fetchEquipmentTypes = async () => {
+    try {
+      if (!token) {
+        setEquipmentTypes(EQUIPMENT_TYPES as unknown as string[])
+        return
+      }
+      const response = await axios.get(`${API_URL}/api/equipment/types`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (Array.isArray(response.data) && response.data.length > 0) {
+        setEquipmentTypes(response.data)
+      } else {
+        setEquipmentTypes(EQUIPMENT_TYPES as unknown as string[])
+      }
+    } catch {
+      setEquipmentTypes(EQUIPMENT_TYPES as unknown as string[])
+    }
+  }
 
   const fetchEquipment = async () => {
     try {
@@ -183,7 +204,7 @@ export default function EquipmentForm({ equipmentId, onClose, onSuccess }: Equip
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-600 focus:border-primary-600 bg-white text-gray-900 font-medium transition-all"
               >
                 <option value="">Выберите тип</option>
-                {EQUIPMENT_TYPES.map((type) => (
+                {equipmentTypes.map((type) => (
                   <option key={type} value={type}>
                     {type}
                   </option>
@@ -369,4 +390,3 @@ export default function EquipmentForm({ equipmentId, onClose, onSuccess }: Equip
     </div>
   )
 }
-

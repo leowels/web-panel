@@ -1,25 +1,256 @@
-"""
+﻿"""
 Универсальный AI роутер для генерации текста
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
+import os
+from datetime import datetime, timedelta
+import re
+import html
+import httpx
 
 # Поддержка запуска как скрипта и как модуля
 try:
-    from backend.models import User, UserActivity, Equipment, Violation, File, KnowledgeBase
+    from backend.models import User, UserActivity, Equipment, Violation, File, KnowledgeBase, Act, Report, Inspection, Task
     from backend.database import get_db
     from backend.auth import get_current_user, require_permission
     from backend.ai_client import get_ai_client_async
 except ImportError:
-    from ..models import User, UserActivity, Equipment, Violation, File, KnowledgeBase
+    from ..models import User, UserActivity, Equipment, Violation, File, KnowledgeBase, Act, Report, Inspection, Task
     from ..database import get_db
     from ..auth import get_current_user, require_permission
     from ..ai_client import get_ai_client_async
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+def _normalize_russian_terms(text: str) -> str:
+    if not text:
+        return text
+    replacements = [
+        (r"\bstatus\b", "статус"),
+        (r"\bcreated_at\b", "дата создания"),
+        (r"\bupdated_at\b", "дата обновления"),
+        (r"\bseverity\b", "критичность"),
+        (r"\bin_progress\b", "в работе"),
+        (r"\bopen\b", "открыто"),
+        (r"\bclosed\b", "закрыто"),
+        (r"\bresolved\b", "устранено"),
+        (r"\bdraft\b", "черновик"),
+        (r"\bsigned\b", "подписано"),
+        (r"\barchived\b", "архив"),
+        (r"\bdue_date\b", "срок исполнения"),
+        (r"\bpriority\b", "приоритет"),
+        (r"\bmedium\b", "средняя"),
+        (r"\blow\b", "низкая"),
+        (r"\bhigh\b", "высокая"),
+        (r"\bcritical\b", "критичная"),
+    ]
+    normalized = text
+    for pattern, replacement in replacements:
+        normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
+    return normalized
+
+def _wants_full_list(message: str) -> bool:
+    msg = (message or "").lower()
+    return any(phrase in msg for phrase in [
+        "все", "весь список", "полный список", "перечень", "список всех", "полностью"
+    ])
+
+def _contains_any(message: str, keywords: List[str]) -> bool:
+    msg = (message or "").lower()
+    return any(k in msg for k in keywords)
+
+async def _build_internal_fallback(db: AsyncSession, message: str) -> str:
+    if not message:
+        return ""
+    now = datetime.utcnow()
+    lines: List[str] = []
+
+    wants_overdue_violations = _contains_any(message, ["нарушен", "просроч", "срок устран", "дедлайн"])
+    wants_overdue_tasks = _contains_any(message, ["задач", "поручен", "исполн", "срок", "дедлайн"])
+
+    if wants_overdue_violations:
+        overdue_total = (await db.execute(
+            select(func.count()).select_from(Violation).where(
+                Violation.status != "resolved",
+                Violation.deadline.isnot(None),
+                Violation.deadline < now
+            )
+        )).scalar() or 0
+        without_deadline = (await db.execute(
+            select(func.count()).select_from(Violation).where(
+                Violation.status != "resolved",
+                Violation.deadline.is_(None)
+            )
+        )).scalar() or 0
+        rows = (await db.execute(
+            select(Violation).where(
+                Violation.status != "resolved",
+                Violation.deadline.isnot(None),
+                Violation.deadline < now
+            ).order_by(Violation.deadline.asc()).limit(10)
+        )).scalars().all()
+        lines.append("Краткий отчет по просроченным нарушениям:")
+        lines.append(f"- всего просроченных: {overdue_total}")
+        if rows:
+            lines.append("- примеры:")
+            for v in rows:
+                deadline = v.deadline.date() if v.deadline else "—"
+                desc = re.sub(r"\s+", " ", v.description or "").strip()
+                lines.append(
+                    f"  - id={v.id}; срок={deadline}; критичность={v.severity}; статус={v.status}; описание={desc[:140]}"
+                )
+        else:
+            lines.append("- просроченных нарушений не найдено.")
+        if without_deadline > 0:
+            lines.append(f"- у {without_deadline} нарушений нет срока устранения.")
+
+    if wants_overdue_tasks:
+        overdue_total = (await db.execute(
+            select(func.count()).select_from(Task).where(
+                Task.status != "completed",
+                Task.due_date.isnot(None),
+                Task.due_date < now
+            )
+        )).scalar() or 0
+        rows = (await db.execute(
+            select(Task).where(
+                Task.status != "completed",
+                Task.due_date.isnot(None),
+                Task.due_date < now
+            ).order_by(Task.due_date.asc()).limit(10)
+        )).scalars().all()
+        if lines:
+            lines.append("")
+        lines.append("Краткий отчет по просроченным задачам:")
+        lines.append(f"- всего просроченных: {overdue_total}")
+        if rows:
+            lines.append("- примеры:")
+            for t in rows:
+                due = t.due_date.date() if t.due_date else "—"
+                title = (t.title or "").strip()
+                lines.append(
+                    f"  - id={t.id}; срок={due}; приоритет={t.priority}; статус={t.status}; название={title[:120]}"
+                )
+        else:
+            lines.append("- просроченных задач не найдено.")
+
+    return "\n".join(lines)
+
+async def _build_domain_context(db: AsyncSession, message: str) -> tuple[str, List[str]]:
+    if not message:
+        return "", []
+    now = datetime.utcnow()
+    limit_base = int(os.getenv("AI_SECTION_LIMIT", "50"))
+    limit = 200 if _wants_full_list(message) else limit_base
+    parts: List[str] = []
+    sources: List[str] = []
+
+    wants_violations = _contains_any(message, ["нарушен", "просроч", "срок устран", "дедлайн"])
+    wants_tasks = _contains_any(message, ["задач", "поручен", "исполн", "срок"])
+    wants_acts = _contains_any(message, ["акт"])
+    wants_inspections = _contains_any(message, ["осмотр", "инспек"])
+    wants_equipment = _contains_any(message, ["оборуд", "пто", "что", "техосмотр"])
+
+    if wants_violations:
+        query = select(Violation)
+        if _contains_any(message, ["просроч", "срок устран", "дедлайн"]):
+            query = query.where(
+                Violation.status != "resolved",
+                Violation.deadline.isnot(None),
+                Violation.deadline < now
+            ).order_by(Violation.deadline.asc())
+            header = "НАРУШЕНИЯ_ПРОСРОЧЕНО:"
+        else:
+            query = query.order_by(Violation.created_at.desc())
+            header = "НАРУШЕНИЯ:"
+        rows = (await db.execute(query.limit(limit))).scalars().all()
+        parts.append(header)
+        if rows:
+            for v in rows:
+                desc = re.sub(r"\s+", " ", v.description or "").strip()
+                deadline = v.deadline.date() if v.deadline else "—"
+                parts.append(
+                    f"- id={v.id}; статус={v.status}; критичность={v.severity}; срок={deadline}; дата_создания={v.created_at.date()}; описание={desc[:160]}"
+                )
+                sources.append(f"нарушение #{v.id}")
+        else:
+            parts.append("- нет данных")
+
+    if wants_tasks:
+        query = select(Task)
+        if _contains_any(message, ["просроч", "срок", "дедлайн"]):
+            query = query.where(
+                Task.status != "completed",
+                Task.due_date.isnot(None),
+                Task.due_date < now
+            ).order_by(Task.due_date.asc())
+            header = "ЗАДАЧИ_ПРОСРОЧЕНО:"
+        else:
+            query = query.order_by(Task.created_at.desc())
+            header = "ЗАДАЧИ:"
+        rows = (await db.execute(query.limit(limit))).scalars().all()
+        parts.append(header)
+        if rows:
+            for t in rows:
+                due = t.due_date.date() if t.due_date else "—"
+                parts.append(
+                    f"- id={t.id}; статус={t.status}; приоритет={t.priority}; срок={due}; дата_создания={t.created_at.date()}; название={t.title[:120]}"
+                )
+                sources.append(f"задача #{t.id}")
+        else:
+            parts.append("- нет данных")
+
+    if wants_acts:
+        rows = (await db.execute(
+            select(Act).order_by(Act.created_at.desc()).limit(limit)
+        )).scalars().all()
+        parts.append("АКТЫ:")
+        if rows:
+            for a in rows:
+                parts.append(
+                    f"- id={a.id}; номер={a.act_number}; статус={a.status}; дата={a.act_date.date() if a.act_date else '—'}; организация={a.organization}"
+                )
+                sources.append(f"акт #{a.id}")
+        else:
+            parts.append("- нет данных")
+
+    if wants_inspections:
+        rows = (await db.execute(
+            select(Inspection).order_by(Inspection.created_at.desc()).limit(limit)
+        )).scalars().all()
+        parts.append("ОСМОТРЫ:")
+        if rows:
+            for i in rows:
+                parts.append(
+                    f"- id={i.id}; статус={i.status}; дата_создания={i.created_at.date()}; дата_завершения={i.completed_at.date() if i.completed_at else '—'}"
+                )
+                sources.append(f"осмотр #{i.id}")
+        else:
+            parts.append("- нет данных")
+
+    if wants_equipment:
+        rows = (await db.execute(
+            select(Equipment).order_by(Equipment.updated_at.desc()).limit(limit)
+        )).scalars().all()
+        parts.append("ОБОРУДОВАНИЕ:")
+        if rows:
+            for e in rows:
+                pto = e.pto_date.date() if e.pto_date else "—"
+                cto = e.cto_date.date() if e.cto_date else "—"
+                parts.append(
+                    f"- id={e.id}; паспорт={e.passport_number}; тип={e.equipment_type}; статус={e.status}; ПТО={pto}; ЧТО={cto}; цех={e.workshop or '—'}"
+                )
+                sources.append(f"оборудование #{e.id}")
+        else:
+            parts.append("- нет данных")
+
+    if not parts:
+        return "", []
+    return "\n".join(["DOMAIN_CONTEXT:"] + parts), sources
 
 class AIGenerateRequest(BaseModel):
     prompt: str
@@ -56,6 +287,186 @@ class AIEquipmentRiskResponse(BaseModel):
     risk_score: int
     factors: List[str]
     recommendation: str
+
+class AIChatMessage(BaseModel):
+    role: str
+    content: str
+
+class AIChatRequest(BaseModel):
+    message: str
+    history: Optional[List[AIChatMessage]] = []
+    context: Optional[str] = None
+    response_mode: Optional[str] = "brief"
+
+class AIChatResponse(BaseModel):
+    answer: str
+    web_fallback: bool = False
+    web_query: Optional[str] = None
+
+class AISuggestionsResponse(BaseModel):
+    suggestions: List[str]
+    stats: Dict[str, Any]
+    generated_at: str
+
+def _user_has_role(user: User, role_names: List[str]) -> bool:
+    try:
+        roles = [ur.role.name for ur in (user.roles or [])]
+        return any(r in role_names for r in roles)
+    except Exception:
+        return False
+
+async def _build_project_context(db: AsyncSession) -> str:
+    # Aggregate small context to avoid token bloat
+    now = datetime.utcnow()
+    equipment_count = (await db.execute(select(func.count(Equipment.id)))).scalar() or 0
+    violations_count = (await db.execute(select(func.count(Violation.id)))).scalar() or 0
+    inspections_count = (await db.execute(select(func.count(Inspection.id)))).scalar() or 0
+    acts_count = (await db.execute(select(func.count(Act.id)))).scalar() or 0
+    reports_count = (await db.execute(select(func.count(Report.id)))).scalar() or 0
+    knowledge_count = (await db.execute(select(func.count(KnowledgeBase.id)))).scalar() or 0
+
+    violations_open = (await db.execute(
+        select(func.count()).select_from(Violation).where(Violation.status != "resolved")
+    )).scalar() or 0
+    violations_overdue = (await db.execute(
+        select(func.count()).select_from(Violation).where(
+            Violation.status != "resolved",
+            Violation.deadline.isnot(None),
+            Violation.deadline < now
+        )
+    )).scalar() or 0
+    violations_without_deadline = (await db.execute(
+        select(func.count()).select_from(Violation).where(
+            Violation.status != "resolved",
+            Violation.deadline.is_(None)
+        )
+    )).scalar() or 0
+    
+    recent_violations = (await db.execute(
+        select(Violation).order_by(Violation.created_at.desc()).limit(5)
+    )).scalars().all()
+    overdue_violations = (await db.execute(
+        select(Violation).where(
+            Violation.status != "resolved",
+            Violation.deadline.isnot(None),
+            Violation.deadline < now
+        ).order_by(Violation.deadline.asc()).limit(5)
+    )).scalars().all()
+    recent_acts = (await db.execute(
+        select(Act).order_by(Act.created_at.desc()).limit(5)
+    )).scalars().all()
+    recent_reports = (await db.execute(
+        select(Report).order_by(Report.created_at.desc()).limit(5)
+    )).scalars().all()
+    
+    context_lines = [
+        "PROJECT_SNAPSHOT:",
+        f"equipment_count={equipment_count}",
+        f"violations_count={violations_count}",
+        f"violations_open={violations_open}",
+        f"violations_overdue={violations_overdue}",
+        f"violations_without_deadline={violations_without_deadline}",
+        f"inspections_count={inspections_count}",
+        f"acts_count={acts_count}",
+        f"reports_count={reports_count}",
+        f"knowledge_items={knowledge_count}",
+        "",
+        "RECENT_VIOLATIONS:",
+    ]
+    for v in recent_violations:
+        description = re.sub(r"\s+", " ", v.description or "").strip()
+        context_lines.append(
+            f"- id={v.id}; критичность={v.severity}; статус={v.status}; дата_создания={v.created_at.date()}; описание={description[:120]}"
+        )
+
+    context_lines.append("")
+    context_lines.append("OVERDUE_VIOLATIONS:")
+    if overdue_violations:
+        for v in overdue_violations:
+            description = re.sub(r"\s+", " ", v.description or "").strip()
+            deadline = v.deadline.date() if v.deadline else "—"
+            context_lines.append(
+                f"- id={v.id}; критичность={v.severity}; статус={v.status}; срок={deadline}; дата_создания={v.created_at.date()}; описание={description[:120]}"
+            )
+    else:
+        context_lines.append("- нет")
+    
+    context_lines.append("")
+    context_lines.append("RECENT_ACTS:")
+    for a in recent_acts:
+        context_lines.append(
+            f"- id={a.id}; act_number={a.act_number}; status={a.status}; act_date={a.act_date}; org={a.organization}"
+        )
+    
+    context_lines.append("")
+    context_lines.append("RECENT_REPORTS:")
+    for r in recent_reports:
+        context_lines.append(
+            f"- id={r.id}; type={r.report_type}; status={r.status}; created_at={r.created_at}; format={r.file_format}"
+        )
+    
+    return "\n".join(context_lines)
+
+async def _search_knowledge_base(db: AsyncSession, query_text: str, limit: int = 6) -> List[KnowledgeBase]:
+    if not query_text or not query_text.strip():
+        return []
+    query = select(KnowledgeBase).where(
+        or_(
+            KnowledgeBase.title.ilike(f"%{query_text}%"),
+            KnowledgeBase.content.ilike(f"%{query_text}%"),
+            KnowledgeBase.section.ilike(f"%{query_text}%"),
+            KnowledgeBase.clause_number.ilike(f"%{query_text}%")
+        )
+    ).limit(limit)
+    result = await db.execute(query)
+    return result.scalars().all()
+
+def _build_knowledge_context(items: List[KnowledgeBase], max_chars: int = 5000) -> str:
+    if not items:
+        return ""
+    parts = ["\n\n=== РЕЛЕВАНТНАЯ ДОКУМЕНТАЦИЯ ИЗ БАЗЫ ЗНАНИЙ ===\n"]
+    used = 0
+    for item in items:
+        header = f"[{item.document_type.upper()}] {item.title}"
+        meta = []
+        if item.section:
+            meta.append(f"Раздел: {item.section}")
+        if item.clause_number:
+            meta.append(f"Пункт: {item.clause_number}")
+        meta_text = "\n".join(meta) + "\n" if meta else ""
+        snippet = (item.content or "")[:800]
+        block = f"{header}\n{meta_text}{snippet}\n\n"
+        if used + len(block) > max_chars:
+            break
+        parts.append(block)
+        used += len(block)
+    return "".join(parts)
+
+async def _web_search_duckduckgo(query: str, max_results: int = 5) -> List[Dict[str, str]]:
+    if not query or not query.strip():
+        return []
+    url = "https://duckduckgo.com/html/"
+    params = {"q": query}
+    results = []
+    try:
+        async with httpx.AsyncClient(timeout=15.0, headers={"User-Agent": "InspectorHubBot/1.0"}) as client:
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            text = resp.text
+    except Exception:
+        return []
+    
+    links = re.findall(r'class=\"result__a\" href=\"(.*?)\".*?>(.*?)<', text)
+    snippets = re.findall(r'class=\"result__snippet\".*?>(.*?)<', text)
+    
+    for i, (link, title) in enumerate(links[:max_results]):
+        snippet = snippets[i] if i < len(snippets) else ""
+        results.append({
+            "title": html.unescape(re.sub(r"<.*?>", "", title)),
+            "link": html.unescape(link),
+            "snippet": html.unescape(re.sub(r"<.*?>", "", snippet)),
+        })
+    return results
 
 @router.get("/test")
 async def test_ai_connection(
@@ -103,7 +514,7 @@ async def test_ai_connection(
         try:
             result = ai_client.generate_text(
                 prompt=test_prompt,
-                system_prompt="Ты помощник. Отвечай кратко и по делу.",
+                system_prompt="Ты помощник. Отвечай кратко и по делу. Ответ только на русском.",
                 max_tokens=200,  # Увеличили лимит для теста
                 temperature=0.7
             )
@@ -141,6 +552,192 @@ async def test_ai_connection(
             "error": str(e)
         }
 
+@router.get("/suggestions", response_model=AISuggestionsResponse)
+async def ai_suggestions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if not _user_has_role(current_user, ["admin", "inspector"]):
+        raise HTTPException(status_code=403, detail="Доступ запрещен")
+
+    now = datetime.utcnow()
+    last_30 = now - timedelta(days=30)
+    next_30 = now + timedelta(days=30)
+
+    async def count(query):
+        result = await db.execute(query)
+        return result.scalar() or 0
+
+    violations_total = await count(select(func.count()).select_from(Violation))
+    violations_open = await count(
+        select(func.count()).select_from(Violation).where(Violation.status != "resolved")
+    )
+    violations_overdue = await count(
+        select(func.count()).select_from(Violation).where(
+            Violation.status != "resolved",
+            Violation.deadline.isnot(None),
+            Violation.deadline < now
+        )
+    )
+    violations_no_deadline = await count(
+        select(func.count()).select_from(Violation).where(
+            Violation.status != "resolved",
+            Violation.deadline.is_(None)
+        )
+    )
+
+    tasks_total = await count(select(func.count()).select_from(Task))
+    tasks_open = await count(
+        select(func.count()).select_from(Task).where(Task.status != "completed")
+    )
+    tasks_overdue = await count(
+        select(func.count()).select_from(Task).where(
+            Task.status != "completed",
+            Task.due_date.isnot(None),
+            Task.due_date < now
+        )
+    )
+    tasks_no_due = await count(
+        select(func.count()).select_from(Task).where(
+            Task.status != "completed",
+            Task.due_date.is_(None)
+        )
+    )
+
+    acts_draft = await count(select(func.count()).select_from(Act).where(Act.status == "draft"))
+    acts_signed = await count(select(func.count()).select_from(Act).where(Act.status == "signed"))
+    acts_archived = await count(select(func.count()).select_from(Act).where(Act.status == "archived"))
+
+    inspections_in_progress = await count(
+        select(func.count()).select_from(Inspection).where(Inspection.status != "completed")
+    )
+    inspections_recent = await count(
+        select(func.count()).select_from(Inspection).where(Inspection.created_at >= last_30)
+    )
+
+    equipment_total = await count(select(func.count()).select_from(Equipment))
+    equipment_inactive = await count(select(func.count()).select_from(Equipment).where(Equipment.status == "inactive"))
+    equipment_archived = await count(select(func.count()).select_from(Equipment).where(Equipment.status == "archived"))
+    equipment_pto_due = await count(
+        select(func.count()).select_from(Equipment).where(
+            Equipment.pto_date.isnot(None),
+            Equipment.pto_date >= now,
+            Equipment.pto_date <= next_30
+        )
+    )
+    equipment_cto_due = await count(
+        select(func.count()).select_from(Equipment).where(
+            Equipment.cto_date.isnot(None),
+            Equipment.cto_date >= now,
+            Equipment.cto_date <= next_30
+        )
+    )
+    equipment_pto_overdue = await count(
+        select(func.count()).select_from(Equipment).where(
+            Equipment.pto_date.isnot(None),
+            Equipment.pto_date < now
+        )
+    )
+    equipment_cto_overdue = await count(
+        select(func.count()).select_from(Equipment).where(
+            Equipment.cto_date.isnot(None),
+            Equipment.cto_date < now
+        )
+    )
+
+    knowledge_total = await count(select(func.count()).select_from(KnowledgeBase))
+    knowledge_recent = await count(
+        select(func.count()).select_from(KnowledgeBase).where(KnowledgeBase.updated_at >= last_30)
+    )
+
+    suggestions: List[str] = []
+
+    def add(text: str):
+        if text and len(suggestions) < 6 and text not in suggestions:
+            suggestions.append(text)
+
+    if violations_overdue > 0:
+        add(f"Сделай краткий отчет по просроченным нарушениям (срок устранения прошел): {violations_overdue}")
+    elif violations_open > 0:
+        add(f"Сводка по открытым нарушениям и срокам устранения: {violations_open}")
+
+    if violations_no_deadline > 0:
+        add(f"Список нарушений без срока устранения: {violations_no_deadline}")
+
+    if tasks_overdue > 0:
+        add(f"Покажи просроченные задачи по устранению: {tasks_overdue}")
+    elif tasks_open > 0:
+        add(f"Сводка по задачам в работе и открытым: {tasks_open}")
+
+    if tasks_no_due > 0:
+        add(f"Список задач без срока исполнения: {tasks_no_due}")
+
+    if acts_draft > 0:
+        add(f"Список актов в черновике и что нужно для подписания: {acts_draft}")
+
+    if inspections_in_progress > 0:
+        add(f"Отчет по осмотрам в работе: {inspections_in_progress}")
+    elif inspections_recent > 0:
+        add(f"Краткая сводка по осмотрам за последние 30 дней: {inspections_recent}")
+
+    if equipment_pto_overdue + equipment_cto_overdue > 0:
+        add(f"ПТО/ЧТО просрочены: {equipment_pto_overdue + equipment_cto_overdue}")
+    elif equipment_pto_due + equipment_cto_due > 0:
+        add(f"ПТО/ЧТО в ближайшие 30 дней: {equipment_pto_due + equipment_cto_due}")
+
+    if equipment_inactive + equipment_archived > 0:
+        add(f"Список неактивного и архивного оборудования: {equipment_inactive + equipment_archived}")
+
+    if knowledge_recent > 0:
+        add(f"Что нового в базе знаний за 30 дней: {knowledge_recent}")
+
+    if not suggestions:
+        add("Сделай краткую сводку по текущим рискам и нарушениям")
+        add("Подготовь общий отчет по статусам оборудования")
+
+    stats = {
+        "violations": {
+            "total": violations_total,
+            "open": violations_open,
+            "overdue": violations_overdue,
+            "without_deadline": violations_no_deadline
+        },
+        "tasks": {
+            "total": tasks_total,
+            "open": tasks_open,
+            "overdue": tasks_overdue,
+            "without_due": tasks_no_due
+        },
+        "acts": {
+            "draft": acts_draft,
+            "signed": acts_signed,
+            "archived": acts_archived
+        },
+        "inspections": {
+            "in_progress": inspections_in_progress,
+            "last_30_days": inspections_recent
+        },
+        "equipment": {
+            "total": equipment_total,
+            "inactive": equipment_inactive,
+            "archived": equipment_archived,
+            "pto_due_30": equipment_pto_due,
+            "cto_due_30": equipment_cto_due,
+            "pto_overdue": equipment_pto_overdue,
+            "cto_overdue": equipment_cto_overdue
+        },
+        "knowledge_base": {
+            "total": knowledge_total,
+            "updated_30_days": knowledge_recent
+        }
+    }
+
+    return AISuggestionsResponse(
+        suggestions=suggestions,
+        stats=stats,
+        generated_at=now.isoformat()
+    )
+
 @router.post("/generate", response_model=AIGenerateResponse)
 async def generate_text(
     request: AIGenerateRequest,
@@ -150,7 +747,7 @@ async def generate_text(
     """Универсальная генерация текста через AI"""
     # Проверяем права (любой авторизованный пользователь может использовать AI)
     if not request.prompt or not request.prompt.strip():
-        raise HTTPException(status_code=400, detail="Prompt is required")
+        raise HTTPException(status_code=400, detail="Текст запроса обязателен")
     
     try:
         # Получаем AI клиент
@@ -257,7 +854,7 @@ async def generate_text(
             logging.getLogger(__name__).warning(f"Не удалось загрузить базу знаний: {e}")
         
         # Формируем системный промпт
-        system_prompt = "Ты помощник для работы с документами инспекции. ВАЖНО: Пиши КРАТКО, четко и ясно. Только суть, без лишних слов. Используй документацию только если она релевантна запросу."
+        system_prompt = "Ты помощник для работы с документами инспекции. Ответ только на русском. ВАЖНО: Пиши КРАТКО, четко и ясно. Только суть, без лишних слов. Используй документацию только если она релевантна запросу."
         
         # Формируем полный промпт с контекстом из базы знаний
         full_prompt = request.prompt
@@ -299,6 +896,142 @@ async def generate_text(
             status_code=500,
             detail=f"AI generation error: {str(e)}"
         )
+
+
+@router.post("/chat", response_model=AIChatResponse)
+async def chat_with_ai(
+    request: AIChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # Only admin and inspector
+    if not _user_has_role(current_user, ["admin", "inspector"]):
+        raise HTTPException(status_code=403, detail="Доступ запрещен")
+    
+    if not request.message or not request.message.strip():
+        raise HTTPException(status_code=400, detail="Сообщение обязательно")
+    
+    ai_client = await get_ai_client_async(db)
+    if not ai_client:
+        raise HTTPException(status_code=400, detail="ИИ не настроен")
+    
+    project_context = await _build_project_context(db)
+    user_context = request.context or ""
+    knowledge_items = await _search_knowledge_base(db, f"{request.message} {user_context}".strip())
+    knowledge_context = _build_knowledge_context(knowledge_items)
+    
+    mode_hint = "Ответ кратко и по делу."
+    if request.response_mode == "detailed":
+        mode_hint = "Ответ подробно, с подзаголовками и деталями."
+    elif request.response_mode == "conclusions":
+        mode_hint = "Ответ только выводами и рекомендациями списком."
+
+    system_prompt = (
+        "Ты ассистент InspectorHub. Отвечай строго на русском языке. "
+        "Используй ТОЛЬКО данные из PROJECT_SNAPSHOT, DOMAIN_CONTEXT и KNOWLEDGE_BASE. "
+        f"Текущая дата (UTC): {datetime.utcnow().date().isoformat()}. "
+        "Не используй английские слова и названия полей; если они встречаются, переводи на русский. "
+        "Если DOMAIN_CONTEXT или PROJECT_SNAPSHOT содержит релевантные данные, отвечай на их основе и не используй WEB_FALLBACK. "
+        "Если данных недостаточно, верни префикс 'WEB_FALLBACK:' и короткий поисковый запрос. "
+        "Не изменяй данные. Давай только рекомендации и черновики. "
+        f"{mode_hint}"
+    )
+    
+    domain_context, sources = await _build_domain_context(db, request.message)
+    data_checks: List[str] = []
+    now = datetime.utcnow()
+    if _contains_any(request.message, ["просроч", "срок", "дедлайн"]):
+        violations_without_deadline = (await db.execute(
+            select(func.count()).select_from(Violation).where(
+                Violation.status != "resolved",
+                Violation.deadline.is_(None)
+            )
+        )).scalar() or 0
+        if violations_without_deadline > 0:
+            data_checks.append(f"У {violations_without_deadline} нарушений нет срока устранения.")
+    if _contains_any(request.message, ["задач", "поруч", "исполн", "ответствен"]):
+        tasks_without_assignee = (await db.execute(
+            select(func.count()).select_from(Task).where(Task.assignee_id.is_(None))
+        )).scalar() or 0
+        if tasks_without_assignee > 0:
+            data_checks.append(f"У {tasks_without_assignee} задач не назначен ответственный.")
+    full_prompt = (
+        f"{project_context}\n\n"
+        f"{domain_context}\n\n"
+        f"KNOWLEDGE_BASE:\n{knowledge_context}\n\n"
+        f"USER_CONTEXT:\n{user_context}\n\n"
+        f"USER_MESSAGE:\n{request.message}\n"
+    )
+    
+    try:
+        max_tokens = 1200
+        if request.response_mode == "detailed":
+            max_tokens = 2000
+        response_text = ai_client.generate_text(
+            prompt=full_prompt,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            temperature=0.3
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI chat error: {str(e)}")
+    
+    web_fallback = False
+    web_query = None
+    answer = response_text or ""
+    if answer.strip().upper().startswith("WEB_FALLBACK:"):
+        internal_reply = await _build_internal_fallback(db, request.message)
+        if internal_reply:
+            answer = internal_reply
+            web_fallback = False
+            web_query = None
+        else:
+            web_fallback = True
+            web_query = answer.split(":", 1)[1].strip() if ":" in answer else None
+            web_results = await _web_search_duckduckgo(web_query or request.message)
+            if web_results:
+                web_context = "\n".join(
+                    [f"- {r['title']}\n  {r['snippet']}\n  {r['link']}" for r in web_results]
+                )
+                web_prompt = (
+                    f"PROJECT_SNAPSHOT:\n{project_context}\n\n"
+                    f"WEB_CONTEXT:\n{web_context}\n\n"
+                    f"USER_MESSAGE:\n{request.message}\n"
+                )
+                try:
+                    answer = ai_client.generate_text(
+                        prompt=web_prompt,
+                        system_prompt="Используй WEB_CONTEXT. Отвечай кратко, фактически и по-русски.",
+                        max_tokens=1200,
+                        temperature=0.3
+                    )
+                    web_fallback = False
+                except Exception:
+                    answer = "В проекте недостаточно данных для ответа. Требуется внешний поиск."
+            else:
+                answer = "В проекте недостаточно данных для ответа. Требуется внешний поиск."
+
+    answer = _normalize_russian_terms(answer)
+    if data_checks:
+        checks = "\n".join([f"- {c}" for c in data_checks])
+        answer = f"{answer}\n\nПроверка данных:\n{checks}\nРекомендуется заполнить отсутствующие поля."
+    if sources and "Основано на:" not in answer:
+        unique_sources = []
+        for s in sources:
+            if s not in unique_sources:
+                unique_sources.append(s)
+        answer = f"{answer}\n\nОсновано на: {', '.join(unique_sources[:12])}"
+    
+    activity = UserActivity(
+        user_id=current_user.id,
+        action_type="create",
+        entity_type="ai_chat",
+        description=f"AI chat: {request.message[:80]}..."
+    )
+    db.add(activity)
+    await db.commit()
+    
+    return AIChatResponse(answer=answer, web_fallback=web_fallback, web_query=web_query)
 
 @router.post("/classify_violation", response_model=AIClassifyViolationResponse)
 async def classify_violation(
@@ -384,7 +1117,7 @@ async def classify_violation(
 - ГОСТ указывай только если уверен в соответствии
 - Уверенность отражает качество анализа"""
         
-        system_prompt = "Ты эксперт по промышленной безопасности и классификации нарушений. Анализируй нарушения точно и профессионально."
+        system_prompt = "Ты эксперт по промышленной безопасности и классификации нарушений. Отвечай только на русском. Анализируй нарушения точно и профессионально."
         
         # Генерируем классификацию
         ai_response = ai_client.generate_text(
@@ -575,7 +1308,7 @@ async def get_equipment_ai_risk(
 - Факторы должны быть конкретными и обоснованными
 - Рекомендации должны быть практичными и выполнимыми"""
         
-        system_prompt = "Ты эксперт по промышленной безопасности и оценке рисков подъемных сооружений. Анализируй риски профессионально и объективно."
+        system_prompt = "Ты эксперт по промышленной безопасности и оценке рисков подъемных сооружений. Отвечай только на русском. Анализируй риски профессионально и объективно."
         
         # Генерируем оценку
         ai_response = ai_client.generate_text(
@@ -634,3 +1367,6 @@ async def get_equipment_ai_risk(
             status_code=500,
             detail=f"AI risk assessment error: {str(e)}"
         )
+
+
+

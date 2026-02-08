@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import axios from 'axios'
@@ -11,9 +11,10 @@ interface ActFormProps {
   actId: number | null
   onClose: () => void
   onSuccess: () => void
+  prefillEquipmentId?: number | null
 }
 
-export default function ActForm({ actId, onClose, onSuccess }: ActFormProps) {
+export default function ActForm({ actId, onClose, onSuccess, prefillEquipmentId }: ActFormProps) {
   const { token } = useAuthStore()
   const { addNotification } = useNotificationStore()
   const [loading, setLoading] = useState(false)
@@ -27,6 +28,8 @@ export default function ActForm({ actId, onClose, onSuccess }: ActFormProps) {
   const [equipmentList, setEquipmentList] = useState<any[]>([])
   const [violationsList, setViolationsList] = useState<any[]>([])
   const [selectedViolations, setSelectedViolations] = useState<number[]>([])
+  const [contentText, setContentText] = useState('')
+  const [aiDraft, setAiDraft] = useState('')
 
   useEffect(() => {
     fetchEquipment()
@@ -35,6 +38,15 @@ export default function ActForm({ actId, onClose, onSuccess }: ActFormProps) {
       fetchAct()
     }
   }, [actId])
+
+  useEffect(() => {
+    if (!actId && prefillEquipmentId) {
+      setFormData((prev) => ({
+        ...prev,
+        equipment_id: String(prefillEquipmentId),
+      }))
+    }
+  }, [actId, prefillEquipmentId])
 
   const fetchEquipment = async () => {
     try {
@@ -71,6 +83,8 @@ export default function ActForm({ actId, onClose, onSuccess }: ActFormProps) {
         violation_ids: a.violation_ids || [],
       })
       setSelectedViolations(a.violation_ids || [])
+      setContentText(a.content || '')
+      setAiDraft('')
     } catch (error: any) {
       addNotification('Ошибка загрузки акта', 'error')
     }
@@ -85,12 +99,12 @@ export default function ActForm({ actId, onClose, onSuccess }: ActFormProps) {
     setGenerating(true)
     try {
       const response = await axios.post(
-        `${API_URL}/api/acts/${actId}/generate`,
+        `${API_URL}/api/acts/${actId}/generate-draft`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       )
-      setAct(response.data)
-      addNotification('Текст акта сгенерирован через ИИ', 'success')
+      setAiDraft(response.data?.content || '')
+      addNotification('Черновик акта сгенерирован', 'success')
     } catch (error: any) {
       addNotification(error.response?.data?.detail || 'Ошибка генерации', 'error')
     } finally {
@@ -125,7 +139,7 @@ export default function ActForm({ actId, onClose, onSuccess }: ActFormProps) {
             organization: formData.organization,
             act_date: act?.act_date,
             status: act?.status,
-            content: act?.content,
+            content: contentText,
           },
           { headers: { Authorization: `Bearer ${token}` } }
         )
@@ -167,17 +181,45 @@ export default function ActForm({ actId, onClose, onSuccess }: ActFormProps) {
                   disabled={generating}
                   className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
                 >
-                  {generating ? 'Генерация...' : '🤖 Сгенерировать текст ИИ'}
+                  {generating ? 'Генерация...' : 'Сгенерировать черновик ИИ'}
                 </button>
-              </div>
-              {act.content && (
-                <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Содержание акта</label>
-                  <div className="bg-white p-4 rounded border border-gray-200 whitespace-pre-wrap">
-                    {act.content}
+              </div>              {aiDraft && (
+                <div className="mt-4 bg-white p-4 rounded border border-gray-200">
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="block text-sm font-medium text-gray-700">Черновик ИИ</label>
+                    <div className="flex space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setContentText(aiDraft)
+                          setAiDraft('')
+                        }}
+                        className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                      >
+                        Применить
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAiDraft('')}
+                        className="px-2 py-1 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50"
+                      >
+                        Скрыть
+                      </button>
+                    </div>
                   </div>
+                  <div className="text-sm whitespace-pre-wrap">{aiDraft}</div>
                 </div>
               )}
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Содержание акта</label>
+                <textarea
+                  value={contentText}
+                  onChange={(e) => setContentText(e.target.value)}
+                  rows={8}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">Заполните содержание акта и сохраните.</p>
+              </div>
             </div>
           )}
 
@@ -265,4 +307,8 @@ export default function ActForm({ actId, onClose, onSuccess }: ActFormProps) {
     </div>
   )
 }
+
+
+
+
 

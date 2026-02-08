@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func, desc, asc, nullslast
 from sqlalchemy.orm import selectinload
-from typing import List, Optional
-from datetime import datetime
+from typing import List, Optional, Union
+from datetime import datetime, timedelta
 from pydantic import BaseModel, ValidationError
 import logging
 import csv
@@ -82,6 +82,10 @@ class EquipmentResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class EquipmentListResponse(BaseModel):
+    items: List[EquipmentResponse]
+    total: int
 
 class EquipmentBulkItem(BaseModel):
     equipment_type: str
@@ -177,6 +181,75 @@ def _equipment_to_response(equipment: Equipment) -> EquipmentResponse:
         created_at=equipment.created_at,
         updated_at=equipment.updated_at,
     )
+
+
+def _build_equipment_filters(
+    search: Optional[str],
+    equipment_type: Optional[str],
+    status: Optional[str],
+    workshop: Optional[str],
+    maintenance: Optional[str],
+    maintenance_scope: Optional[str],
+):
+    filters = []
+
+    if search:
+        filters.append(
+            or_(
+                Equipment.passport_number.ilike(f"%{search}%"),
+                Equipment.inventory_number.ilike(f"%{search}%"),
+                Equipment.position.ilike(f"%{search}%"),
+                Equipment.equipment_type.ilike(f"%{search}%"),
+                Equipment.workshop.ilike(f"%{search}%"),
+                Equipment.installation_location.ilike(f"%{search}%"),
+            )
+        )
+    if equipment_type:
+        filters.append(Equipment.equipment_type == equipment_type)
+    if status:
+        filters.append(Equipment.status == status)
+    if workshop:
+        filters.append(Equipment.workshop == workshop)
+
+    if maintenance:
+        now = datetime.utcnow()
+        if maintenance == "overdue":
+            def _cond(col):
+                return and_(col.isnot(None), col < now)
+        elif maintenance == "due_30":
+            end = now + timedelta(days=30)
+            def _cond(col):
+                return and_(col.isnot(None), col >= now, col <= end)
+        else:
+            end = now + timedelta(days=60)
+            def _cond(col):
+                return and_(col.isnot(None), col >= now, col <= end)
+
+        if maintenance_scope == "pto":
+            filters.append(_cond(Equipment.pto_date))
+        elif maintenance_scope == "cto":
+            filters.append(_cond(Equipment.cto_date))
+        else:
+            filters.append(or_(_cond(Equipment.pto_date), _cond(Equipment.cto_date)))
+
+    return filters
+
+
+def _apply_equipment_sort(query, sort_by: Optional[str], sort_dir: Optional[str]):
+    sort_map = {
+        "updated_at": Equipment.updated_at,
+        "passport_number": Equipment.passport_number,
+        "equipment_type": Equipment.equipment_type,
+        "status": Equipment.status,
+        "pto_date": Equipment.pto_date,
+        "cto_date": Equipment.cto_date,
+        "installation_date": Equipment.installation_date,
+    }
+    sort_col = sort_map.get(sort_by or "updated_at", Equipment.updated_at)
+    sort_func = desc if (sort_dir or "desc") == "desc" else asc
+    if sort_by in ("pto_date", "cto_date", "installation_date"):
+        return query.order_by(nullslast(sort_func(sort_col)))
+    return query.order_by(sort_func(sort_col))
 
 
 async def _bulk_create_equipment_items(
@@ -347,48 +420,154 @@ def _ocr_image_to_text(image_path: str) -> str:
         raise HTTPException(status_code=500, detail=f"OCR error: {str(e)}")
 
 
-@router.get("", response_model=List[EquipmentResponse])
+@router.get("", response_model=Union[List[EquipmentResponse], EquipmentListResponse])
 async def get_equipment_list(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
+    page: Optional[int] = Query(None, ge=1),
+    page_size: Optional[int] = Query(None, ge=1, le=1000),
     search: Optional[str] = None,
     equipment_type: Optional[str] = None,
     status: Optional[str] = None,
     workshop: Optional[str] = None,
+    maintenance: Optional[str] = Query(None, regex="^(overdue|due_30|due_60)$"),
+    maintenance_scope: Optional[str] = Query("any", regex="^(any|pto|cto)$"),
+    sort_by: Optional[str] = Query("updated_at", regex="^(updated_at|passport_number|equipment_type|status|pto_date|cto_date|installation_date)$"),
+    sort_dir: Optional[str] = Query("desc", regex="^(asc|desc)$"),
+    with_total: bool = Query(False),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Получить список оборудования"""
     await require_permission(current_user, "equipment:read", db)
     
+    if page is not None:
+        limit = page_size or limit
+        skip = (page - 1) * limit
+    elif page_size is not None:
+        limit = page_size
+
+    filters = _build_equipment_filters(
+        search=search,
+        equipment_type=equipment_type,
+        status=status,
+        workshop=workshop,
+        maintenance=maintenance,
+        maintenance_scope=maintenance_scope,
+    )
+
     query = select(Equipment)
-    
-    if search:
-        query = query.where(
-            or_(
-                Equipment.passport_number.ilike(f"%{search}%"),
-                Equipment.inventory_number.ilike(f"%{search}%"),
-                Equipment.position.ilike(f"%{search}%"),
-                Equipment.equipment_type.ilike(f"%{search}%"),
-                Equipment.workshop.ilike(f"%{search}%"),
-                Equipment.installation_location.ilike(f"%{search}%")
-            )
-        )
-    
-    if equipment_type:
-        query = query.where(Equipment.equipment_type == equipment_type)
-    
-    if status:
-        query = query.where(Equipment.status == status)
-    
-    if workshop:
-        query = query.where(Equipment.workshop == workshop)
-    
-    query = query.order_by(Equipment.updated_at.desc()).offset(skip).limit(limit)
+    if filters:
+        query = query.where(and_(*filters))
+
+    query = _apply_equipment_sort(query, sort_by, sort_dir)
+
+    query = query.offset(skip).limit(limit)
     result = await db.execute(query)
     equipment_list = result.scalars().all()
-    
-    return [_equipment_to_response(eq) for eq in equipment_list]
+
+    items = [_equipment_to_response(eq) for eq in equipment_list]
+    if with_total:
+        count_query = select(func.count()).select_from(Equipment)
+        if filters:
+            count_query = count_query.where(and_(*filters))
+        total = (await db.execute(count_query)).scalar() or 0
+        return EquipmentListResponse(items=items, total=total)
+    return items
+
+@router.get("/types", response_model=List[str])
+async def get_equipment_types(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Получить список типов оборудования"""
+    await require_permission(current_user, "equipment:read", db)
+    result = await db.execute(
+        select(Equipment.equipment_type)
+        .where(Equipment.equipment_type.isnot(None))
+        .distinct()
+        .order_by(Equipment.equipment_type)
+    )
+    types = [row[0] for row in result.all() if row and row[0]]
+    return types
+
+
+@router.get("/export")
+async def export_equipment_csv(
+    search: Optional[str] = None,
+    equipment_type: Optional[str] = None,
+    status: Optional[str] = None,
+    workshop: Optional[str] = None,
+    maintenance: Optional[str] = Query(None, regex="^(overdue|due_30|due_60)$"),
+    maintenance_scope: Optional[str] = Query("any", regex="^(any|pto|cto)$"),
+    sort_by: Optional[str] = Query("updated_at", regex="^(updated_at|passport_number|equipment_type|status|pto_date|cto_date|installation_date)$"),
+    sort_dir: Optional[str] = Query("desc", regex="^(asc|desc)$"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Экспорт оборудования в CSV с учётом фильтров."""
+    await require_permission(current_user, "equipment:read", db)
+
+    filters = _build_equipment_filters(
+        search=search,
+        equipment_type=equipment_type,
+        status=status,
+        workshop=workshop,
+        maintenance=maintenance,
+        maintenance_scope=maintenance_scope,
+    )
+
+    query = select(Equipment)
+    if filters:
+        query = query.where(and_(*filters))
+    query = _apply_equipment_sort(query, sort_by, sort_dir)
+
+    result = await db.execute(query)
+    equipment_list = result.scalars().all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "id",
+        "тип",
+        "паспортный_номер",
+        "инвентарный_номер",
+        "позиция",
+        "цех",
+        "грузоподъемность_т",
+        "производитель",
+        "дата_ввода",
+        "дата_пто",
+        "дата_что",
+        "место_установки",
+        "статус",
+        "обновлено",
+    ])
+
+    for eq in equipment_list:
+        writer.writerow([
+            eq.id,
+            eq.equipment_type or "",
+            eq.passport_number or "",
+            eq.inventory_number or "",
+            eq.position or "",
+            eq.workshop or "",
+            eq.load_capacity if eq.load_capacity is not None else "",
+            eq.manufacturer or "",
+            eq.installation_date.isoformat() if eq.installation_date else "",
+            eq.pto_date.isoformat() if eq.pto_date else "",
+            eq.cto_date.isoformat() if eq.cto_date else "",
+            eq.installation_location or "",
+            eq.status or "",
+            eq.updated_at.isoformat() if eq.updated_at else "",
+        ])
+
+    filename = f"equipment_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(
+        content=output.getvalue().encode("utf-8-sig"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 @router.get("/{equipment_id}", response_model=EquipmentResponse)
 async def get_equipment(

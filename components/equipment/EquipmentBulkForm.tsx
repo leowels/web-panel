@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 import { useNotificationStore } from '@/store/notificationStore'
@@ -49,6 +49,30 @@ export default function EquipmentBulkForm({ onClose, onSuccess }: EquipmentBulkF
   const { addNotification } = useNotificationStore()
   const [rows, setRows] = useState<EquipmentRow[]>([createEmptyRow(), createEmptyRow(), createEmptyRow()])
   const [loading, setLoading] = useState(false)
+  const [equipmentTypes, setEquipmentTypes] = useState<string[]>(EQUIPMENT_TYPES as unknown as string[])
+
+  useEffect(() => {
+    fetchEquipmentTypes()
+  }, [token])
+
+  const fetchEquipmentTypes = async () => {
+    try {
+      if (!token) {
+        setEquipmentTypes(EQUIPMENT_TYPES as unknown as string[])
+        return
+      }
+      const response = await axios.get(`${API_URL}/api/equipment/types`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (Array.isArray(response.data) && response.data.length > 0) {
+        setEquipmentTypes(response.data)
+      } else {
+        setEquipmentTypes(EQUIPMENT_TYPES as unknown as string[])
+      }
+    } catch {
+      setEquipmentTypes(EQUIPMENT_TYPES as unknown as string[])
+    }
+  }
 
   const updateRow = (index: number, field: keyof EquipmentRow, value: string) => {
     const updated = [...rows]
@@ -174,7 +198,7 @@ export default function EquipmentBulkForm({ onClose, onSuccess }: EquipmentBulkF
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500"
                     >
                       <option value="">Выберите</option>
-                      {EQUIPMENT_TYPES.map((type) => (
+                      {equipmentTypes.map((type) => (
                         <option key={type} value={type}>
                           {type}
                         </option>
@@ -337,4 +361,3 @@ export default function EquipmentBulkForm({ onClose, onSuccess }: EquipmentBulkF
     </div>
   )
 }
-

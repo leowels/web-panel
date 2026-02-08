@@ -1,6 +1,7 @@
-'use client'
+﻿'use client'
 
-import { useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useAuthStore } from '@/store/authStore'
 import Layout from '@/components/Layout'
 import EquipmentTable from '@/components/equipment/EquipmentTable'
@@ -11,8 +12,9 @@ import EquipmentBulkForm from '@/components/equipment/EquipmentBulkForm'
 import EquipmentCsvUpload from '@/components/equipment/EquipmentCsvUpload'
 import EquipmentOcrImport from '@/components/equipment/EquipmentOcrImport'
 
-export default function EquipmentPage() {
+function EquipmentPageContent() {
   const { isAuthenticated } = useAuthStore()
+  const searchParams = useSearchParams()
   const [showForm, setShowForm] = useState(false)
   const [showCsvUpload, setShowCsvUpload] = useState(false)
   const [showBulk, setShowBulk] = useState(false)
@@ -20,6 +22,15 @@ export default function EquipmentPage() {
   const [selectedEquipment, setSelectedEquipment] = useState<number | null>(null)
   const [showHistory, setShowHistory] = useState<number | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [initialTaskEquipmentId, setInitialTaskEquipmentId] = useState<number | null>(null)
+
+  useEffect(() => {
+    const eqIdRaw = searchParams.get('task_equipment_id')
+    const eqId = eqIdRaw ? Number(eqIdRaw) : null
+    if (eqId && !Number.isNaN(eqId)) {
+      setInitialTaskEquipmentId(eqId)
+    }
+  }, [searchParams])
 
   const triggerRefresh = () => setRefreshKey((prev) => prev + 1)
 
@@ -28,9 +39,9 @@ export default function EquipmentPage() {
   }
 
   return (
-    <Layout>
+    <Layout fullWidth>
       <div className="p-6">
-        <div className="max-w-7xl mx-auto">
+        <div className="w-full max-w-none">
           <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Справочник оборудования</h1>
@@ -79,96 +90,104 @@ export default function EquipmentPage() {
             </div>
           </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            <EquipmentTable
-              onEdit={(id) => {
-                setSelectedEquipment(id)
-                setShowForm(true)
-              }}
-              onView={(id) => setSelectedEquipment(id)}
-              onViewHistory={(id) => setShowHistory(id)}
-              refreshKey={refreshKey}
-            />
+          <div className={`grid grid-cols-1 gap-6 ${selectedEquipment ? 'lg:grid-cols-3' : ''}`}>
+            <div className={selectedEquipment ? 'lg:col-span-2' : ''}>
+              <EquipmentTable
+                onEdit={(id) => {
+                  setSelectedEquipment(id)
+                  setShowForm(true)
+                }}
+                onView={(id) => setSelectedEquipment(id)}
+                onViewHistory={(id) => setShowHistory(id)}
+                refreshKey={refreshKey}
+                initialTaskEquipmentId={initialTaskEquipmentId}
+              />
+            </div>
+
+            <div className={selectedEquipment ? 'lg:col-span-1 hidden lg:block' : 'hidden'}>
+              {selectedEquipment && (
+                <EquipmentCard
+                  equipmentId={selectedEquipment}
+                  onClose={() => setSelectedEquipment(null)}
+                  onEdit={() => {
+                    setShowForm(true)
+                  }}
+                />
+              )}
+            </div>
           </div>
 
-          <div className={`lg:col-span-1 ${selectedEquipment ? 'hidden lg:block' : 'hidden'}`}>
-            {selectedEquipment && (
+          {selectedEquipment && (
+            <div className="mt-6 lg:hidden">
               <EquipmentCard
                 equipmentId={selectedEquipment}
                 onClose={() => setSelectedEquipment(null)}
-                onEdit={() => {
-                  setShowForm(true)
-                }}
+                onEdit={() => setShowForm(true)}
               />
-            )}
-          </div>
-        </div>
+            </div>
+          )}
 
-        {selectedEquipment && (
-          <div className="mt-6 lg:hidden">
-            <EquipmentCard
+          {showForm && (
+            <EquipmentForm
               equipmentId={selectedEquipment}
-              onClose={() => setSelectedEquipment(null)}
-              onEdit={() => setShowForm(true)}
+              onClose={() => {
+                setShowForm(false)
+                setSelectedEquipment(null)
+              }}
+              onSuccess={() => {
+                setShowForm(false)
+                setSelectedEquipment(null)
+                triggerRefresh()
+              }}
             />
-          </div>
-        )}
+          )}
 
-        {showForm && (
-          <EquipmentForm
-            equipmentId={selectedEquipment}
-            onClose={() => {
-              setShowForm(false)
-              setSelectedEquipment(null)
-            }}
-            onSuccess={() => {
-              setShowForm(false)
-              setSelectedEquipment(null)
-              triggerRefresh()
-            }}
-          />
-        )}
+          {showBulk && (
+            <EquipmentBulkForm
+              onClose={() => setShowBulk(false)}
+              onSuccess={() => {
+                setShowBulk(false)
+                triggerRefresh()
+              }}
+            />
+          )}
 
-        {showBulk && (
-          <EquipmentBulkForm
-            onClose={() => setShowBulk(false)}
-            onSuccess={() => {
-              setShowBulk(false)
-              triggerRefresh()
-            }}
-          />
-        )}
+          {showCsvUpload && (
+            <EquipmentCsvUpload
+              onClose={() => setShowCsvUpload(false)}
+              onSuccess={() => {
+                setShowCsvUpload(false)
+                triggerRefresh()
+              }}
+            />
+          )}
 
-        {showCsvUpload && (
-          <EquipmentCsvUpload
-            onClose={() => setShowCsvUpload(false)}
-            onSuccess={() => {
-              setShowCsvUpload(false)
-              triggerRefresh()
-            }}
-          />
-        )}
+          {showOcrImport && (
+            <EquipmentOcrImport
+              onClose={() => setShowOcrImport(false)}
+              onSuccess={() => {
+                setShowOcrImport(false)
+                triggerRefresh()
+              }}
+            />
+          )}
 
-        {showOcrImport && (
-          <EquipmentOcrImport
-            onClose={() => setShowOcrImport(false)}
-            onSuccess={() => {
-              setShowOcrImport(false)
-              triggerRefresh()
-            }}
-          />
-        )}
-
-        {showHistory && (
-          <EquipmentHistory
-            equipmentId={showHistory}
-            onClose={() => setShowHistory(null)}
-          />
-        )}
+          {showHistory && (
+            <EquipmentHistory
+              equipmentId={showHistory}
+              onClose={() => setShowHistory(null)}
+            />
+          )}
         </div>
       </div>
     </Layout>
   )
 }
 
+export default function EquipmentPage() {
+  return (
+    <Suspense fallback={null}>
+      <EquipmentPageContent />
+    </Suspense>
+  )
+}

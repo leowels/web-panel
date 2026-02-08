@@ -1,6 +1,7 @@
-'use client'
+﻿'use client'
 
-import { useState, useEffect } from 'react'
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useAuthStore } from '@/store/authStore'
 import Layout from '@/components/Layout'
 import WorkshopMap from '@/components/equipment/WorkshopMap'
@@ -9,23 +10,42 @@ import axios from 'axios'
 
 const API_URL = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '') : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
 
-export default function WorkshopMapPage() {
+function WorkshopMapPageContent() {
   const { isAuthenticated, token, user } = useAuthStore()
-  const [selectedWorkshop, setSelectedWorkshop] = useState<string>('')
+  const searchParams = useSearchParams()
+  const initialWorkshop = searchParams.get('workshop') || ''
+  const initialEquipmentId = searchParams.get('equipment_id')
+    ? Number(searchParams.get('equipment_id'))
+    : null
+  const [selectedWorkshop, setSelectedWorkshop] = useState<string>(initialWorkshop)
   const [customWorkshop, setCustomWorkshop] = useState<string>('')
+  const [focusEquipmentId, setFocusEquipmentId] = useState<number | null>(
+    initialEquipmentId && !Number.isNaN(initialEquipmentId) ? initialEquipmentId : null
+  )
   const [workshops, setWorkshops] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [isEditMode, setIsEditMode] = useState(false)
-  
-  // Проверка прав админа
+
   const isAdmin = user?.roles?.some((r) => r.name === 'admin') || false
 
-  // Загружаем список цехов
   useEffect(() => {
     if (isAuthenticated && token) {
       fetchWorkshops()
     }
   }, [isAuthenticated, token])
+
+  useEffect(() => {
+    const eqIdRaw = searchParams.get('equipment_id')
+    const ws = searchParams.get('workshop')
+    const eqId = eqIdRaw ? Number(eqIdRaw) : null
+    if (ws) {
+      setSelectedWorkshop(ws)
+      setCustomWorkshop('')
+    }
+    if (eqId && !Number.isNaN(eqId)) {
+      setFocusEquipmentId(eqId)
+    }
+  }, [searchParams])
 
   const fetchWorkshops = async () => {
     try {
@@ -35,10 +55,10 @@ export default function WorkshopMapPage() {
         headers: { Authorization: `Bearer ${token}` },
       })
 
-      // Извлекаем уникальные цехи
+      const data = Array.isArray(response.data) ? response.data : response.data?.items || []
       const uniqueWorkshops = Array.from(
         new Set(
-          response.data
+          data
             .map((eq: any) => eq.workshop)
             .filter((w: string | null) => w && w.trim() !== '')
         )
@@ -97,7 +117,7 @@ export default function WorkshopMapPage() {
                   className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-48 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                 />
               </div>
-              
+
               {isAdmin && (
                 <button
                   onClick={() => setIsEditMode(!isEditMode)}
@@ -113,7 +133,9 @@ export default function WorkshopMapPage() {
             </div>
           </div>
 
-          {isEditMode && isAdmin ? (
+          {loading && !effectiveWorkshop ? (
+            <div className="bg-white border border-gray-200 rounded-lg p-6 text-center text-gray-600">Загрузка списка цехов...</div>
+          ) : isEditMode && isAdmin ? (
             effectiveWorkshop ? (
               <WorkshopMapEditor
                 workshop={effectiveWorkshop}
@@ -126,10 +148,18 @@ export default function WorkshopMapPage() {
               </div>
             )
           ) : (
-            <WorkshopMap workshop={effectiveWorkshop} />
+            <WorkshopMap workshop={effectiveWorkshop} focusEquipmentId={focusEquipmentId} />
           )}
         </div>
       </div>
     </Layout>
+  )
+}
+
+export default function WorkshopMapPage() {
+  return (
+    <Suspense fallback={null}>
+      <WorkshopMapPageContent />
+    </Suspense>
   )
 }

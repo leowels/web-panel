@@ -116,6 +116,18 @@ export default function EquipmentCsvUpload({ onClose, onSuccess }: EquipmentCsvU
               className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
             />
             <p className="text-xs text-gray-500 mt-1">Поддерживаются только CSV файлы с разделителем запятая или точка с запятой.</p>
+            {file && (
+              <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
+                <span>{file.name} • {(file.size / 1024).toFixed(1)} KB</span>
+                <button
+                  type="button"
+                  onClick={() => setFile(null)}
+                  className="text-accent-600 hover:text-accent-700"
+                >
+                  Очистить
+                </button>
+              </div>
+            )}
           </div>
 
           <label className="inline-flex items-center space-x-2 text-sm text-gray-700">
@@ -168,4 +180,3 @@ export default function EquipmentCsvUpload({ onClose, onSuccess }: EquipmentCsvU
     </div>
   )
 }
-

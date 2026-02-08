@@ -169,6 +169,12 @@ async def register(
     db: AsyncSession = Depends(get_db)
 ):
     """Р РµРіРёСЃС‚СЂР°С†РёСЏ РЅРѕРІРѕРіРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ"""
+    # Регистрация отключена. Пользователи создаются администратором.
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Registration is disabled"
+    )
+
     # РџСЂРѕРІРµСЂРєР° СЃСѓС‰РµСЃС‚РІРѕРІР°РЅРёСЏ
     result = await db.execute(
         select(User).where(
@@ -311,4 +317,6 @@ async def get_current_user_info(
         is_active=user.is_active,
         roles=[{"id": ur.role.id, "name": ur.role.name} for ur in user.roles]
     )
+
+
 

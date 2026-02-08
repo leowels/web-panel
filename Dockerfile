@@ -15,9 +15,11 @@ RUN npm ci
 COPY . .
 
 # Build arguments для Next.js
-# НЕ устанавливаем NEXT_PUBLIC_API_URL - используем относительный путь через прокси
+# NEXT_PUBLIC_API_URL можно задавать, чтобы обходить Next proxy (например, http://localhost:8000)
 ARG BACKEND_URL=http://localhost:8000
+ARG NEXT_PUBLIC_API_URL=
 ENV BACKEND_URL=${BACKEND_URL}
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # Сборка Frontend
@@ -111,4 +113,3 @@ ENV PATH=/home/appuser/.local/bin:$PATH
 # Запуск через entrypoint
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["/app/docker-entrypoint.sh"]
-

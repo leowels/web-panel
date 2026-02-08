@@ -1,6 +1,7 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 import { useNotificationStore } from '@/store/notificationStore'
@@ -35,11 +36,21 @@ interface EquipmentCardProps {
 export default function EquipmentCard({ equipmentId, onClose, onEdit }: EquipmentCardProps) {
   const { token } = useAuthStore()
   const { addNotification } = useNotificationStore()
+  const router = useRouter()
   const [equipment, setEquipment] = useState<Equipment | null>(null)
   const [loading, setLoading] = useState(true)
+  const [relatedLoading, setRelatedLoading] = useState(false)
+  const [related, setRelated] = useState({
+    violations: [] as any[],
+    inspections: [] as any[],
+    acts: [] as any[],
+    tasks: [] as any[],
+    files: [] as any[],
+  })
 
   useEffect(() => {
     fetchEquipment()
+    fetchRelated()
   }, [equipmentId])
 
   const fetchEquipment = async () => {
@@ -53,6 +64,32 @@ export default function EquipmentCard({ equipmentId, onClose, onEdit }: Equipmen
       addNotification('Ошибка загрузки оборудования', 'error')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchRelated = async () => {
+    if (!token) return
+    setRelatedLoading(true)
+    try {
+      const params = { equipment_id: equipmentId, limit: 5 }
+      const [violations, inspections, acts, tasks, files] = await Promise.all([
+        axios.get(`${API_URL}/api/violations`, { params, headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_URL}/api/inspections`, { params, headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_URL}/api/acts`, { params, headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_URL}/api/tasks`, { params, headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_URL}/api/files`, { params, headers: { Authorization: `Bearer ${token}` } }),
+      ])
+      setRelated({
+        violations: violations.data || [],
+        inspections: inspections.data || [],
+        acts: acts.data || [],
+        tasks: tasks.data || [],
+        files: files.data || [],
+      })
+    } catch (error: any) {
+      addNotification('Ошибка загрузки связанных данных', 'error')
+    } finally {
+      setRelatedLoading(false)
     }
   }
 
@@ -124,7 +161,7 @@ export default function EquipmentCard({ equipmentId, onClose, onEdit }: Equipmen
         {equipment.load_capacity && (
           <div>
             <label className="text-sm font-medium text-gray-500">Грузоподъемность</label>
-            <p className="text-gray-900">{equipment.load_capacity} т</p>
+            <p className="text-gray-900">{equipment.load_capacity} С‚</p>
           </div>
         )}
 
@@ -175,6 +212,152 @@ export default function EquipmentCard({ equipmentId, onClose, onEdit }: Equipmen
                equipment.status === 'inactive' ? 'Неактивно' : 'Архив'}
             </span>
           </p>
+        </div>
+
+        <div className="pt-4 border-t border-gray-200">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-900">Связанные данные</h3>
+            <button
+              onClick={() => {
+                const params = new URLSearchParams()
+                if (equipment.workshop) params.set('workshop', equipment.workshop)
+                params.set('equipment_id', String(equipment.id))
+                router.push(`/workshop-map?${params.toString()}`)
+              }}
+              className="text-xs font-semibold text-primary-600 hover:text-primary-700"
+            >
+              На карте
+            </button>
+          </div>
+          {relatedLoading ? (
+            <div className="text-sm text-gray-500">Загрузка...</div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="border border-gray-200 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-gray-800">Нарушения</span>
+                  <button
+                    onClick={() => router.push(`/violations?equipment_id=${equipment.id}`)}
+                    className="text-xs text-primary-600 hover:underline"
+                  >
+                    Открыть
+                  </button>
+                </div>
+                {related.violations.length > 0 ? (
+                  <ul className="space-y-1">
+                    {related.violations.slice(0, 3).map((v) => (
+                      <li key={v.id} className="text-xs text-gray-700">
+                        <div className="font-medium">{v.violation_type || 'Нарушение'}</div>
+                        <div className="text-[11px] text-gray-500">
+                          {(v.status || 'open')} • {v.created_at ? format(new Date(v.created_at), 'dd.MM.yyyy') : '—'}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-xs text-gray-500">Нет данных</div>
+                )}
+              </div>
+
+              <div className="border border-gray-200 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-gray-800">Осмотры</span>
+                  <button
+                    onClick={() => router.push(`/inspections?equipment_id=${equipment.id}`)}
+                    className="text-xs text-primary-600 hover:underline"
+                  >
+                    Открыть
+                  </button>
+                </div>
+                {related.inspections.length > 0 ? (
+                  <ul className="space-y-1">
+                    {related.inspections.slice(0, 3).map((i) => (
+                      <li key={i.id} className="text-xs text-gray-700">
+                        <div className="font-medium">Осмотр #{i.id}</div>
+                        <div className="text-[11px] text-gray-500">
+                          {(i.status || 'in_progress')} • {i.created_at ? format(new Date(i.created_at), 'dd.MM.yyyy') : '—'}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-xs text-gray-500">Нет данных</div>
+                )}
+              </div>
+
+              <div className="border border-gray-200 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-gray-800">Акты</span>
+                  <button
+                    onClick={() => router.push(`/acts?equipment_id=${equipment.id}`)}
+                    className="text-xs text-primary-600 hover:underline"
+                  >
+                    Открыть
+                  </button>
+                </div>
+                {related.acts.length > 0 ? (
+                  <ul className="space-y-1">
+                    {related.acts.slice(0, 3).map((a) => (
+                      <li key={a.id} className="text-xs text-gray-700">
+                        <div className="font-medium">{a.act_number || `Акт #${a.id}`}</div>
+                        <div className="text-[11px] text-gray-500">
+                          {(a.status || 'draft')} • {a.act_date ? format(new Date(a.act_date), 'dd.MM.yyyy') : '—'}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-xs text-gray-500">Нет данных</div>
+                )}
+              </div>
+
+              <div className="border border-gray-200 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-gray-800">Задачи</span>
+                  <button
+                    onClick={() => router.push(`/equipment?task_equipment_id=${equipment.id}`)}
+                    className="text-xs text-primary-600 hover:underline"
+                  >
+                    Создать
+                  </button>
+                </div>
+                {related.tasks.length > 0 ? (
+                  <ul className="space-y-1">
+                    {related.tasks.slice(0, 3).map((t) => (
+                      <li key={t.id} className="text-xs text-gray-700">
+                        <div className="font-medium">{t.title}</div>
+                        <div className="text-[11px] text-gray-500">
+                          {(t.status || 'open')} • {t.due_date ? format(new Date(t.due_date), 'dd.MM.yyyy') : '—'}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-xs text-gray-500">Нет данных</div>
+                )}
+              </div>
+
+              <div className="border border-gray-200 rounded-lg p-3 md:col-span-2">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-gray-800">Файлы</span>
+                </div>
+                {related.files.length > 0 ? (
+                  <ul className="space-y-1">
+                    {related.files.slice(0, 3).map((f) => (
+                      <li key={f.id} className="text-xs text-gray-700">
+                        <div className="font-medium">{f.original_filename || f.filename}</div>
+                        <div className="text-[11px] text-gray-500">
+                          {f.created_at ? format(new Date(f.created_at), 'dd.MM.yyyy') : '—'} • {f.file_type || 'file'}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-xs text-gray-500">Нет данных</div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="pt-4 border-t border-gray-200">
