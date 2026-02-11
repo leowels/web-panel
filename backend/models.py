@@ -1,11 +1,11 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Float, JSON
+﻿from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Float, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
 Base = declarative_base()
 
-# БЛОК 2: Пользователи и роли
+# Р вЂР вЂєР С›Р С™ 2: Р СџР С•Р В»РЎРЉР В·Р С•Р Р†Р В°РЎвЂљР ВµР В»Р С‘ Р С‘ РЎР‚Р С•Р В»Р С‘
 class User(Base):
     __tablename__ = "users"
     
@@ -15,7 +15,7 @@ class User(Base):
     hashed_password = Column(String)
     full_name = Column(String)
     organization = Column(String)
-    signature = Column(Text)  # Подпись для актов
+    signature = Column(Text)  # Р СџР С•Р Т‘Р С—Р С‘РЎРѓРЎРЉ Р Т‘Р В»РЎРЏ Р В°Р С”РЎвЂљР С•Р Р†
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
@@ -30,7 +30,7 @@ class Role(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)  # admin, inspector, viewer
     description = Column(String)
-    permissions = Column(JSON)  # Список разрешений
+    permissions = Column(JSON)  # Р РЋР С—Р С‘РЎРѓР С•Р С” РЎР‚Р В°Р В·РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘Р в„–
     
     # Relationships
     user_roles = relationship("UserRole", back_populates="role")
@@ -64,25 +64,30 @@ class UserActivity(Base):
     # Relationships
     user = relationship("User", back_populates="activities")
 
-# БЛОК 3: Справочник оборудования (ПС)
+# Р вЂР вЂєР С›Р С™ 3: Р РЋР С—РЎР‚Р В°Р Р†Р С•РЎвЂЎР Р…Р С‘Р С” Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ (Р СџР РЋ)
 class Equipment(Base):
     __tablename__ = "equipment"
     
     id = Column(Integer, primary_key=True, index=True)
-    equipment_type = Column(String, index=True)  # Тип ПС
-    passport_number = Column(String, unique=True, index=True)  # Паспорт
-    inventory_number = Column(String, unique=True, index=True, nullable=True)  # Инвентарный номер
-    position = Column(String, nullable=True, index=True)  # Позиция
-    workshop = Column(String, nullable=True, index=True)  # Цех
-    load_capacity = Column(Float, nullable=True)  # Грузоподъемность
-    manufacturer = Column(String, nullable=True)  # Завод
-    installation_date = Column(DateTime, nullable=True)  # Дата ввода
-    pto_date = Column(DateTime, nullable=True, index=True)  # Дата ПТО
-    cto_date = Column(DateTime, nullable=True, index=True)  # Дата ЧТО
-    installation_location = Column(String, nullable=True)  # Место установки
+    equipment_type = Column(String, index=True)  # Р СћР С‘Р С— Р СџР РЋ
+    passport_number = Column(String, unique=True, index=True)  # Р СџР В°РЎРѓР С—Р С•РЎР‚РЎвЂљ
+    inventory_number = Column(String, unique=True, index=True, nullable=True)  # Р ВР Р…Р Р†Р ВµР Р…РЎвЂљР В°РЎР‚Р Р…РЎвЂ№Р в„– Р Р…Р С•Р СР ВµРЎР‚
+    position = Column(String, nullable=True, index=True)  # Р СџР С•Р В·Р С‘РЎвЂ Р С‘РЎРЏ
+    workshop = Column(String, nullable=True, index=True)  # Р В¦Р ВµРЎвЂ¦
+    load_capacity = Column(Float, nullable=True)  # Р вЂњРЎР‚РЎС“Р В·Р С•Р С—Р С•Р Т‘РЎР‰Р ВµР СР Р…Р С•РЎРѓРЎвЂљРЎРЉ
+    manufacturer = Column(String, nullable=True)  # Р вЂ”Р В°Р Р†Р С•Р Т‘
+    installation_date = Column(DateTime, nullable=True)  # Р вЂќР В°РЎвЂљР В° Р Р†Р Р†Р С•Р Т‘Р В°
+    pto_date = Column(DateTime, nullable=True, index=True)  # Р вЂќР В°РЎвЂљР В° Р СџР СћР С›
+    cto_date = Column(DateTime, nullable=True, index=True)  # Р вЂќР В°РЎвЂљР В° Р В§Р СћР С›
+    installation_location = Column(String, nullable=True)  # Р СљР ВµРЎРѓРЎвЂљР С• РЎС“РЎРѓРЎвЂљР В°Р Р…Р С•Р Р†Р С”Р С‘
+    rostekhnadzor_registered = Column(Boolean, default=False, index=True)  # Р—Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅРѕ РІ Р РѕСЃС‚РµС…РЅР°РґР·РѕСЂРµ
+    expertise_date = Column(DateTime, nullable=True, index=True)  # Дата экспертизы
+    operation_permit_until = Column(DateTime, nullable=True, index=True)  # Срок эксплуатации по экспертизе
+    operation_banned = Column(Boolean, default=False, index=True)  # Запрет на эксплуатацию
+    epb_positive_details = Column(Text, nullable=True)  # Реквизиты положительной ЭПБ
     status = Column(String, default="active", index=True)  # active, inactive, archived
-    map_x = Column(Float, nullable=True)  # Координата X на карте (0-100%)
-    map_y = Column(Float, nullable=True)  # Координата Y на карте (0-100%)
+    map_x = Column(Float, nullable=True)  # Р С™Р С•Р С•РЎР‚Р Т‘Р С‘Р Р…Р В°РЎвЂљР В° X Р Р…Р В° Р С”Р В°РЎР‚РЎвЂљР Вµ (0-100%)
+    map_y = Column(Float, nullable=True)  # Р С™Р С•Р С•РЎР‚Р Т‘Р С‘Р Р…Р В°РЎвЂљР В° Y Р Р…Р В° Р С”Р В°РЎР‚РЎвЂљР Вµ (0-100%)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -107,14 +112,14 @@ class EquipmentHistory(Base):
     # Relationships
     equipment = relationship("Equipment", back_populates="history")
 
-# БЛОК 4: Чек-листы
+# Р вЂР вЂєР С›Р С™ 4: Р В§Р ВµР С”-Р В»Р С‘РЎРѓРЎвЂљРЎвЂ№
 class ChecklistTemplate(Base):
     __tablename__ = "checklist_templates"
     
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
     description = Column(Text, nullable=True)
-    equipment_type = Column(String, nullable=True)  # Привязка к типу ПС
+    equipment_type = Column(String, nullable=True)  # Р СџРЎР‚Р С‘Р Р†РЎРЏР В·Р С”Р В° Р С” РЎвЂљР С‘Р С—РЎС“ Р СџР РЋ
     version = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -135,7 +140,7 @@ class ChecklistItem(Base):
     description = Column(Text, nullable=True)
     is_required = Column(Boolean, default=False)
     order = Column(Integer, default=0)
-    options = Column(JSON, nullable=True)  # Для select типа
+    options = Column(JSON, nullable=True)  # Р вЂќР В»РЎРЏ select РЎвЂљР С‘Р С—Р В°
     validation_rules = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
@@ -143,7 +148,7 @@ class ChecklistItem(Base):
     template = relationship("ChecklistTemplate", back_populates="items")
     answers = relationship("InspectionAnswer", back_populates="item")
 
-# БЛОК 5: Осмотры
+# Р вЂР вЂєР С›Р С™ 5: Р С›РЎРѓР СР С•РЎвЂљРЎР‚РЎвЂ№
 class Inspection(Base):
     __tablename__ = "inspections"
     
@@ -160,7 +165,7 @@ class Inspection(Base):
     completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    is_synced = Column(Boolean, default=True)  # Для оффлайн режима
+    is_synced = Column(Boolean, default=True)  # Р вЂќР В»РЎРЏ Р С•РЎвЂћРЎвЂћР В»Р В°Р в„–Р Р… РЎР‚Р ВµР В¶Р С‘Р СР В°
     
     # Relationships
     equipment = relationship("Equipment", back_populates="inspections")
@@ -174,7 +179,7 @@ class InspectionAnswer(Base):
     id = Column(Integer, primary_key=True, index=True)
     inspection_id = Column(Integer, ForeignKey("inspections.id", ondelete="CASCADE"))
     item_id = Column(Integer, ForeignKey("checklist_items.id", ondelete="SET NULL"))
-    value = Column(Text, nullable=True)  # JSON для сложных типов
+    value = Column(Text, nullable=True)  # JSON Р Т‘Р В»РЎРЏ РЎРѓР В»Р С•Р В¶Р Р…РЎвЂ№РЎвЂ¦ РЎвЂљР С‘Р С—Р С•Р Р†
     file_id = Column(Integer, ForeignKey("files.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -184,7 +189,21 @@ class InspectionAnswer(Base):
     item = relationship("ChecklistItem", back_populates="answers")
     file = relationship("File", foreign_keys=[file_id])
 
-# БЛОК 6: Нарушения
+
+# Р‘Р›РћРљ 6.0: SLA РїСЂР°РІРёР»Р° РїРѕ РЅР°СЂСѓС€РµРЅРёСЏРј
+class ViolationSLARule(Base):
+    __tablename__ = "violation_sla_rules"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    violation_type = Column(String, nullable=True, index=True)
+    severity = Column(String, nullable=True, index=True)  # low, medium, high, critical
+    days = Column(Integer, nullable=False)
+    priority = Column(Integer, default=100, index=True)
+    is_active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+# Р вЂР вЂєР С›Р С™ 6: Р СњР В°РЎР‚РЎС“РЎв‚¬Р ВµР Р…Р С‘РЎРЏ
 class Violation(Base):
     __tablename__ = "violations"
     
@@ -195,8 +214,8 @@ class Violation(Base):
     reported_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     attachment_meta = Column(JSON, nullable=True)
     description = Column(Text)
-    fnp_clause = Column(String, nullable=True)  # Пункт ФНП 461
-    gost_clause = Column(String, nullable=True)  # Пункт ГОСТ
+    fnp_clause = Column(String, nullable=True)  # Р СџРЎС“Р Р…Р С”РЎвЂљ Р В¤Р СњР Сџ 461
+    gost_clause = Column(String, nullable=True)  # Р СџРЎС“Р Р…Р С”РЎвЂљ Р вЂњР С›Р РЋР Сћ
     severity = Column(String, default="medium", index=True)  # low, medium, high, critical
     criticality_level = Column(String, nullable=True, index=True)
     violation_type = Column(String, nullable=True, index=True)
@@ -207,8 +226,12 @@ class Violation(Base):
     ai_classification = Column(JSON, nullable=True)
     ai_recommendations = Column(JSON, nullable=True)
     ai_payload_raw = Column(JSON, nullable=True)
-    location = Column(String, nullable=True)  # Место обнаружения
-    deadline = Column(DateTime, nullable=True, index=True)  # Срок устранения
+    location = Column(String, nullable=True)  # Р СљР ВµРЎРѓРЎвЂљР С• Р С•Р В±Р Р…Р В°РЎР‚РЎС“Р В¶Р ВµР Р…Р С‘РЎРЏ
+    deadline = Column(DateTime, nullable=True, index=True)  # Р РЋРЎР‚Р С•Р С” РЎС“РЎРѓРЎвЂљРЎР‚Р В°Р Р…Р ВµР Р…Р С‘РЎРЏ
+    deadline_source = Column(String, nullable=True)  # manual, sla, sla_default, ai
+    deadline_rule_id = Column(Integer, nullable=True)
+    is_overdue = Column(Boolean, default=False, index=True)
+    overdue_at = Column(DateTime, nullable=True)
     status = Column(String, default="open", index=True)  # open, resolved
     resolved_at = Column(DateTime, nullable=True)
     resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -223,7 +246,7 @@ class Violation(Base):
     acts = relationship("ActViolation", back_populates="violation")
     reporter = relationship("User", foreign_keys=[reported_by], lazy="joined")
 
-# БЛОК 7: Предписания и акты
+# Р вЂР вЂєР С›Р С™ 7: Р СџРЎР‚Р ВµР Т‘Р С—Р С‘РЎРѓР В°Р Р…Р С‘РЎРЏ Р С‘ Р В°Р С”РЎвЂљРЎвЂ№
 class Act(Base):
     __tablename__ = "acts"
     
@@ -236,7 +259,7 @@ class Act(Base):
     status = Column(String, default="draft")  # draft, signed, archived
     inspector_signature = Column(Text, nullable=True)
     organization_signature = Column(Text, nullable=True)
-    content = Column(Text, nullable=True)  # Сгенерированный текст
+    content = Column(Text, nullable=True)  # Р РЋР С–Р ВµР Р…Р ВµРЎР‚Р С‘РЎР‚Р С•Р Р†Р В°Р Р…Р Р…РЎвЂ№Р в„– РЎвЂљР ВµР С”РЎРѓРЎвЂљ
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     created_by = Column(Integer, ForeignKey("users.id"))
@@ -257,7 +280,7 @@ class ActViolation(Base):
     act = relationship("Act", back_populates="violations")
     violation = relationship("Violation", back_populates="acts")
 
-# БЛОК 8: База знаний
+# Р вЂР вЂєР С›Р С™ 8: Р вЂР В°Р В·Р В° Р В·Р Р…Р В°Р Р…Р С‘Р в„–
 class KnowledgeBase(Base):
     __tablename__ = "knowledge_base"
     
@@ -268,16 +291,20 @@ class KnowledgeBase(Base):
     title = Column(String)
     content = Column(Text)
     tags = Column(JSON, nullable=True)
+    embedding = Column(JSON, nullable=True)
+    embedding_model = Column(String, nullable=True)
+    embedding_updated_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-# БЛОК 9: Файлы
+# Р вЂР вЂєР С›Р С™ 9: Р В¤Р В°Р в„–Р В»РЎвЂ№
 class File(Base):
     __tablename__ = "files"
     
     id = Column(Integer, primary_key=True, index=True)
     filename = Column(String)
     original_filename = Column(String)
+    description = Column(Text, nullable=True)
     file_type = Column(String)  # photo, pdf, video, document
     mime_type = Column(String)
     file_size = Column(Integer)
@@ -299,10 +326,10 @@ class File(Base):
     task = relationship("Task", back_populates="files")
     permit = relationship("Permit", back_populates="files")
 
-# БЛОК 10: Audit Log (используем UserActivity, но расширим)
-# Уже реализовано в UserActivity
+# Р вЂР вЂєР С›Р С™ 10: Audit Log (Р С‘РЎРѓР С—Р С•Р В»РЎРЉР В·РЎС“Р ВµР С UserActivity, Р Р…Р С• РЎР‚Р В°РЎРѓРЎв‚¬Р С‘РЎР‚Р С‘Р С)
+# Р Р€Р В¶Р Вµ РЎР‚Р ВµР В°Р В»Р С‘Р В·Р С•Р Р†Р В°Р Р…Р С• Р Р† UserActivity
 
-# БЛОК 11: Настройки
+# Р вЂР вЂєР С›Р С™ 11: Р СњР В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р С‘
 class SystemSettings(Base):
     __tablename__ = "system_settings"
     
@@ -313,19 +340,19 @@ class SystemSettings(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-# БЛОК 11.1: Карта цеха (конфигурация)
+# Р вЂР вЂєР С›Р С™ 11.1: Р С™Р В°РЎР‚РЎвЂљР В° РЎвЂ Р ВµРЎвЂ¦Р В° (Р С”Р С•Р Р…РЎвЂћР С‘Р С–РЎС“РЎР‚Р В°РЎвЂ Р С‘РЎРЏ)
 class WorkshopMap(Base):
     __tablename__ = "workshop_maps"
     
     id = Column(Integer, primary_key=True, index=True)
     workshop = Column(String, unique=True, index=True)
-    data = Column(JSON, nullable=False)  # элементы карты + настройки
-    background_path = Column(String, nullable=True)  # путь к фону карты
+    data = Column(JSON, nullable=False)  # РЎРЊР В»Р ВµР СР ВµР Р…РЎвЂљРЎвЂ№ Р С”Р В°РЎР‚РЎвЂљРЎвЂ№ + Р Р…Р В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р С‘
+    background_path = Column(String, nullable=True)  # Р С—РЎС“РЎвЂљРЎРЉ Р С” РЎвЂћР С•Р Р…РЎС“ Р С”Р В°РЎР‚РЎвЂљРЎвЂ№
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-# БЛОК 12: Refresh токены
+# Р вЂР вЂєР С›Р С™ 12: Refresh РЎвЂљР С•Р С”Р ВµР Р…РЎвЂ№
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
     
@@ -339,7 +366,7 @@ class RefreshToken(Base):
     # Relationships
     user = relationship("User")
 
-# БЛОК 13: Задачи
+# Р вЂР вЂєР С›Р С™ 13: Р вЂ”Р В°Р Т‘Р В°РЎвЂЎР С‘
 class Task(Base):
     __tablename__ = "tasks"
     
@@ -367,7 +394,7 @@ class Task(Base):
     creator = relationship("User", foreign_keys=[created_by])
     files = relationship("File", back_populates="task", foreign_keys="File.task_id")
 
-# БЛОК 14: Разрешения на работы
+# Р вЂР вЂєР С›Р С™ 14: Р В Р В°Р В·РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘РЎРЏ Р Р…Р В° РЎР‚Р В°Р В±Р С•РЎвЂљРЎвЂ№
 class Permit(Base):
     __tablename__ = "permits"
     
@@ -395,7 +422,7 @@ class Permit(Base):
     approver = relationship("User", foreign_keys=[approved_by])
     files = relationship("File", back_populates="permit", foreign_keys="File.permit_id")
 
-# БЛОК 15: Уведомления
+# Р вЂР вЂєР С›Р С™ 15: Р Р€Р Р†Р ВµР Т‘Р С•Р СР В»Р ВµР Р…Р С‘РЎРЏ
 class Notification(Base):
     __tablename__ = "notifications"
     
@@ -413,7 +440,7 @@ class Notification(Base):
     
     user = relationship("User")
 
-# БЛОК 16: Кэш аналитики
+# Р вЂР вЂєР С›Р С™ 16: Р С™РЎРЊРЎв‚¬ Р В°Р Р…Р В°Р В»Р С‘РЎвЂљР С‘Р С”Р С‘
 class AnalyticsCache(Base):
     __tablename__ = "analytics_cache"
     
@@ -423,7 +450,7 @@ class AnalyticsCache(Base):
     expires_at = Column(DateTime, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# БЛОК 17: Отчёты
+# Р вЂР вЂєР С›Р С™ 17: Р С›РЎвЂљРЎвЂЎРЎвЂРЎвЂљРЎвЂ№
 class Report(Base):
     __tablename__ = "reports"
     
@@ -440,3 +467,5 @@ class Report(Base):
     completed_at = Column(DateTime, nullable=True)
     
     generator = relationship("User")
+
+

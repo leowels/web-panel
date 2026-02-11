@@ -4,21 +4,27 @@ import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useAuthStore } from '@/store/authStore'
 import Layout from '@/components/Layout'
+import PageHeader from '@/components/ui/PageHeader'
 import ActsTable from '@/components/acts/ActsTable'
 import ActForm from '@/components/acts/ActForm'
+import { canMutateData } from '@/utils/roles'
 
 function ActsPageContent() {
-  const { isAuthenticated } = useAuthStore()
+  const { isAuthenticated, user } = useAuthStore()
   const searchParams = useSearchParams()
+  const canMutate = canMutateData(user)
   const [showForm, setShowForm] = useState(false)
   const [selectedAct, setSelectedAct] = useState<number | null>(null)
   const [prefillEquipmentId, setPrefillEquipmentId] = useState<number | null>(null)
+  const [equipmentFilterId, setEquipmentFilterId] = useState<number | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
+    const createMode = searchParams.get('create') === '1'
     const actIdRaw = searchParams.get('act_id')
     const actId = actIdRaw ? Number(actIdRaw) : null
     if (actId && !Number.isNaN(actId)) {
+      setEquipmentFilterId(null)
       setSelectedAct(actId)
       setShowForm(true)
       return
@@ -26,12 +32,19 @@ function ActsPageContent() {
 
     const eqIdRaw = searchParams.get('equipment_id')
     const eqId = eqIdRaw ? Number(eqIdRaw) : null
-    if (eqId && !Number.isNaN(eqId)) {
+    setEquipmentFilterId(eqId && !Number.isNaN(eqId) ? eqId : null)
+
+    if (canMutate && createMode && eqId && !Number.isNaN(eqId)) {
       setPrefillEquipmentId(eqId)
       setSelectedAct(null)
       setShowForm(true)
+      return
     }
-  }, [searchParams])
+
+    setPrefillEquipmentId(null)
+    setShowForm(false)
+    setSelectedAct(null)
+  }, [searchParams, canMutate])
 
   if (!isAuthenticated) {
     return null
@@ -39,13 +52,11 @@ function ActsPageContent() {
 
   return (
     <Layout>
-      <div className="p-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Акты и предписания</h1>
-              <p className="text-gray-600 mt-1">Управление актами проверок</p>
-            </div>
+      <div className="space-y-6">
+        <PageHeader
+          title="Акты и предписания"
+          subtitle="Управление актами проверок"
+          actions={canMutate ? (
             <button
               onClick={() => {
                 setSelectedAct(null)
@@ -58,36 +69,38 @@ function ActsPageContent() {
               </svg>
               Создать акт
             </button>
-          </div>
+          ) : undefined}
+        />
 
-          <ActsTable
-            onEdit={(id) => {
-              setSelectedAct(id)
-              setShowForm(true)
+        <ActsTable
+          onEdit={(id) => {
+            if (!canMutate) return
+            setSelectedAct(id)
+            setShowForm(true)
+          }}
+          onView={(id) => {
+            setSelectedAct(id)
+            setShowForm(true)
+          }}
+          refreshKey={refreshKey}
+          equipmentFilterId={equipmentFilterId}
+        />
+
+        {showForm && (
+          <ActForm
+            actId={selectedAct}
+            prefillEquipmentId={prefillEquipmentId}
+            onClose={() => {
+              setShowForm(false)
+              setSelectedAct(null)
             }}
-            onView={(id) => {
-              setSelectedAct(id)
-              setShowForm(true)
+            onSuccess={() => {
+              setShowForm(false)
+              setSelectedAct(null)
+              setRefreshKey((prev) => prev + 1)
             }}
-            refreshKey={refreshKey}
           />
-
-          {showForm && (
-            <ActForm
-              actId={selectedAct}
-              prefillEquipmentId={prefillEquipmentId}
-              onClose={() => {
-                setShowForm(false)
-                setSelectedAct(null)
-              }}
-              onSuccess={() => {
-                setShowForm(false)
-                setSelectedAct(null)
-                setRefreshKey((prev) => prev + 1)
-              }}
-            />
-          )}
-        </div>
+        )}
       </div>
     </Layout>
   )

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -12,11 +12,13 @@ import PTOCalendar from '@/components/dashboard/PTOCalendar'
 import DefectsKanban from '@/components/dashboard/DefectsKanban'
 import QuickActions from '@/components/dashboard/QuickActions'
 import AIPanel from '@/components/dashboard/AIPanel'
+import { isManagerOnly } from '@/utils/roles'
 
 export default function DashboardPage() {
   const router = useRouter()
   const { isAuthenticated, user, fetchUser } = useAuthStore()
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
+  const isManager = isManagerOnly(user)
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -25,7 +27,7 @@ export default function DashboardPage() {
     }
     fetchUser()
     
-    // Загрузка темы из localStorage
+    // Р—Р°РіСЂСѓР·РєР° С‚РµРјС‹ РёР· localStorage
     const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null
     if (savedTheme) {
       setTheme(savedTheme)
@@ -46,14 +48,16 @@ export default function DashboardPage() {
     <Layout>
       <div className={`min-h-screen ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}>
         <div className="p-6">
-          {/* Заголовок с переключателем темы */}
+          {/* Р—Р°РіРѕР»РѕРІРѕРє СЃ РїРµСЂРµРєР»СЋС‡Р°С‚РµР»РµРј С‚РµРјС‹ */}
           <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className={`text-3xl font-bold tracking-tight ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
-                Дашборд инспектора
+                {isManager ? 'Дашборд менеджера' : 'Дашборд инспектора'}
               </h1>
               <p className={`mt-2 font-semibold ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
-                Мониторинг состояния ПС в реальном времени
+                {isManager
+                  ? 'KPI и риски по подъемным сооружениям'
+                  : 'Мониторинг состояния ПС в реальном времени'}
               </p>
             </div>
             <button
@@ -76,42 +80,47 @@ export default function DashboardPage() {
             </button>
           </div>
 
-          {/* KPI блоки */}
-          <DashboardKPIs theme={theme} />
+          {/* KPI Р±Р»РѕРєРё */}
+          <DashboardKPIs theme={theme} allowDetails={!isManager} />
 
-          {/* Основная сетка виджетов */}
+          {/* РћСЃРЅРѕРІРЅР°СЏ СЃРµС‚РєР° РІРёРґР¶РµС‚РѕРІ */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-            {/* Левая колонка */}
+            {/* Р›РµРІР°СЏ РєРѕР»РѕРЅРєР° */}
             <div className="lg:col-span-2 space-y-6">
-              {/* Карта рисков ПС */}
-              <HealthMap theme={theme} />
+              {/* РљР°СЂС‚Р° СЂРёСЃРєРѕРІ РџРЎ */}
+              <HealthMap theme={theme} allowDetails={!isManager} />
 
-              {/* Графики */}
+              {/* Р“СЂР°С„РёРєРё */}
               <DashboardCharts theme={theme} />
 
-              {/* Календарь ПТО/ЧТО */}
-              <PTOCalendar theme={theme} />
+              {/* РљР°Р»РµРЅРґР°СЂСЊ РџРўРћ/Р§РўРћ */}
+              {!isManager && <PTOCalendar theme={theme} />}
             </div>
 
-            {/* Правая колонка */}
+            {/* РџСЂР°РІР°СЏ РєРѕР»РѕРЅРєР° */}
             <div className="space-y-6">
-              {/* Быстрые действия */}
-              <QuickActions theme={theme} />
+              {/* Р‘С‹СЃС‚СЂС‹Рµ РґРµР№СЃС‚РІРёСЏ */}
+              {!isManager && <QuickActions theme={theme} />}
 
-              {/* Лента событий */}
+              {/* Р›РµРЅС‚Р° СЃРѕР±С‹С‚РёР№ */}
               <EventFeed theme={theme} />
 
-              {/* AI-панель */}
+              {/* AI-РїР°РЅРµР»СЊ */}
               <AIPanel theme={theme} />
             </div>
           </div>
 
-          {/* Панель задач/дефектов (Kanban) */}
+          {/* РџР°РЅРµР»СЊ Р·Р°РґР°С‡/РґРµС„РµРєС‚РѕРІ (Kanban) */}
           <div className="mt-6">
-            <DefectsKanban theme={theme} />
+            {!isManager && <DefectsKanban theme={theme} />}
           </div>
         </div>
       </div>
     </Layout>
   )
 }
+
+
+
+
+

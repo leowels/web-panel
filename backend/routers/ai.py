@@ -11,18 +11,21 @@ from datetime import datetime, timedelta
 import re
 import html
 import httpx
+import uuid
 
 # Поддержка запуска как скрипта и как модуля
 try:
-    from backend.models import User, UserActivity, Equipment, Violation, File, KnowledgeBase, Act, Report, Inspection, Task
+    from backend.models import User, UserActivity, Equipment, Violation, File, KnowledgeBase, Act, ActViolation, Report, Inspection, Task
     from backend.database import get_db
     from backend.auth import get_current_user, require_permission
     from backend.ai_client import get_ai_client_async
+    from backend.knowledge_semantic import semantic_search_knowledge
 except ImportError:
-    from ..models import User, UserActivity, Equipment, Violation, File, KnowledgeBase, Act, Report, Inspection, Task
+    from ..models import User, UserActivity, Equipment, Violation, File, KnowledgeBase, Act, ActViolation, Report, Inspection, Task
     from ..database import get_db
     from ..auth import get_current_user, require_permission
     from ..ai_client import get_ai_client_async
+    from ..knowledge_semantic import semantic_search_knowledge
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -308,12 +311,221 @@ class AISuggestionsResponse(BaseModel):
     stats: Dict[str, Any]
     generated_at: str
 
+class AIActionSelection(BaseModel):
+    type: Optional[str] = None
+    id: Optional[int] = None
+    label: Optional[str] = None
+
+class AIActionSuggestRequest(BaseModel):
+    selection: Optional[AIActionSelection] = None
+    page: Optional[str] = None
+    filters: Optional[Dict[str, Any]] = None
+    context: Optional[str] = None
+
+class AIActionProposal(BaseModel):
+    id: str
+    title: str
+    description: Optional[str] = None
+    action_type: str
+    endpoint: str
+    method: str = "post"
+    payload: Dict[str, Any]
+    warnings: Optional[List[str]] = None
+    meta: Optional[Dict[str, Any]] = None
+
+class AIActionSuggestResponse(BaseModel):
+    proposals: List[AIActionProposal]
+    generated_at: str
+
 def _user_has_role(user: User, role_names: List[str]) -> bool:
     try:
         roles = [ur.role.name for ur in (user.roles or [])]
         return any(r in role_names for r in roles)
     except Exception:
         return False
+
+def _normalize_selection_type(selection_type: Optional[str]) -> Optional[str]:
+    if not selection_type:
+        return None
+    text = selection_type.strip().lower()
+    if any(key in text for key in ["наруш", "violation"]):
+        return "violation"
+    if any(key in text for key in ["оборуд", "equipment"]):
+        return "equipment"
+    if any(key in text for key in ["акт", "act"]):
+        return "act"
+    if any(key in text for key in ["осмотр", "inspection"]):
+        return "inspection"
+    if any(key in text for key in ["задач", "task"]):
+        return "task"
+    return None
+
+def _default_task_priority(violation_severity: str) -> str:
+    if violation_severity == "critical":
+        return "urgent"
+    if violation_severity == "high":
+        return "high"
+    if violation_severity == "low":
+        return "low"
+    return "medium"
+
+def _iso_or_none(value: Optional[datetime]) -> Optional[str]:
+    if not value:
+        return None
+    try:
+        return value.isoformat()
+    except Exception:
+        return None
+
+async def _has_open_task(db: AsyncSession, violation_id: int) -> bool:
+    result = await db.execute(
+        select(Task.id).where(
+            Task.violation_id == violation_id,
+            Task.status.in_(["open", "in_work"]),
+        ).limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+async def _has_draft_act(db: AsyncSession, violation_id: int) -> bool:
+    result = await db.execute(
+        select(Act.id)
+        .join(ActViolation, ActViolation.act_id == Act.id)
+        .where(
+            ActViolation.violation_id == violation_id,
+            Act.status == "draft",
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+def _build_task_proposal(violation: Violation) -> AIActionProposal:
+    short_desc = re.sub(r"\s+", " ", violation.description or "").strip()
+    title = violation.violation_type or violation.violation_type_description or short_desc[:120]
+    if title:
+        title = f"Устранить нарушение #{violation.id}: {title}"
+    else:
+        title = f"Устранить нарушение #{violation.id}"
+    warnings: List[str] = []
+    if not violation.deadline:
+        warnings.append("Срок устранения не указан")
+    payload = {
+        "title": title,
+        "description": violation.description or None,
+        "due_date": _iso_or_none(violation.deadline),
+        "priority": _default_task_priority(violation.severity),
+        "force_create": False,
+    }
+    return AIActionProposal(
+        id=f"task:{violation.id}:{uuid.uuid4().hex[:8]}",
+        title=f"Создать задачу по нарушению #{violation.id}",
+        description="Нарушение открыто, активной задачи на устранение нет.",
+        action_type="create_task_from_violation",
+        endpoint=f"/api/workflow/violations/{violation.id}/task",
+        payload=payload,
+        warnings=warnings or None,
+        meta={
+            "violation_id": violation.id,
+            "equipment_id": violation.equipment_id,
+            "severity": violation.severity,
+        },
+    )
+
+def _build_act_proposal(violation: Violation, current_user: User) -> AIActionProposal:
+    payload = {
+        "organization": (current_user.organization or None),
+        "force_create": False,
+    }
+    return AIActionProposal(
+        id=f"act:{violation.id}:{uuid.uuid4().hex[:8]}",
+        title=f"Создать черновик акта по нарушению #{violation.id}",
+        description="Черновик акта по нарушению отсутствует.",
+        action_type="create_act_from_violation",
+        endpoint=f"/api/workflow/violations/{violation.id}/act",
+        payload=payload,
+        warnings=None,
+        meta={
+            "violation_id": violation.id,
+            "equipment_id": violation.equipment_id,
+            "severity": violation.severity,
+        },
+    )
+
+async def _build_action_proposals_for_violation(
+    db: AsyncSession,
+    violation: Violation,
+    current_user: User,
+) -> List[AIActionProposal]:
+    proposals: List[AIActionProposal] = []
+    if not violation or violation.status == "resolved":
+        return proposals
+    if not await _has_open_task(db, violation.id):
+        proposals.append(_build_task_proposal(violation))
+    if not await _has_draft_act(db, violation.id):
+        proposals.append(_build_act_proposal(violation, current_user))
+    return proposals
+
+@router.post("/actions/suggest", response_model=AIActionSuggestResponse)
+async def ai_action_suggest(
+    request: AIActionSuggestRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not _user_has_role(current_user, ["admin", "inspector"]):
+        raise HTTPException(status_code=403, detail="Доступ запрещен")
+
+    proposals: List[AIActionProposal] = []
+    max_actions = int(os.getenv("AI_ACTION_LIMIT", "6"))
+
+    selection_type = _normalize_selection_type(request.selection.type if request.selection else None)
+    selection_id = request.selection.id if request.selection else None
+
+    if selection_type == "violation" and selection_id:
+        violation_result = await db.execute(select(Violation).where(Violation.id == selection_id))
+        violation = violation_result.scalar_one_or_none()
+        if violation:
+            proposals = await _build_action_proposals_for_violation(db, violation, current_user)
+    elif selection_type == "equipment" and selection_id:
+        violations_result = await db.execute(
+            select(Violation)
+            .where(
+                Violation.equipment_id == selection_id,
+                Violation.status != "resolved",
+            )
+            .order_by(Violation.created_at.desc())
+            .limit(25)
+        )
+        for violation in violations_result.scalars().all():
+            proposals.extend(await _build_action_proposals_for_violation(db, violation, current_user))
+            if len(proposals) >= max_actions:
+                break
+    else:
+        violations_result = await db.execute(
+            select(Violation)
+            .where(Violation.status != "resolved")
+            .order_by(Violation.created_at.desc())
+            .limit(25)
+        )
+        for violation in violations_result.scalars().all():
+            proposals.extend(await _build_action_proposals_for_violation(db, violation, current_user))
+            if len(proposals) >= max_actions:
+                break
+
+    proposals = proposals[:max_actions]
+
+    db.add(
+        UserActivity(
+            user_id=current_user.id,
+            action_type="read",
+            entity_type="ai_action_suggest",
+            description=f"AI action suggestions: {len(proposals)}",
+        )
+    )
+    await db.commit()
+
+    return AIActionSuggestResponse(
+        proposals=proposals,
+        generated_at=datetime.utcnow().isoformat(),
+    )
 
 async def _build_project_context(db: AsyncSession) -> str:
     # Aggregate small context to avoid token bloat
@@ -410,6 +622,12 @@ async def _build_project_context(db: AsyncSession) -> str:
 async def _search_knowledge_base(db: AsyncSession, query_text: str, limit: int = 6) -> List[KnowledgeBase]:
     if not query_text or not query_text.strip():
         return []
+    try:
+        semantic_results = await semantic_search_knowledge(db, query_text, limit=limit, backfill=False)
+        if semantic_results:
+            return semantic_results
+    except Exception:
+        pass
     query = select(KnowledgeBase).where(
         or_(
             KnowledgeBase.title.ilike(f"%{query_text}%"),

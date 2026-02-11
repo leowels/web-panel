@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import axios from 'axios'
@@ -67,9 +67,10 @@ type CardConfig = {
 
 interface DashboardKPIsProps {
   theme: 'light' | 'dark'
+  allowDetails?: boolean
 }
 
-export default function DashboardKPIs({ theme }: DashboardKPIsProps) {
+export default function DashboardKPIs({ theme, allowDetails = true }: DashboardKPIsProps) {
   const { token } = useAuthStore()
   const router = useRouter()
   const [kpis, setKpis] = useState<KPIData>({
@@ -192,6 +193,7 @@ export default function DashboardKPIs({ theme }: DashboardKPIsProps) {
   }
 
   const handleCardClick = (card: CardConfig) => {
+    if (!allowDetails) return
     const items = getEquipmentForCard(card.key)
     setDrawerState({
       open: true,
@@ -459,7 +461,10 @@ export default function DashboardKPIs({ theme }: DashboardKPIsProps) {
             key={index}
             type="button"
             onClick={() => handleCardClick(kpi)}
-            className={`${getColorClasses(kpi.color, kpi.urgent)} rounded-xl shadow-soft p-4 border-2 cursor-pointer hover:shadow-medium transition-all duration-200 transform hover:scale-105 group text-left`}
+            disabled={!allowDetails}
+            className={`${getColorClasses(kpi.color, kpi.urgent)} rounded-xl shadow-soft p-4 border-2 ${
+              allowDetails ? 'cursor-pointer hover:shadow-medium transform hover:scale-105' : 'cursor-default opacity-90'
+            } transition-all duration-200 group text-left`}
           >
             <div className="flex items-center justify-between mb-3">
               <div className={`${kpi.urgent ? 'text-accent-600' : theme === 'dark' ? 'text-primary-400' : 'text-primary-600'} group-hover:scale-110 transition-transform`}>
@@ -479,7 +484,7 @@ export default function DashboardKPIs({ theme }: DashboardKPIsProps) {
         ))}
       </div>
 
-      {drawerState.open && (
+      {allowDetails && drawerState.open && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black bg-opacity-40" onClick={closeDrawer}></div>
           <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl border-l border-gray-200 flex flex-col">

@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Response
+﻿from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, desc, asc, nullslast
+from sqlalchemy import select, and_, or_, func, desc, asc, nullslast, case
 from sqlalchemy.orm import selectinload
 from typing import List, Optional, Union
 from datetime import datetime, timedelta
@@ -17,17 +17,31 @@ import pytesseract
 
 logger = logging.getLogger(__name__)
 
-# Поддержка запуска как скрипта и как модуля
+# Р СџР С•Р Т‘Р Т‘Р ВµРЎР‚Р В¶Р С”Р В° Р В·Р В°Р С—РЎС“РЎРѓР С”Р В° Р С”Р В°Р С” РЎРѓР С”РЎР‚Р С‘Р С—РЎвЂљР В° Р С‘ Р С”Р В°Р С” Р СР С•Р Т‘РЎС“Р В»РЎРЏ
 try:
-    from backend.models import Equipment, EquipmentHistory, UserActivity, User, UserRole, File
+    from backend.models import Equipment, EquipmentHistory, UserActivity, User, UserRole, File, Violation
     from backend.database import get_db
     from backend.auth import get_current_user, require_permission
 except ImportError:
-    from ..models import Equipment, EquipmentHistory, UserActivity, User, UserRole, File
+    from ..models import Equipment, EquipmentHistory, UserActivity, User, UserRole, File, Violation
     from ..database import get_db
     from ..auth import get_current_user, require_permission
 
 router = APIRouter(prefix="/api/equipment", tags=["equipment"])
+
+DEFAULT_EQUIPMENT_TYPES = [
+    "Кран",
+    "Мостовой кран электрический (ЭМК)",
+    "Электро мостовой кран (ЭМК)",
+    "Кран-балка электрическая",
+    "Кран-балка ручная",
+    "Монорельс с электрической талью",
+    "Кран консольный-поворотный",
+    "Подъемник",
+    "Лифт",
+    "Эскалатор",
+    "Другое",
+]
 
 class EquipmentCreate(BaseModel):
     equipment_type: str
@@ -41,8 +55,13 @@ class EquipmentCreate(BaseModel):
     inventory_number: Optional[str] = None
     position: Optional[str] = None
     workshop: Optional[str] = None
-    map_x: Optional[float] = None  # Координата X на карте (0-100%)
-    map_y: Optional[float] = None  # Координата Y на карте (0-100%)
+    rostekhnadzor_registered: Optional[bool] = False
+    expertise_date: Optional[datetime] = None
+    operation_permit_until: Optional[datetime] = None
+    operation_banned: Optional[bool] = False
+    epb_positive_details: Optional[str] = None
+    map_x: Optional[float] = None  # Р С™Р С•Р С•РЎР‚Р Т‘Р С‘Р Р…Р В°РЎвЂљР В° X Р Р…Р В° Р С”Р В°РЎР‚РЎвЂљР Вµ (0-100%)
+    map_y: Optional[float] = None  # Р С™Р С•Р С•РЎР‚Р Т‘Р С‘Р Р…Р В°РЎвЂљР В° Y Р Р…Р В° Р С”Р В°РЎР‚РЎвЂљР Вµ (0-100%)
     status: Optional[str] = "active"
 
 class EquipmentUpdate(BaseModel):
@@ -57,8 +76,13 @@ class EquipmentUpdate(BaseModel):
     inventory_number: Optional[str] = None
     position: Optional[str] = None
     workshop: Optional[str] = None
-    map_x: Optional[float] = None  # Координата X на карте (0-100%)
-    map_y: Optional[float] = None  # Координата Y на карте (0-100%)
+    rostekhnadzor_registered: Optional[bool] = None
+    expertise_date: Optional[datetime] = None
+    operation_permit_until: Optional[datetime] = None
+    operation_banned: Optional[bool] = None
+    epb_positive_details: Optional[str] = None
+    map_x: Optional[float] = None  # Р С™Р С•Р С•РЎР‚Р Т‘Р С‘Р Р…Р В°РЎвЂљР В° X Р Р…Р В° Р С”Р В°РЎР‚РЎвЂљР Вµ (0-100%)
+    map_y: Optional[float] = None  # Р С™Р С•Р С•РЎР‚Р Т‘Р С‘Р Р…Р В°РЎвЂљР В° Y Р Р…Р В° Р С”Р В°РЎР‚РЎвЂљР Вµ (0-100%)
     status: Optional[str] = None
 
 class EquipmentResponse(BaseModel):
@@ -68,8 +92,13 @@ class EquipmentResponse(BaseModel):
     inventory_number: Optional[str]
     position: Optional[str]
     workshop: Optional[str]
-    map_x: Optional[float]  # Координата X на карте (0-100%)
-    map_y: Optional[float]  # Координата Y на карте (0-100%)
+    rostekhnadzor_registered: Optional[bool]
+    expertise_date: Optional[datetime]
+    operation_permit_until: Optional[datetime]
+    operation_banned: Optional[bool]
+    epb_positive_details: Optional[str]
+    map_x: Optional[float]  # Р С™Р С•Р С•РЎР‚Р Т‘Р С‘Р Р…Р В°РЎвЂљР В° X Р Р…Р В° Р С”Р В°РЎР‚РЎвЂљР Вµ (0-100%)
+    map_y: Optional[float]  # Р С™Р С•Р С•РЎР‚Р Т‘Р С‘Р Р…Р В°РЎвЂљР В° Y Р Р…Р В° Р С”Р В°РЎР‚РЎвЂљР Вµ (0-100%)
     load_capacity: Optional[float]
     manufacturer: Optional[str]
     installation_date: Optional[datetime]
@@ -79,10 +108,11 @@ class EquipmentResponse(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+    violations_open: Optional[int] = 0
+    violations_total: Optional[int] = 0
 
     class Config:
         from_attributes = True
-
 class EquipmentListResponse(BaseModel):
     items: List[EquipmentResponse]
     total: int
@@ -99,6 +129,11 @@ class EquipmentBulkItem(BaseModel):
     inventory_number: Optional[str] = None
     position: Optional[str] = None
     workshop: Optional[str] = None
+    rostekhnadzor_registered: Optional[bool] = False
+    expertise_date: Optional[datetime] = None
+    operation_permit_until: Optional[datetime] = None
+    operation_banned: Optional[bool] = False
+    epb_positive_details: Optional[str] = None
     status: Optional[str] = "active"
 
 class EquipmentBulkRequest(BaseModel):
@@ -147,21 +182,25 @@ class EquipmentOCRUpsertRequest(BaseModel):
 
 class EquipmentOCRUpsertResponse(BaseModel):
     id: int
-    created: bool  # True если создан новый, False если обновлен существующий
+    created: bool  # True Р ВµРЎРѓР В»Р С‘ РЎРѓР С•Р В·Р Т‘Р В°Р Р… Р Р…Р С•Р Р†РЎвЂ№Р в„–, False Р ВµРЎРѓР В»Р С‘ Р С•Р В±Р Р…Р С•Р Р†Р В»Р ВµР Р… РЎРѓРЎС“РЎвЂ°Р ВµРЎРѓРЎвЂљР Р†РЎС“РЎР‹РЎвЂ°Р С‘Р в„–
 
 
 class EquipmentOCRImportRequest(BaseModel):
     """
-    Запрос на импорт оборудования через OCR/табличный текст.
-    Варианты:
-    - ocr_text: уже распознанный текст таблицы (CSV-подобный)
-    - file_id: ID файла в таблице files (фото или CSV/текст)
+    Р вЂ”Р В°Р С—РЎР‚Р С•РЎРѓ Р Р…Р В° Р С‘Р СР С—Р С•РЎР‚РЎвЂљ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ РЎвЂЎР ВµРЎР‚Р ВµР В· OCR/РЎвЂљР В°Р В±Р В»Р С‘РЎвЂЎР Р…РЎвЂ№Р в„– РЎвЂљР ВµР С”РЎРѓРЎвЂљ.
+    Р вЂ™Р В°РЎР‚Р С‘Р В°Р Р…РЎвЂљРЎвЂ№:
+    - ocr_text: РЎС“Р В¶Р Вµ РЎР‚Р В°РЎРѓР С—Р С•Р В·Р Р…Р В°Р Р…Р Р…РЎвЂ№Р в„– РЎвЂљР ВµР С”РЎРѓРЎвЂљ РЎвЂљР В°Р В±Р В»Р С‘РЎвЂ РЎвЂ№ (CSV-Р С—Р С•Р Т‘Р С•Р В±Р Р…РЎвЂ№Р в„–)
+    - file_id: ID РЎвЂћР В°Р в„–Р В»Р В° Р Р† РЎвЂљР В°Р В±Р В»Р С‘РЎвЂ Р Вµ files (РЎвЂћР С•РЎвЂљР С• Р С‘Р В»Р С‘ CSV/РЎвЂљР ВµР С”РЎРѓРЎвЂљ)
     """
     ocr_text: Optional[str] = None
     file_id: Optional[int] = None
 
 
-def _equipment_to_response(equipment: Equipment) -> EquipmentResponse:
+def _equipment_to_response(
+    equipment: Equipment,
+    violations_open: int = 0,
+    violations_total: int = 0,
+) -> EquipmentResponse:
     return EquipmentResponse(
         id=equipment.id,
         equipment_type=equipment.equipment_type,
@@ -169,6 +208,11 @@ def _equipment_to_response(equipment: Equipment) -> EquipmentResponse:
         inventory_number=equipment.inventory_number,
         position=equipment.position,
         workshop=equipment.workshop,
+        rostekhnadzor_registered=equipment.rostekhnadzor_registered,
+        expertise_date=equipment.expertise_date,
+        operation_permit_until=equipment.operation_permit_until,
+        operation_banned=equipment.operation_banned,
+        epb_positive_details=equipment.epb_positive_details,
         map_x=equipment.map_x,
         map_y=equipment.map_y,
         load_capacity=equipment.load_capacity,
@@ -180,6 +224,8 @@ def _equipment_to_response(equipment: Equipment) -> EquipmentResponse:
         status=equipment.status,
         created_at=equipment.created_at,
         updated_at=equipment.updated_at,
+        violations_open=violations_open,
+        violations_total=violations_total,
     )
 
 
@@ -264,11 +310,11 @@ async def _bulk_create_equipment_items(
 
     for index, item in enumerate(items):
         try:
-            # Проверяем обязательные поля
+            # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С Р С•Р В±РЎРЏР В·Р В°РЎвЂљР ВµР В»РЎРЉР Р…РЎвЂ№Р Вµ Р С—Р С•Р В»РЎРЏ
             if not item.passport_number or not item.equipment_type:
                 raise HTTPException(status_code=400, detail="Passport number and equipment type are required")
 
-            # Проверяем дубликаты паспорта
+            # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С Р Т‘РЎС“Р В±Р В»Р С‘Р С”Р В°РЎвЂљРЎвЂ№ Р С—Р В°РЎРѓР С—Р С•РЎР‚РЎвЂљР В°
             existing_passport = await db.execute(
                 select(Equipment.id).where(Equipment.passport_number == item.passport_number)
             )
@@ -286,7 +332,7 @@ async def _bulk_create_equipment_items(
                     continue
                 raise HTTPException(status_code=400, detail="Passport number already exists")
 
-            # Проверяем дубликаты инвентарного номера
+            # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С Р Т‘РЎС“Р В±Р В»Р С‘Р С”Р В°РЎвЂљРЎвЂ№ Р С‘Р Р…Р Р†Р ВµР Р…РЎвЂљР В°РЎР‚Р Р…Р С•Р С–Р С• Р Р…Р С•Р СР ВµРЎР‚Р В°
             if item.inventory_number:
                 existing_inventory = await db.execute(
                     select(Equipment.id).where(Equipment.inventory_number == item.inventory_number)
@@ -358,13 +404,13 @@ def _normalize_csv_date(value: Optional[str]) -> Optional[str]:
     value = value.strip()
     if not value:
         return None
-    # Поддерживаем форматы YYYY-MM-DD и DD.MM.YYYY
+    # Р СџР С•Р Т‘Р Т‘Р ВµРЎР‚Р В¶Р С‘Р Р†Р В°Р ВµР С РЎвЂћР С•РЎР‚Р СР В°РЎвЂљРЎвЂ№ YYYY-MM-DD Р С‘ DD.MM.YYYY
     if re.match(r"^\d{4}-\d{2}-\d{2}$", value):
         return f"{value}T00:00:00"
     if re.match(r"^\d{2}\.\d{2}\.\d{4}$", value):
         dt = datetime.strptime(value, "%d.%m.%Y")
         return dt.strftime("%Y-%m-%dT00:00:00")
-    # Оставляем как есть - Pydantic попробует распарсить
+    # Р С›РЎРѓРЎвЂљР В°Р Р†Р В»РЎРЏР ВµР С Р С”Р В°Р С” Р ВµРЎРѓРЎвЂљРЎРЉ - Pydantic Р С—Р С•Р С—РЎР‚Р С•Р В±РЎС“Р ВµРЎвЂљ РЎР‚Р В°РЎРѓР С—Р В°РЎР‚РЎРѓР С‘РЎвЂљРЎРЉ
     return value
 
 
@@ -380,28 +426,41 @@ def _normalize_float(value: Optional[str]) -> Optional[float]:
         return None
 
 
+def _normalize_bool(value: Optional[str]) -> Optional[bool]:
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    if not normalized:
+        return None
+    if normalized in {"1", "true", "yes", "да", "y"}:
+        return True
+    if normalized in {"0", "false", "no", "нет", "n"}:
+        return False
+    return None
+
+
 def _ocr_image_to_text(image_path: str) -> str:
     """
-    Преобразование изображения (фото таблицы) в текст с помощью Tesseract OCR.
-    Используется как бесплатный локальный OCR.
+    Р СџРЎР‚Р ВµР С•Р В±РЎР‚Р В°Р В·Р С•Р Р†Р В°Р Р…Р С‘Р Вµ Р С‘Р В·Р С•Р В±РЎР‚Р В°Р В¶Р ВµР Р…Р С‘РЎРЏ (РЎвЂћР С•РЎвЂљР С• РЎвЂљР В°Р В±Р В»Р С‘РЎвЂ РЎвЂ№) Р Р† РЎвЂљР ВµР С”РЎРѓРЎвЂљ РЎРѓ Р С—Р С•Р СР С•РЎвЂ°РЎРЉРЎР‹ Tesseract OCR.
+    Р ВРЎРѓР С—Р С•Р В»РЎРЉР В·РЎС“Р ВµРЎвЂљРЎРѓРЎРЏ Р С”Р В°Р С” Р В±Р ВµРЎРѓР С—Р В»Р В°РЎвЂљР Р…РЎвЂ№Р в„– Р В»Р С•Р С”Р В°Р В»РЎРЉР Р…РЎвЂ№Р в„– OCR.
     """
     try:
-        # Открываем изображение
+        # Р С›РЎвЂљР С”РЎР‚РЎвЂ№Р Р†Р В°Р ВµР С Р С‘Р В·Р С•Р В±РЎР‚Р В°Р В¶Р ВµР Р…Р С‘Р Вµ
         img = Image.open(image_path)
         logger.info(f"Opened image: {img.format}, size: {img.size}, mode: {img.mode}")
         
-        # Конвертируем в RGB, если нужно (для форматов с прозрачностью или других режимов)
+        # Р С™Р С•Р Р…Р Р†Р ВµРЎР‚РЎвЂљР С‘РЎР‚РЎС“Р ВµР С Р Р† RGB, Р ВµРЎРѓР В»Р С‘ Р Р…РЎС“Р В¶Р Р…Р С• (Р Т‘Р В»РЎРЏ РЎвЂћР С•РЎР‚Р СР В°РЎвЂљР С•Р Р† РЎРѓ Р С—РЎР‚Р С•Р В·РЎР‚Р В°РЎвЂЎР Р…Р С•РЎРѓРЎвЂљРЎРЉРЎР‹ Р С‘Р В»Р С‘ Р Т‘РЎР‚РЎС“Р С–Р С‘РЎвЂ¦ РЎР‚Р ВµР В¶Р С‘Р СР С•Р Р†)
         if img.mode != 'RGB':
             logger.info(f"Converting image from {img.mode} to RGB")
-            # Создаем белый фон для изображений с прозрачностью
+            # Р РЋР С•Р В·Р Т‘Р В°Р ВµР С Р В±Р ВµР В»РЎвЂ№Р в„– РЎвЂћР С•Р Р… Р Т‘Р В»РЎРЏ Р С‘Р В·Р С•Р В±РЎР‚Р В°Р В¶Р ВµР Р…Р С‘Р в„– РЎРѓ Р С—РЎР‚Р С•Р В·РЎР‚Р В°РЎвЂЎР Р…Р С•РЎРѓРЎвЂљРЎРЉРЎР‹
             rgb_img = Image.new('RGB', img.size, (255, 255, 255))
             if img.mode == 'RGBA':
-                rgb_img.paste(img, mask=img.split()[3])  # Используем альфа-канал как маску
+                rgb_img.paste(img, mask=img.split()[3])  # Р ВРЎРѓР С—Р С•Р В»РЎРЉР В·РЎС“Р ВµР С Р В°Р В»РЎРЉРЎвЂћР В°-Р С”Р В°Р Р…Р В°Р В» Р С”Р В°Р С” Р СР В°РЎРѓР С”РЎС“
             else:
                 rgb_img.paste(img)
             img = rgb_img
         
-        # Убеждаемся, что изображение в правильном формате для pytesseract
+        # Р Р€Р В±Р ВµР В¶Р Т‘Р В°Р ВµР СРЎРѓРЎРЏ, РЎвЂЎРЎвЂљР С• Р С‘Р В·Р С•Р В±РЎР‚Р В°Р В¶Р ВµР Р…Р С‘Р Вµ Р Р† Р С—РЎР‚Р В°Р Р†Р С‘Р В»РЎРЉР Р…Р С•Р С РЎвЂћР С•РЎР‚Р СР В°РЎвЂљР Вµ Р Т‘Р В»РЎРЏ pytesseract
         if img.mode != 'RGB':
             img = img.convert('RGB')
             
@@ -410,8 +469,8 @@ def _ocr_image_to_text(image_path: str) -> str:
         raise HTTPException(status_code=500, detail=f"Failed to open image for OCR: {str(e)}")
 
     try:
-        # Русский + английский, таблицы на ПС обычно на русском
-        # Используем дополнительную обработку для лучшего распознавания таблиц
+        # Р В РЎС“РЎРѓРЎРѓР С”Р С‘Р в„– + Р В°Р Р…Р С–Р В»Р С‘Р в„–РЎРѓР С”Р С‘Р в„–, РЎвЂљР В°Р В±Р В»Р С‘РЎвЂ РЎвЂ№ Р Р…Р В° Р СџР РЋ Р С•Р В±РЎвЂ№РЎвЂЎР Р…Р С• Р Р…Р В° РЎР‚РЎС“РЎРѓРЎРѓР С”Р С•Р С
+        # Р ВРЎРѓР С—Р С•Р В»РЎРЉР В·РЎС“Р ВµР С Р Т‘Р С•Р С—Р С•Р В»Р Р…Р С‘РЎвЂљР ВµР В»РЎРЉР Р…РЎС“РЎР‹ Р С•Р В±РЎР‚Р В°Р В±Р С•РЎвЂљР С”РЎС“ Р Т‘Р В»РЎРЏ Р В»РЎС“РЎвЂЎРЎв‚¬Р ВµР С–Р С• РЎР‚Р В°РЎРѓР С—Р С•Р В·Р Р…Р В°Р Р†Р В°Р Р…Р С‘РЎРЏ РЎвЂљР В°Р В±Р В»Р С‘РЎвЂ 
         text = pytesseract.image_to_string(img, lang="rus+eng", config='--psm 6')
         logger.info(f"OCR completed, extracted {len(text)} characters")
         return text
@@ -438,7 +497,7 @@ async def get_equipment_list(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получить список оборудования"""
+    """Р СџР С•Р В»РЎС“РЎвЂЎР С‘РЎвЂљРЎРЉ РЎРѓР С—Р С‘РЎРѓР С•Р С” Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ"""
     await require_permission(current_user, "equipment:read", db)
     
     if page is not None:
@@ -466,7 +525,34 @@ async def get_equipment_list(
     result = await db.execute(query)
     equipment_list = result.scalars().all()
 
-    items = [_equipment_to_response(eq) for eq in equipment_list]
+    equipment_ids = [eq.id for eq in equipment_list]
+    violations_map: dict[int, dict[str, int]] = {}
+    if equipment_ids:
+        counts_result = await db.execute(
+            select(
+                Violation.equipment_id,
+                func.count().label("total"),
+                func.sum(case((Violation.status != "resolved", 1), else_=0)).label("open"),
+            )
+            .where(Violation.equipment_id.in_(equipment_ids))
+            .group_by(Violation.equipment_id)
+        )
+        for row in counts_result.all():
+            if not row:
+                continue
+            violations_map[row[0]] = {
+                "total": int(row[1] or 0),
+                "open": int(row[2] or 0),
+            }
+
+    items = [
+        _equipment_to_response(
+            eq,
+            violations_open=violations_map.get(eq.id, {}).get("open", 0),
+            violations_total=violations_map.get(eq.id, {}).get("total", 0),
+        )
+        for eq in equipment_list
+    ]
     if with_total:
         count_query = select(func.count()).select_from(Equipment)
         if filters:
@@ -480,7 +566,7 @@ async def get_equipment_types(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получить список типов оборудования"""
+    """Р СџР С•Р В»РЎС“РЎвЂЎР С‘РЎвЂљРЎРЉ РЎРѓР С—Р С‘РЎРѓР С•Р С” РЎвЂљР С‘Р С—Р С•Р Р† Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ"""
     await require_permission(current_user, "equipment:read", db)
     result = await db.execute(
         select(Equipment.equipment_type)
@@ -488,8 +574,20 @@ async def get_equipment_types(
         .distinct()
         .order_by(Equipment.equipment_type)
     )
-    types = [row[0] for row in result.all() if row and row[0]]
-    return types
+    db_types = [row[0] for row in result.all() if row and row[0]]
+
+    # Always include baseline catalogue types, then append custom DB values.
+    merged: List[str] = []
+    seen = set()
+    for item in DEFAULT_EQUIPMENT_TYPES + sorted(db_types):
+        if not item:
+            continue
+        key = item.strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        merged.append(key)
+    return merged
 
 
 @router.get("/export")
@@ -505,7 +603,7 @@ async def export_equipment_csv(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Экспорт оборудования в CSV с учётом фильтров."""
+    """Р В­Р С”РЎРѓР С—Р С•РЎР‚РЎвЂљ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ Р Р† CSV РЎРѓ РЎС“РЎвЂЎРЎвЂРЎвЂљР С•Р С РЎвЂћР С‘Р В»РЎРЉРЎвЂљРЎР‚Р С•Р Р†."""
     await require_permission(current_user, "equipment:read", db)
 
     filters = _build_equipment_filters(
@@ -529,19 +627,24 @@ async def export_equipment_csv(
     writer = csv.writer(output)
     writer.writerow([
         "id",
-        "тип",
-        "паспортный_номер",
-        "инвентарный_номер",
-        "позиция",
-        "цех",
-        "грузоподъемность_т",
-        "производитель",
-        "дата_ввода",
-        "дата_пто",
-        "дата_что",
-        "место_установки",
-        "статус",
-        "обновлено",
+        "equipment_type",
+        "passport_number",
+        "inventory_number",
+        "position",
+        "workshop",
+        "load_capacity_t",
+        "manufacturer",
+        "installation_date",
+        "pto_date",
+        "cto_date",
+        "installation_location",
+        "rostekhnadzor_registered",
+        "expertise_date",
+        "operation_permit_until",
+        "operation_banned",
+        "epb_positive_details",
+        "status",
+        "updated_at",
     ])
 
     for eq in equipment_list:
@@ -558,6 +661,11 @@ async def export_equipment_csv(
             eq.pto_date.isoformat() if eq.pto_date else "",
             eq.cto_date.isoformat() if eq.cto_date else "",
             eq.installation_location or "",
+            "yes" if eq.rostekhnadzor_registered else "no",
+            eq.expertise_date.isoformat() if eq.expertise_date else "",
+            eq.operation_permit_until.isoformat() if eq.operation_permit_until else "",
+            "yes" if eq.operation_banned else "no",
+            eq.epb_positive_details or "",
             eq.status or "",
             eq.updated_at.isoformat() if eq.updated_at else "",
         ])
@@ -575,7 +683,7 @@ async def get_equipment(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получить оборудование по ID"""
+    """Р СџР С•Р В»РЎС“РЎвЂЎР С‘РЎвЂљРЎРЉ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘Р Вµ Р С—Р С• ID"""
     await require_permission(current_user, "equipment:read", db)
     
     result = await db.execute(select(Equipment).where(Equipment.id == equipment_id))
@@ -584,7 +692,21 @@ async def get_equipment(
     if not equipment:
         raise HTTPException(status_code=404, detail="Equipment not found")
     
-    return _equipment_to_response(equipment)
+    violations_total = (await db.execute(
+        select(func.count()).select_from(Violation).where(Violation.equipment_id == equipment_id)
+    )).scalar() or 0
+    violations_open = (await db.execute(
+        select(func.count()).select_from(Violation).where(
+            Violation.equipment_id == equipment_id,
+            Violation.status != "resolved",
+        )
+    )).scalar() or 0
+
+    return _equipment_to_response(
+        equipment,
+        violations_open=violations_open,
+        violations_total=violations_total,
+    )
 
 @router.post("", response_model=EquipmentResponse, status_code=status.HTTP_201_CREATED)
 async def create_equipment(
@@ -592,20 +714,20 @@ async def create_equipment(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Создать новое оборудование"""
+    """Р РЋР С•Р В·Р Т‘Р В°РЎвЂљРЎРЉ Р Р…Р С•Р Р†Р С•Р Вµ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘Р Вµ"""
     try:
         logger.debug(f"Creating equipment for user {current_user.id}")
         
-        # Проверка прав - используем уже загруженные роли из get_current_user
-        # get_current_user уже загружает роли через selectinload
+        # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚Р С”Р В° Р С—РЎР‚Р В°Р Р† - Р С‘РЎРѓР С—Р С•Р В»РЎРЉР В·РЎС“Р ВµР С РЎС“Р В¶Р Вµ Р В·Р В°Р С–РЎР‚РЎС“Р В¶Р ВµР Р…Р Р…РЎвЂ№Р Вµ РЎР‚Р С•Р В»Р С‘ Р С‘Р В· get_current_user
+        # get_current_user РЎС“Р В¶Р Вµ Р В·Р В°Р С–РЎР‚РЎС“Р В¶Р В°Р ВµРЎвЂљ РЎР‚Р С•Р В»Р С‘ РЎвЂЎР ВµРЎР‚Р ВµР В· selectinload
         user_roles = []
         try:
-            # Пробуем получить роли из уже загруженного объекта
+            # Р СџРЎР‚Р С•Р В±РЎС“Р ВµР С Р С—Р С•Р В»РЎС“РЎвЂЎР С‘РЎвЂљРЎРЉ РЎР‚Р С•Р В»Р С‘ Р С‘Р В· РЎС“Р В¶Р Вµ Р В·Р В°Р С–РЎР‚РЎС“Р В¶Р ВµР Р…Р Р…Р С•Р С–Р С• Р С•Р В±РЎР‰Р ВµР С”РЎвЂљР В°
             if hasattr(current_user, 'roles') and current_user.roles:
                 user_roles = [ur.role.name for ur in current_user.roles]
         except Exception as e:
             logger.warning(f"Error getting roles from current_user: {e}")
-            # Если не получилось, загружаем заново
+            # Р вЂўРЎРѓР В»Р С‘ Р Р…Р Вµ Р С—Р С•Р В»РЎС“РЎвЂЎР С‘Р В»Р С•РЎРѓРЎРЉ, Р В·Р В°Р С–РЎР‚РЎС“Р В¶Р В°Р ВµР С Р В·Р В°Р Р…Р С•Р Р†Р С•
             result = await db.execute(
                 select(User)
                 .options(selectinload(User.roles).selectinload(UserRole.role))
@@ -616,7 +738,7 @@ async def create_equipment(
         
         logger.debug(f"User roles: {user_roles}")
         
-        # Админ имеет все права - пропускаем проверку
+        # Р С’Р Т‘Р СР С‘Р Р… Р С‘Р СР ВµР ВµРЎвЂљ Р Р†РЎРѓР Вµ Р С—РЎР‚Р В°Р Р†Р В° - Р С—РЎР‚Р С•Р С—РЎС“РЎРѓР С”Р В°Р ВµР С Р С—РЎР‚Р С•Р Р†Р ВµРЎР‚Р С”РЎС“
         if "admin" in user_roles:
             logger.debug("User is admin, skipping permission check")
         else:
@@ -624,7 +746,7 @@ async def create_equipment(
             await require_permission(current_user, "equipment:create", db)
         
         logger.debug(f"Checking passport number: {equipment_data.passport_number}")
-        # Проверка уникальности паспорта
+        # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚Р С”Р В° РЎС“Р Р…Р С‘Р С”Р В°Р В»РЎРЉР Р…Р С•РЎРѓРЎвЂљР С‘ Р С—Р В°РЎРѓР С—Р С•РЎР‚РЎвЂљР В°
         result = await db.execute(
             select(Equipment).where(Equipment.passport_number == equipment_data.passport_number)
         )
@@ -648,7 +770,7 @@ async def create_equipment(
         await db.flush()
         logger.info(f"Equipment created with ID: {new_equipment.id}")
         
-        # Логирование
+        # Р вЂєР С•Р С–Р С‘РЎР‚Р С•Р Р†Р В°Р Р…Р С‘Р Вµ
         logger.debug("Creating activity log")
         activity = UserActivity(
             user_id=current_user.id,
@@ -681,7 +803,7 @@ async def update_equipment(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Обновить оборудование"""
+    """Р С›Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘Р Вµ"""
     await require_permission(current_user, "equipment:update", db)
     
     result = await db.execute(select(Equipment).where(Equipment.id == equipment_id))
@@ -690,7 +812,7 @@ async def update_equipment(
     if not equipment:
         raise HTTPException(status_code=404, detail="Equipment not found")
     
-    # Сохранение истории изменений
+    # Р РЋР С•РЎвЂ¦РЎР‚Р В°Р Р…Р ВµР Р…Р С‘Р Вµ Р С‘РЎРѓРЎвЂљР С•РЎР‚Р С‘Р С‘ Р С‘Р В·Р СР ВµР Р…Р ВµР Р…Р С‘Р в„–
     update_data = equipment_data.dict(exclude_unset=True)
     for field, new_value in update_data.items():
         if hasattr(equipment, field):
@@ -706,7 +828,7 @@ async def update_equipment(
                 db.add(history)
                 setattr(equipment, field, new_value)
     
-    # Логирование
+    # Р вЂєР С•Р С–Р С‘РЎР‚Р С•Р Р†Р В°Р Р…Р С‘Р Вµ
     activity = UserActivity(
         user_id=current_user.id,
         action_type="update",
@@ -728,7 +850,7 @@ async def bulk_create_equipment(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Массовое добавление оборудования"""
+    """Р СљР В°РЎРѓРЎРѓР С•Р Р†Р С•Р Вµ Р Т‘Р С•Р В±Р В°Р Р†Р В»Р ВµР Р…Р С‘Р Вµ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ"""
     await require_permission(current_user, "equipment:create", db)
 
     return await _bulk_create_equipment_items(
@@ -741,10 +863,10 @@ async def bulk_create_equipment(
 
 def _parse_equipment_csv_text(decoded: str) -> (List[EquipmentBulkItem], List[dict]):
     """
-    Общий CSV-парсер для массового импорта оборудования.
-    Используется как для загрузки файлов, так и для OCR-импорта.
+    Р С›Р В±РЎвЂ°Р С‘Р в„– CSV-Р С—Р В°РЎР‚РЎРѓР ВµРЎР‚ Р Т‘Р В»РЎРЏ Р СР В°РЎРѓРЎРѓР С•Р Р†Р С•Р С–Р С• Р С‘Р СР С—Р С•РЎР‚РЎвЂљР В° Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ.
+    Р ВРЎРѓР С—Р С•Р В»РЎРЉР В·РЎС“Р ВµРЎвЂљРЎРѓРЎРЏ Р С”Р В°Р С” Р Т‘Р В»РЎРЏ Р В·Р В°Р С–РЎР‚РЎС“Р В·Р С”Р С‘ РЎвЂћР В°Р в„–Р В»Р С•Р Р†, РЎвЂљР В°Р С” Р С‘ Р Т‘Р В»РЎРЏ OCR-Р С‘Р СР С—Р С•РЎР‚РЎвЂљР В°.
     """
-    # Определяем разделитель (поддержка как запятой, так и точки с запятой)
+    # Р С›Р С—РЎР‚Р ВµР Т‘Р ВµР В»РЎРЏР ВµР С РЎР‚Р В°Р В·Р Т‘Р ВµР В»Р С‘РЎвЂљР ВµР В»РЎРЉ (Р С—Р С•Р Т‘Р Т‘Р ВµРЎР‚Р В¶Р С”Р В° Р С”Р В°Р С” Р В·Р В°Р С—РЎРЏРЎвЂљР С•Р в„–, РЎвЂљР В°Р С” Р С‘ РЎвЂљР С•РЎвЂЎР С”Р С‘ РЎРѓ Р В·Р В°Р С—РЎРЏРЎвЂљР С•Р в„–)
     first_line = decoded.splitlines()[0] if decoded.splitlines() else ""
     delimiter = ";" if first_line.count(";") > first_line.count(",") else ","
     reader = csv.DictReader(io.StringIO(decoded), delimiter=delimiter)
@@ -761,36 +883,36 @@ def _parse_equipment_csv_text(decoded: str) -> (List[EquipmentBulkItem], List[di
             detail="CSV file must contain at least 'equipment_type' and 'passport_number' columns",
         )
 
-    # Список ключевых слов, которые указывают на строку с подсказками
+    # Р РЋР С—Р С‘РЎРѓР С•Р С” Р С”Р В»РЎР‹РЎвЂЎР ВµР Р†РЎвЂ№РЎвЂ¦ РЎРѓР В»Р С•Р Р†, Р С”Р С•РЎвЂљР С•РЎР‚РЎвЂ№Р Вµ РЎС“Р С”Р В°Р В·РЎвЂ№Р Р†Р В°РЎР‹РЎвЂљ Р Р…Р В° РЎРѓРЎвЂљРЎР‚Р С•Р С”РЎС“ РЎРѓ Р С—Р С•Р Т‘РЎРѓР С”Р В°Р В·Р С”Р В°Р СР С‘
     hint_keywords = [
-        "обязательно",
-        "необязательно",
-        "например",
-        "тип пс",
-        "номер паспорта",
-        "инвентарный номер",
-        "позиция",
-        "цех",
-        "грузоподъемность",
-        "завод",
-        "место установки",
-        "дата ввода",
-        "дата пто",
-        "дата что",
-        "статус",
+        "Р С•Р В±РЎРЏР В·Р В°РЎвЂљР ВµР В»РЎРЉР Р…Р С•",
+        "Р Р…Р ВµР С•Р В±РЎРЏР В·Р В°РЎвЂљР ВµР В»РЎРЉР Р…Р С•",
+        "Р Р…Р В°Р С—РЎР‚Р С‘Р СР ВµРЎР‚",
+        "РЎвЂљР С‘Р С— Р С—РЎРѓ",
+        "Р Р…Р С•Р СР ВµРЎР‚ Р С—Р В°РЎРѓР С—Р С•РЎР‚РЎвЂљР В°",
+        "Р С‘Р Р…Р Р†Р ВµР Р…РЎвЂљР В°РЎР‚Р Р…РЎвЂ№Р в„– Р Р…Р С•Р СР ВµРЎР‚",
+        "Р С—Р С•Р В·Р С‘РЎвЂ Р С‘РЎРЏ",
+        "РЎвЂ Р ВµРЎвЂ¦",
+        "Р С–РЎР‚РЎС“Р В·Р С•Р С—Р С•Р Т‘РЎР‰Р ВµР СР Р…Р С•РЎРѓРЎвЂљРЎРЉ",
+        "Р В·Р В°Р Р†Р С•Р Т‘",
+        "Р СР ВµРЎРѓРЎвЂљР С• РЎС“РЎРѓРЎвЂљР В°Р Р…Р С•Р Р†Р С”Р С‘",
+        "Р Т‘Р В°РЎвЂљР В° Р Р†Р Р†Р С•Р Т‘Р В°",
+        "Р Т‘Р В°РЎвЂљР В° Р С—РЎвЂљР С•",
+        "Р Т‘Р В°РЎвЂљР В° РЎвЂЎРЎвЂљР С•",
+        "РЎРѓРЎвЂљР В°РЎвЂљРЎС“РЎРѓ",
     ]
 
-    for row_index, row in enumerate(reader, start=2):  # Учитываем строку заголовка
+    for row_index, row in enumerate(reader, start=2):  # Р Р€РЎвЂЎР С‘РЎвЂљРЎвЂ№Р Р†Р В°Р ВµР С РЎРѓРЎвЂљРЎР‚Р С•Р С”РЎС“ Р В·Р В°Р С–Р С•Р В»Р С•Р Р†Р С”Р В°
         if not row:
             continue
-        # Проверяем, есть ли данные в строке
+        # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С, Р ВµРЎРѓРЎвЂљРЎРЉ Р В»Р С‘ Р Т‘Р В°Р Р…Р Р…РЎвЂ№Р Вµ Р Р† РЎРѓРЎвЂљРЎР‚Р С•Р С”Р Вµ
         if not any((value or "").strip() for value in row.values()):
             continue
 
-        # Проверяем, является ли строка подсказками (содержит ключевые слова)
+        # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С, РЎРЏР Р†Р В»РЎРЏР ВµРЎвЂљРЎРѓРЎРЏ Р В»Р С‘ РЎРѓРЎвЂљРЎР‚Р С•Р С”Р В° Р С—Р С•Р Т‘РЎРѓР С”Р В°Р В·Р С”Р В°Р СР С‘ (РЎРѓР С•Р Т‘Р ВµРЎР‚Р В¶Р С‘РЎвЂљ Р С”Р В»РЎР‹РЎвЂЎР ВµР Р†РЎвЂ№Р Вµ РЎРѓР В»Р С•Р Р†Р В°)
         row_text = " ".join((value or "").lower() for value in row.values())
         if any(keyword in row_text for keyword in hint_keywords):
-            continue  # Пропускаем строку с подсказками
+            continue  # Р СџРЎР‚Р С•Р С—РЎС“РЎРѓР С”Р В°Р ВµР С РЎРѓРЎвЂљРЎР‚Р С•Р С”РЎС“ РЎРѓ Р С—Р С•Р Т‘РЎРѓР С”Р В°Р В·Р С”Р В°Р СР С‘
 
         normalized = {
             "equipment_type": (row.get("equipment_type") or "").strip(),
@@ -804,6 +926,19 @@ def _parse_equipment_csv_text(decoded: str) -> (List[EquipmentBulkItem], List[di
             "installation_date": _normalize_csv_date(row.get("installation_date")),
             "pto_date": _normalize_csv_date(row.get("pto_date")),
             "cto_date": _normalize_csv_date(row.get("cto_date")),
+            "expertise_date": _normalize_csv_date(row.get("expertise_date")),
+            "operation_permit_until": _normalize_csv_date(row.get("operation_permit_until")),
+            "operation_banned": (
+                _normalize_bool(row.get("operation_banned"))
+                if row.get("operation_banned") is not None
+                else _normalize_bool(row.get("ban_on_operation"))
+            ),
+            "epb_positive_details": (row.get("epb_positive_details") or "").strip() or None,
+            "rostekhnadzor_registered": (
+                _normalize_bool(row.get("rostekhnadzor_registered"))
+                if row.get("rostekhnadzor_registered") is not None
+                else _normalize_bool(row.get("registered_in_rostekhnadzor"))
+            ),
             "status": (row.get("status") or "active").strip() or "active",
         }
 
@@ -827,7 +962,7 @@ async def bulk_upload_equipment(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Массовое добавление оборудования через CSV"""
+    """Р СљР В°РЎРѓРЎРѓР С•Р Р†Р С•Р Вµ Р Т‘Р С•Р В±Р В°Р Р†Р В»Р ВµР Р…Р С‘Р Вµ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ РЎвЂЎР ВµРЎР‚Р ВµР В· CSV"""
     await require_permission(current_user, "equipment:create", db)
 
     filename = file.filename or ""
@@ -865,7 +1000,7 @@ async def delete_equipment(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Удалить оборудование"""
+    """Р Р€Р Т‘Р В°Р В»Р С‘РЎвЂљРЎРЉ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘Р Вµ"""
     await require_permission(current_user, "equipment:delete", db)
     
     result = await db.execute(select(Equipment).where(Equipment.id == equipment_id))
@@ -874,7 +1009,7 @@ async def delete_equipment(
     if not equipment:
         raise HTTPException(status_code=404, detail="Equipment not found")
     
-    # Логирование
+    # Р вЂєР С•Р С–Р С‘РЎР‚Р С•Р Р†Р В°Р Р…Р С‘Р Вµ
     activity = UserActivity(
         user_id=current_user.id,
         action_type="delete",
@@ -894,7 +1029,7 @@ async def get_equipment_history(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получить историю изменений оборудования"""
+    """Р СџР С•Р В»РЎС“РЎвЂЎР С‘РЎвЂљРЎРЉ Р С‘РЎРѓРЎвЂљР С•РЎР‚Р С‘РЎР‹ Р С‘Р В·Р СР ВµР Р…Р ВµР Р…Р С‘Р в„– Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ"""
     await require_permission(current_user, "equipment:read", db)
     
     result = await db.execute(
@@ -922,7 +1057,7 @@ async def bulk_update_equipment(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Массовое редактирование оборудования"""
+    """Р СљР В°РЎРѓРЎРѓР С•Р Р†Р С•Р Вµ РЎР‚Р ВµР Т‘Р В°Р С”РЎвЂљР С‘РЎР‚Р С•Р Р†Р В°Р Р…Р С‘Р Вµ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ"""
     await require_permission(current_user, "equipment:update", db)
 
     if not payload.equipment_ids:
@@ -944,7 +1079,7 @@ async def bulk_update_equipment(
                 errors.append({"equipment_id": eq_id, "detail": "Equipment not found"})
                 continue
 
-            # Сохранение истории изменений
+            # Р РЋР С•РЎвЂ¦РЎР‚Р В°Р Р…Р ВµР Р…Р С‘Р Вµ Р С‘РЎРѓРЎвЂљР С•РЎР‚Р С‘Р С‘ Р С‘Р В·Р СР ВµР Р…Р ВµР Р…Р С‘Р в„–
             for field, new_value in update_data.items():
                 if hasattr(equipment, field):
                     old_value = getattr(equipment, field)
@@ -959,7 +1094,7 @@ async def bulk_update_equipment(
                         db.add(history)
                         setattr(equipment, field, new_value)
 
-            # Логирование
+            # Р вЂєР С•Р С–Р С‘РЎР‚Р С•Р Р†Р В°Р Р…Р С‘Р Вµ
             activity = UserActivity(
                 user_id=current_user.id,
                 action_type="update",
@@ -983,7 +1118,7 @@ async def bulk_update_dates(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Массовое назначение дат ПТО/ЧТО"""
+    """Р СљР В°РЎРѓРЎРѓР С•Р Р†Р С•Р Вµ Р Р…Р В°Р В·Р Р…Р В°РЎвЂЎР ВµР Р…Р С‘Р Вµ Р Т‘Р В°РЎвЂљ Р СџР СћР С›/Р В§Р СћР С›"""
     await require_permission(current_user, "equipment:update", db)
 
     if not payload.equipment_ids:
@@ -1004,7 +1139,7 @@ async def bulk_update_dates(
                 errors.append({"equipment_id": eq_id, "detail": "Equipment not found"})
                 continue
 
-            # Сохранение истории изменений
+            # Р РЋР С•РЎвЂ¦РЎР‚Р В°Р Р…Р ВµР Р…Р С‘Р Вµ Р С‘РЎРѓРЎвЂљР С•РЎР‚Р С‘Р С‘ Р С‘Р В·Р СР ВµР Р…Р ВµР Р…Р С‘Р в„–
             if payload.pto_date is not None:
                 old_pto = equipment.pto_date
                 if old_pto != payload.pto_date:
@@ -1031,7 +1166,7 @@ async def bulk_update_dates(
                     db.add(history)
                     equipment.cto_date = payload.cto_date
 
-            # Логирование
+            # Р вЂєР С•Р С–Р С‘РЎР‚Р С•Р Р†Р В°Р Р…Р С‘Р Вµ
             activity = UserActivity(
                 user_id=current_user.id,
                 action_type="update",
@@ -1055,36 +1190,36 @@ async def ocr_upsert_equipment(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Создать или обновить оборудование через OCR данные"""
+    """Р РЋР С•Р В·Р Т‘Р В°РЎвЂљРЎРЉ Р С‘Р В»Р С‘ Р С•Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘Р Вµ РЎвЂЎР ВµРЎР‚Р ВµР В· OCR Р Т‘Р В°Р Р…Р Р…РЎвЂ№Р Вµ"""
     await require_permission(current_user, "equipment:create", db)
     
-    # Проверяем обязательные поля
+    # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С Р С•Р В±РЎРЏР В·Р В°РЎвЂљР ВµР В»РЎРЉР Р…РЎвЂ№Р Вµ Р С—Р С•Р В»РЎРЏ
     if not equipment_data.passport_number and not equipment_data.inventory_number:
         raise HTTPException(
             status_code=400, 
             detail="Either passport_number or inventory_number is required"
         )
     
-    # Ищем существующее оборудование
+    # Р ВРЎвЂ°Р ВµР С РЎРѓРЎС“РЎвЂ°Р ВµРЎРѓРЎвЂљР Р†РЎС“РЎР‹РЎвЂ°Р ВµР Вµ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘Р Вµ
     existing_equipment = None
     
-    # Сначала ищем по паспортному номеру
+    # Р РЋР Р…Р В°РЎвЂЎР В°Р В»Р В° Р С‘РЎвЂ°Р ВµР С Р С—Р С• Р С—Р В°РЎРѓР С—Р С•РЎР‚РЎвЂљР Р…Р С•Р СРЎС“ Р Р…Р С•Р СР ВµРЎР‚РЎС“
     if equipment_data.passport_number:
         result = await db.execute(
             select(Equipment).where(Equipment.passport_number == equipment_data.passport_number)
         )
         existing_equipment = result.scalar_one_or_none()
     
-    # Если не найдено по паспорту, ищем по инвентарному номеру
+    # Р вЂўРЎРѓР В»Р С‘ Р Р…Р Вµ Р Р…Р В°Р в„–Р Т‘Р ВµР Р…Р С• Р С—Р С• Р С—Р В°РЎРѓР С—Р С•РЎР‚РЎвЂљРЎС“, Р С‘РЎвЂ°Р ВµР С Р С—Р С• Р С‘Р Р…Р Р†Р ВµР Р…РЎвЂљР В°РЎР‚Р Р…Р С•Р СРЎС“ Р Р…Р С•Р СР ВµРЎР‚РЎС“
     if not existing_equipment and equipment_data.inventory_number:
         result = await db.execute(
             select(Equipment).where(Equipment.inventory_number == equipment_data.inventory_number)
         )
         existing_equipment = result.scalar_one_or_none()
     
-    # Если не найдено по инвентарному, ищем по имени (если указано)
+    # Р вЂўРЎРѓР В»Р С‘ Р Р…Р Вµ Р Р…Р В°Р в„–Р Т‘Р ВµР Р…Р С• Р С—Р С• Р С‘Р Р…Р Р†Р ВµР Р…РЎвЂљР В°РЎР‚Р Р…Р С•Р СРЎС“, Р С‘РЎвЂ°Р ВµР С Р С—Р С• Р С‘Р СР ВµР Р…Р С‘ (Р ВµРЎРѓР В»Р С‘ РЎС“Р С”Р В°Р В·Р В°Р Р…Р С•)
     if not existing_equipment and equipment_data.name:
-        # Ищем по комбинации типа и позиции
+        # Р ВРЎвЂ°Р ВµР С Р С—Р С• Р С”Р С•Р СР В±Р С‘Р Р…Р В°РЎвЂ Р С‘Р С‘ РЎвЂљР С‘Р С—Р В° Р С‘ Р С—Р С•Р В·Р С‘РЎвЂ Р С‘Р С‘
         search_conditions = []
         if equipment_data.equipment_type:
             search_conditions.append(Equipment.equipment_type.ilike(f"%{equipment_data.equipment_type}%"))
@@ -1097,17 +1232,17 @@ async def ocr_upsert_equipment(
             )
             potential_matches = result.scalars().all()
             
-            # Если найдено только одно совпадение, используем его
+            # Р вЂўРЎРѓР В»Р С‘ Р Р…Р В°Р в„–Р Т‘Р ВµР Р…Р С• РЎвЂљР С•Р В»РЎРЉР С”Р С• Р С•Р Т‘Р Р…Р С• РЎРѓР С•Р Р†Р С—Р В°Р Т‘Р ВµР Р…Р С‘Р Вµ, Р С‘РЎРѓР С—Р С•Р В»РЎРЉР В·РЎС“Р ВµР С Р ВµР С–Р С•
             if len(potential_matches) == 1:
                 existing_equipment = potential_matches[0]
     
     created = False
     
     if existing_equipment:
-        # Обновляем существующее оборудование
+        # Р С›Р В±Р Р…Р С•Р Р†Р В»РЎРЏР ВµР С РЎРѓРЎС“РЎвЂ°Р ВµРЎРѓРЎвЂљР Р†РЎС“РЎР‹РЎвЂ°Р ВµР Вµ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘Р Вµ
         logger.info(f"Updating existing equipment ID {existing_equipment.id}")
         
-        # Обновляем только непустые поля
+        # Р С›Р В±Р Р…Р С•Р Р†Р В»РЎРЏР ВµР С РЎвЂљР С•Р В»РЎРЉР С”Р С• Р Р…Р ВµР С—РЎС“РЎРѓРЎвЂљРЎвЂ№Р Вµ Р С—Р С•Р В»РЎРЏ
         update_fields = {}
         
         if equipment_data.name and not existing_equipment.equipment_type:
@@ -1139,17 +1274,17 @@ async def ocr_upsert_equipment(
         if equipment_data.workshop and not existing_equipment.workshop:
             update_fields['workshop'] = equipment_data.workshop
         
-        # Применяем обновления
+        # Р СџРЎР‚Р С‘Р СР ВµР Р…РЎРЏР ВµР С Р С•Р В±Р Р…Р С•Р Р†Р В»Р ВµР Р…Р С‘РЎРЏ
         for field, value in update_fields.items():
             setattr(existing_equipment, field, value)
         
-        # Сохраняем историю изменений для обновленных полей
+        # Р РЋР С•РЎвЂ¦РЎР‚Р В°Р Р…РЎРЏР ВµР С Р С‘РЎРѓРЎвЂљР С•РЎР‚Р С‘РЎР‹ Р С‘Р В·Р СР ВµР Р…Р ВµР Р…Р С‘Р в„– Р Т‘Р В»РЎРЏ Р С•Р В±Р Р…Р С•Р Р†Р В»Р ВµР Р…Р Р…РЎвЂ№РЎвЂ¦ Р С—Р С•Р В»Р ВµР в„–
         for field, new_value in update_fields.items():
             history = EquipmentHistory(
                 equipment_id=existing_equipment.id,
                 changed_by=current_user.id,
                 field_name=field,
-                old_value=None,  # Было пустое
+                old_value=None,  # Р вЂРЎвЂ№Р В»Р С• Р С—РЎС“РЎРѓРЎвЂљР С•Р Вµ
                 new_value=str(new_value) if new_value else None
             )
             db.add(history)
@@ -1157,26 +1292,26 @@ async def ocr_upsert_equipment(
         equipment_id = existing_equipment.id
         
     else:
-        # Создаем новое оборудование
+        # Р РЋР С•Р В·Р Т‘Р В°Р ВµР С Р Р…Р С•Р Р†Р С•Р Вµ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘Р Вµ
         logger.info("Creating new equipment from OCR data")
         
-        # Определяем обязательные поля
-        equipment_type = equipment_data.equipment_type or equipment_data.name or "Неопределенный тип"
+        # Р С›Р С—РЎР‚Р ВµР Т‘Р ВµР В»РЎРЏР ВµР С Р С•Р В±РЎРЏР В·Р В°РЎвЂљР ВµР В»РЎРЉР Р…РЎвЂ№Р Вµ Р С—Р С•Р В»РЎРЏ
+        equipment_type = equipment_data.equipment_type or equipment_data.name or "Р СњР ВµР С•Р С—РЎР‚Р ВµР Т‘Р ВµР В»Р ВµР Р…Р Р…РЎвЂ№Р в„– РЎвЂљР С‘Р С—"
         passport_number = equipment_data.passport_number
         
-        # Если нет паспортного номера, генерируем временный
+        # Р вЂўРЎРѓР В»Р С‘ Р Р…Р ВµРЎвЂљ Р С—Р В°РЎРѓР С—Р С•РЎР‚РЎвЂљР Р…Р С•Р С–Р С• Р Р…Р С•Р СР ВµРЎР‚Р В°, Р С–Р ВµР Р…Р ВµРЎР‚Р С‘РЎР‚РЎС“Р ВµР С Р Р†РЎР‚Р ВµР СР ВµР Р…Р Р…РЎвЂ№Р в„–
         if not passport_number:
             import random
             passport_number = f"OCR-{datetime.utcnow().strftime('%Y%m%d')}-{random.randint(1000, 9999)}"
         
-        # Проверяем уникальность паспортного номера
+        # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С РЎС“Р Р…Р С‘Р С”Р В°Р В»РЎРЉР Р…Р С•РЎРѓРЎвЂљРЎРЉ Р С—Р В°РЎРѓР С—Р С•РЎР‚РЎвЂљР Р…Р С•Р С–Р С• Р Р…Р С•Р СР ВµРЎР‚Р В°
         result = await db.execute(
             select(Equipment).where(Equipment.passport_number == passport_number)
         )
         if result.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Passport number already exists")
         
-        # Проверяем уникальность инвентарного номера если указан
+        # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С РЎС“Р Р…Р С‘Р С”Р В°Р В»РЎРЉР Р…Р С•РЎРѓРЎвЂљРЎРЉ Р С‘Р Р…Р Р†Р ВµР Р…РЎвЂљР В°РЎР‚Р Р…Р С•Р С–Р С• Р Р…Р С•Р СР ВµРЎР‚Р В° Р ВµРЎРѓР В»Р С‘ РЎС“Р С”Р В°Р В·Р В°Р Р…
         if equipment_data.inventory_number:
             result = await db.execute(
                 select(Equipment).where(Equipment.inventory_number == equipment_data.inventory_number)
@@ -1204,7 +1339,7 @@ async def ocr_upsert_equipment(
         equipment_id = new_equipment.id
         created = True
     
-    # Логирование
+    # Р вЂєР С•Р С–Р С‘РЎР‚Р С•Р Р†Р В°Р Р…Р С‘Р Вµ
     action = "create" if created else "update"
     activity = UserActivity(
         user_id=current_user.id,
@@ -1232,14 +1367,14 @@ async def ocr_import_equipment(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Массовый импорт оборудования на основе OCR-результата.
+    Р СљР В°РЎРѓРЎРѓР С•Р Р†РЎвЂ№Р в„– Р С‘Р СР С—Р С•РЎР‚РЎвЂљ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ Р Р…Р В° Р С•РЎРѓР Р…Р С•Р Р†Р Вµ OCR-РЎР‚Р ВµР В·РЎС“Р В»РЎРЉРЎвЂљР В°РЎвЂљР В°.
 
-    Варианты использования:
-    - Бот или внешний сервис распознал таблицу и прислал CSV-текст в ocr_text
-    - Указан file_id на ранее загруженный CSV-файл в таблице files
+    Р вЂ™Р В°РЎР‚Р С‘Р В°Р Р…РЎвЂљРЎвЂ№ Р С‘РЎРѓР С—Р С•Р В»РЎРЉР В·Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ:
+    - Р вЂР С•РЎвЂљ Р С‘Р В»Р С‘ Р Р†Р Р…Р ВµРЎв‚¬Р Р…Р С‘Р в„– РЎРѓР ВµРЎР‚Р Р†Р С‘РЎРѓ РЎР‚Р В°РЎРѓР С—Р С•Р В·Р Р…Р В°Р В» РЎвЂљР В°Р В±Р В»Р С‘РЎвЂ РЎС“ Р С‘ Р С—РЎР‚Р С‘РЎРѓР В»Р В°Р В» CSV-РЎвЂљР ВµР С”РЎРѓРЎвЂљ Р Р† ocr_text
+    - Р Р€Р С”Р В°Р В·Р В°Р Р… file_id Р Р…Р В° РЎР‚Р В°Р Р…Р ВµР Вµ Р В·Р В°Р С–РЎР‚РЎС“Р В¶Р ВµР Р…Р Р…РЎвЂ№Р в„– CSV-РЎвЂћР В°Р в„–Р В» Р Р† РЎвЂљР В°Р В±Р В»Р С‘РЎвЂ Р Вµ files
 
-    Поддержка распознавания фото (image → text) должна быть реализована
-    во внешнем сервисе, который передаст уже готовый табличный текст.
+    Р СџР С•Р Т‘Р Т‘Р ВµРЎР‚Р В¶Р С”Р В° РЎР‚Р В°РЎРѓР С—Р С•Р В·Р Р…Р В°Р Р†Р В°Р Р…Р С‘РЎРЏ РЎвЂћР С•РЎвЂљР С• (image РІвЂ вЂ™ text) Р Т‘Р С•Р В»Р В¶Р Р…Р В° Р В±РЎвЂ№РЎвЂљРЎРЉ РЎР‚Р ВµР В°Р В»Р С‘Р В·Р С•Р Р†Р В°Р Р…Р В°
+    Р Р†Р С• Р Р†Р Р…Р ВµРЎв‚¬Р Р…Р ВµР С РЎРѓР ВµРЎР‚Р Р†Р С‘РЎРѓР Вµ, Р С”Р С•РЎвЂљР С•РЎР‚РЎвЂ№Р в„– Р С—Р ВµРЎР‚Р ВµР Т‘Р В°РЎРѓРЎвЂљ РЎС“Р В¶Р Вµ Р С–Р С•РЎвЂљР С•Р Р†РЎвЂ№Р в„– РЎвЂљР В°Р В±Р В»Р С‘РЎвЂЎР Р…РЎвЂ№Р в„– РЎвЂљР ВµР С”РЎРѓРЎвЂљ.
     """
     await require_permission(current_user, "equipment:create", db)
 
@@ -1251,11 +1386,11 @@ async def ocr_import_equipment(
 
     decoded = None
 
-    # Если пришёл готовый текст (например, от Telegram-бота после OCR)
+    # Р вЂўРЎРѓР В»Р С‘ Р С—РЎР‚Р С‘РЎв‚¬РЎвЂР В» Р С–Р С•РЎвЂљР С•Р Р†РЎвЂ№Р в„– РЎвЂљР ВµР С”РЎРѓРЎвЂљ (Р Р…Р В°Р С—РЎР‚Р С‘Р СР ВµРЎР‚, Р С•РЎвЂљ Telegram-Р В±Р С•РЎвЂљР В° Р С—Р С•РЎРѓР В»Р Вµ OCR)
     if payload.ocr_text:
         decoded = payload.ocr_text
 
-    # Если указан file_id — пробуем прочитать содержимое файла
+    # Р вЂўРЎРѓР В»Р С‘ РЎС“Р С”Р В°Р В·Р В°Р Р… file_id РІР‚вЂќ Р С—РЎР‚Р С•Р В±РЎС“Р ВµР С Р С—РЎР‚Р С•РЎвЂЎР С‘РЎвЂљР В°РЎвЂљРЎРЉ РЎРѓР С•Р Т‘Р ВµРЎР‚Р В¶Р С‘Р СР С•Р Вµ РЎвЂћР В°Р в„–Р В»Р В°
     if not decoded and payload.file_id:
         result = await db.execute(select(File).where(File.id == payload.file_id))
         file_obj: Optional[File] = result.scalar_one_or_none()
@@ -1268,23 +1403,23 @@ async def ocr_import_equipment(
                 detail="File has no file_path, cannot read from disk",
             )
 
-        # Определяем, является ли файл текстом/CSV или картинкой
+        # Р С›Р С—РЎР‚Р ВµР Т‘Р ВµР В»РЎРЏР ВµР С, РЎРЏР Р†Р В»РЎРЏР ВµРЎвЂљРЎРѓРЎРЏ Р В»Р С‘ РЎвЂћР В°Р в„–Р В» РЎвЂљР ВµР С”РЎРѓРЎвЂљР С•Р С/CSV Р С‘Р В»Р С‘ Р С”Р В°РЎР‚РЎвЂљР С‘Р Р…Р С”Р С•Р в„–
         file_path = Path(file_obj.file_path)
         suffix = file_path.suffix.lower()
 
-        # Если это изображение — запускаем OCR
+        # Р вЂўРЎРѓР В»Р С‘ РЎРЊРЎвЂљР С• Р С‘Р В·Р С•Р В±РЎР‚Р В°Р В¶Р ВµР Р…Р С‘Р Вµ РІР‚вЂќ Р В·Р В°Р С—РЎС“РЎРѓР С”Р В°Р ВµР С OCR
         if suffix in {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"} or (
             file_obj.mime_type and file_obj.mime_type.startswith("image/")
         ):
-            # Проверяем существование файла и нормализуем путь
-            # Файлы сохраняются как относительные пути типа "uploads/filename"
+            # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С РЎРѓРЎС“РЎвЂ°Р ВµРЎРѓРЎвЂљР Р†Р С•Р Р†Р В°Р Р…Р С‘Р Вµ РЎвЂћР В°Р в„–Р В»Р В° Р С‘ Р Р…Р С•РЎР‚Р СР В°Р В»Р С‘Р В·РЎС“Р ВµР С Р С—РЎС“РЎвЂљРЎРЉ
+            # Р В¤Р В°Р в„–Р В»РЎвЂ№ РЎРѓР С•РЎвЂ¦РЎР‚Р В°Р Р…РЎРЏРЎР‹РЎвЂљРЎРѓРЎРЏ Р С”Р В°Р С” Р С•РЎвЂљР Р…Р С•РЎРѓР С‘РЎвЂљР ВµР В»РЎРЉР Р…РЎвЂ№Р Вµ Р С—РЎС“РЎвЂљР С‘ РЎвЂљР С‘Р С—Р В° "uploads/filename"
             file_path_str = file_obj.file_path
             
-            # Пробуем разные варианты пути
+            # Р СџРЎР‚Р С•Р В±РЎС“Р ВµР С РЎР‚Р В°Р В·Р Р…РЎвЂ№Р Вµ Р Р†Р В°РЎР‚Р С‘Р В°Р Р…РЎвЂљРЎвЂ№ Р С—РЎС“РЎвЂљР С‘
             possible_paths = [
-                file_path_str,  # Как есть (если абсолютный)
-                os.path.join("/app/backend", file_path_str),  # Относительно backend
-                os.path.join("/app", file_path_str),  # Относительно корня
+                file_path_str,  # Р С™Р В°Р С” Р ВµРЎРѓРЎвЂљРЎРЉ (Р ВµРЎРѓР В»Р С‘ Р В°Р В±РЎРѓР С•Р В»РЎР‹РЎвЂљР Р…РЎвЂ№Р в„–)
+                os.path.join("/app/backend", file_path_str),  # Р С›РЎвЂљР Р…Р С•РЎРѓР С‘РЎвЂљР ВµР В»РЎРЉР Р…Р С• backend
+                os.path.join("/app", file_path_str),  # Р С›РЎвЂљР Р…Р С•РЎРѓР С‘РЎвЂљР ВµР В»РЎРЉР Р…Р С• Р С”Р С•РЎР‚Р Р…РЎРЏ
             ]
             
             actual_path = None
@@ -1294,7 +1429,7 @@ async def ocr_import_equipment(
                     break
             
             if not actual_path:
-                # Если ни один путь не найден, пробуем найти файл по имени в uploads
+                # Р вЂўРЎРѓР В»Р С‘ Р Р…Р С‘ Р С•Р Т‘Р С‘Р Р… Р С—РЎС“РЎвЂљРЎРЉ Р Р…Р Вµ Р Р…Р В°Р в„–Р Т‘Р ВµР Р…, Р С—РЎР‚Р С•Р В±РЎС“Р ВµР С Р Р…Р В°Р в„–РЎвЂљР С‘ РЎвЂћР В°Р в„–Р В» Р С—Р С• Р С‘Р СР ВµР Р…Р С‘ Р Р† uploads
                 filename = os.path.basename(file_path_str)
                 uploads_path = os.path.join("/app/backend", "uploads", filename)
                 if os.path.exists(uploads_path):
@@ -1308,7 +1443,7 @@ async def ocr_import_equipment(
             logger.info(f"Running OCR for equipment import on image file: {actual_path}")
             decoded = _ocr_image_to_text(actual_path)
         else:
-            # Иначе считаем, что это текст/CSV
+            # Р ВР Р…Р В°РЎвЂЎР Вµ РЎРѓРЎвЂЎР С‘РЎвЂљР В°Р ВµР С, РЎвЂЎРЎвЂљР С• РЎРЊРЎвЂљР С• РЎвЂљР ВµР С”РЎРѓРЎвЂљ/CSV
             try:
                 with open(file_obj.file_path, "rb") as f:
                     raw_content = f.read()
@@ -1364,23 +1499,23 @@ async def get_equipment_violations(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получить нарушения для конкретного оборудования"""
+    """Р СџР С•Р В»РЎС“РЎвЂЎР С‘РЎвЂљРЎРЉ Р Р…Р В°РЎР‚РЎС“РЎв‚¬Р ВµР Р…Р С‘РЎРЏ Р Т‘Р В»РЎРЏ Р С”Р С•Р Р…Р С”РЎР‚Р ВµРЎвЂљР Р…Р С•Р С–Р С• Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ"""
     await require_permission(current_user, "violations:read", db)
     
-    # Проверяем существование оборудования
+    # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С РЎРѓРЎС“РЎвЂ°Р ВµРЎРѓРЎвЂљР Р†Р С•Р Р†Р В°Р Р…Р С‘Р Вµ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ
     eq_result = await db.execute(select(Equipment).where(Equipment.id == equipment_id))
     equipment = eq_result.scalar_one_or_none()
     
     if not equipment:
         raise HTTPException(status_code=404, detail="Equipment not found")
     
-    # Импортируем модель Violation если еще не импортирована
+    # Р ВР СР С—Р С•РЎР‚РЎвЂљР С‘РЎР‚РЎС“Р ВµР С Р СР С•Р Т‘Р ВµР В»РЎРЉ Violation Р ВµРЎРѓР В»Р С‘ Р ВµРЎвЂ°Р Вµ Р Р…Р Вµ Р С‘Р СР С—Р С•РЎР‚РЎвЂљР С‘РЎР‚Р С•Р Р†Р В°Р Р…Р В°
     try:
         from backend.models import Violation
     except ImportError:
         from ..models import Violation
     
-    # Строим запрос нарушений
+    # Р РЋРЎвЂљРЎР‚Р С•Р С‘Р С Р В·Р В°Р С—РЎР‚Р С•РЎРѓ Р Р…Р В°РЎР‚РЎС“РЎв‚¬Р ВµР Р…Р С‘Р в„–
     query = select(Violation).where(Violation.equipment_id == equipment_id)
     
     if status:
@@ -1393,7 +1528,7 @@ async def get_equipment_violations(
     result = await db.execute(query)
     violations = result.scalars().all()
     
-    # Формируем ответ
+    # Р В¤Р С•РЎР‚Р СР С‘РЎР‚РЎС“Р ВµР С Р С•РЎвЂљР Р†Р ВµРЎвЂљ
     violations_data = []
     for violation in violations:
         violations_data.append({
@@ -1419,3 +1554,6 @@ async def get_equipment_violations(
             "workshop": equipment.workshop
         }
     }
+
+
+

@@ -209,6 +209,10 @@ MIGRATIONS = [
         "statements": [
             """
             ALTER TABLE IF EXISTS files
+            ADD COLUMN IF NOT EXISTS description TEXT
+            """,
+            """
+            ALTER TABLE IF EXISTS files
             ADD COLUMN IF NOT EXISTS task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE
             """,
             """
@@ -245,8 +249,44 @@ MIGRATIONS = [
             "CREATE INDEX IF NOT EXISTS idx_violations_source ON violations(source)",
         ],
     },
+    {
+        "name": "violation sla rules",
+        "statements": [
+            """
+            CREATE TABLE IF NOT EXISTS violation_sla_rules (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                violation_type VARCHAR,
+                severity VARCHAR,
+                days INTEGER NOT NULL,
+                priority INTEGER DEFAULT 100,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            ALTER TABLE IF EXISTS violations
+            ADD COLUMN IF NOT EXISTS deadline_source VARCHAR
+            """,
+            """
+            ALTER TABLE IF EXISTS violations
+            ADD COLUMN IF NOT EXISTS deadline_rule_id INTEGER
+            """,
+            """
+            ALTER TABLE IF EXISTS violations
+            ADD COLUMN IF NOT EXISTS is_overdue BOOLEAN DEFAULT FALSE
+            """,
+            """
+            ALTER TABLE IF EXISTS violations
+            ADD COLUMN IF NOT EXISTS overdue_at TIMESTAMP
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_violations_overdue ON violations(is_overdue)
+            """
+        ],
+    },
 ]
-
 
 def run_migrations():
     password = PASSWORD or input("Введите пароль для PostgreSQL пользователя gen_user: ").strip()
@@ -281,4 +321,6 @@ def run_migrations():
 
 if __name__ == "__main__":
     run_migrations()
+
+
 

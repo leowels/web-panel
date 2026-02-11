@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import axios from 'axios'
 import Layout from '@/components/Layout'
+import PageHeader from '@/components/ui/PageHeader'
+import FilterBar from '@/components/ui/FilterBar'
+import StatusBadge from '@/components/ui/StatusBadge'
+import EmptyState from '@/components/ui/EmptyState'
 import { useAuthStore } from '@/store/authStore'
 import { useNotificationStore } from '@/store/notificationStore'
 
@@ -120,6 +124,51 @@ export default function WorkflowPage() {
     [rows]
   )
 
+  const summary = useMemo(() => {
+    const total = rows.length
+    const withoutInspections = rows.filter((item) => item.inspections_total === 0).length
+    const withOpenViolations = rows.filter((item) => item.violations_open > 0).length
+    const withoutTasks = rows.filter((item) => item.violations_open > 0 && (item.tasks_open + item.tasks_in_work) === 0).length
+    const withoutActs = rows.filter((item) => item.violations_open > 0 && (item.acts_draft + item.acts_signed + item.acts_completed) === 0).length
+    return {
+      total,
+      withoutInspections,
+      withOpenViolations,
+      withoutTasks,
+      withoutActs,
+    }
+  }, [rows])
+
+  const renderChainBadges = (row: WorkflowOverviewItem) => {
+    const inspectionsTone = row.inspections_total > 0 ? 'success' : 'warning'
+    const violationsTone = row.violations_open > 0 ? 'danger' : 'success'
+    const tasksTone =
+      row.violations_open === 0
+        ? 'neutral'
+        : row.tasks_in_work > 0
+          ? 'info'
+          : row.tasks_open > 0
+            ? 'warning'
+            : 'danger'
+    const actsTone =
+      row.violations_open === 0
+        ? 'neutral'
+        : row.acts_signed + row.acts_completed > 0
+          ? 'success'
+          : row.acts_draft > 0
+            ? 'info'
+            : 'danger'
+
+    return (
+      <div className="flex flex-wrap gap-1">
+        <StatusBadge label="Осмотр" tone={inspectionsTone} />
+        <StatusBadge label="Нарушения" tone={violationsTone} />
+        <StatusBadge label="Задачи" tone={tasksTone} />
+        <StatusBadge label="Акты" tone={actsTone} />
+      </div>
+    )
+  }
+
   const stageBadge = (done: boolean) =>
     done ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-slate-100 text-slate-700 border-slate-200'
 
@@ -129,21 +178,44 @@ export default function WorkflowPage() {
     <Layout>
       <div className="p-4 sm:p-6">
         <div className="max-w-[1600px] mx-auto space-y-6">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Сквозной workflow</h1>
-              <p className="text-gray-600 mt-1">Осмотр → Нарушение → Задача → Акт → Закрытие</p>
+          <PageHeader
+            title="Сквозной workflow"
+            subtitle="Осмотр → Нарушение → Задача → Акт → Закрытие"
+            actions={(
+              <button
+                type="button"
+                onClick={fetchOverview}
+                className="inline-flex items-center justify-center px-4 py-2 border border-primary-200 text-sm font-semibold rounded-lg text-primary-700 bg-primary-50 hover:bg-primary-100"
+              >
+                Обновить
+              </button>
+            )}
+          />
+
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            <div className="bg-white border border-slate-200 rounded-xl p-4">
+              <div className="text-xs uppercase text-slate-400">Всего объектов</div>
+              <div className="mt-1 text-2xl font-semibold text-slate-900">{summary.total}</div>
             </div>
-            <button
-              type="button"
-              onClick={fetchOverview}
-              className="inline-flex items-center justify-center px-4 py-2 border border-primary-200 text-sm font-semibold rounded-lg text-primary-700 bg-primary-50 hover:bg-primary-100"
-            >
-              Обновить
-            </button>
+            <div className="bg-white border border-slate-200 rounded-xl p-4">
+              <div className="text-xs uppercase text-slate-400">Без осмотров</div>
+              <div className="mt-1 text-2xl font-semibold text-amber-600">{summary.withoutInspections}</div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl p-4">
+              <div className="text-xs uppercase text-slate-400">Открытые нарушения</div>
+              <div className="mt-1 text-2xl font-semibold text-red-600">{summary.withOpenViolations}</div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl p-4">
+              <div className="text-xs uppercase text-slate-400">Нет задач</div>
+              <div className="mt-1 text-2xl font-semibold text-amber-600">{summary.withoutTasks}</div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl p-4">
+              <div className="text-xs uppercase text-slate-400">Нет актов</div>
+              <div className="mt-1 text-2xl font-semibold text-amber-600">{summary.withoutActs}</div>
+            </div>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
+          <FilterBar className="p-4 sm:p-5">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
               <input
                 type="text"
@@ -165,7 +237,7 @@ export default function WorkflowPage() {
                 ))}
               </select>
             </div>
-          </div>
+          </FilterBar>
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             <div className="xl:col-span-2 bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -183,6 +255,7 @@ export default function WorkflowPage() {
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Нарушения</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Задачи</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Акты</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Цепочка</th>
                         <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Действия</th>
                       </tr>
                     </thead>
@@ -208,6 +281,9 @@ export default function WorkflowPage() {
                           <td className="px-4 py-3 text-sm text-gray-700">
                             черновик: {row.acts_draft}, подписано: {row.acts_signed + row.acts_completed}
                           </td>
+                          <td className="px-4 py-3">
+                            {renderChainBadges(row)}
+                          </td>
                           <td className="px-4 py-3 text-right">
                             <button
                               onClick={() => fetchDetails(row.equipment_id)}
@@ -220,7 +296,9 @@ export default function WorkflowPage() {
                       ))}
                     </tbody>
                   </table>
-                  {filteredRows.length === 0 && <div className="p-6 text-center text-gray-500">Данные не найдены</div>}
+                  {filteredRows.length === 0 && (
+                    <EmptyState title="Данные не найдены" description="Попробуйте изменить фильтры." />
+                  )}
                 </div>
               )}
             </div>

@@ -4,7 +4,7 @@
 Настройки могут быть в переменных окружения или в базе данных
 """
 import os
-from typing import Optional
+from typing import Optional, List
 from openai import OpenAI
 import httpx
 
@@ -140,6 +140,22 @@ class AIClient:
                     f"Попробуйте изменить параметры запроса."
                 )
             raise Exception(f"AI generation error: {error_msg}")
+
+    def generate_embeddings(self, texts: List[str], model: Optional[str] = None) -> List[List[float]]:
+        """
+        Генерация эмбеддингов через AI
+        """
+        if not texts:
+            return []
+        embedding_model = model or os.getenv("AI_EMBEDDING_MODEL", "text-embedding-3-small")
+        try:
+            response = self.client.embeddings.create(
+                model=embedding_model,
+                input=texts
+            )
+            return [item.embedding for item in response.data]
+        except Exception as e:
+            raise Exception(f"AI embedding error: {str(e)}")
     
     def _generate_via_timeweb_http(
         self,

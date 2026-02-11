@@ -37,9 +37,10 @@ interface Violation {
 
 interface HealthMapProps {
   theme: 'light' | 'dark'
+  allowDetails?: boolean
 }
 
-export default function HealthMap({ theme }: HealthMapProps) {
+export default function HealthMap({ theme, allowDetails = true }: HealthMapProps) {
   const { token } = useAuthStore()
   const [equipment, setEquipment] = useState<Equipment[]>([])
   const [loading, setLoading] = useState(true)
@@ -147,6 +148,7 @@ export default function HealthMap({ theme }: HealthMapProps) {
   }
 
   const handleEquipmentClick = async (eq: Equipment) => {
+    if (!allowDetails) return
     setSelectedEquipment(eq)
     setLoadingDetails(true)
     try {
@@ -250,7 +252,7 @@ export default function HealthMap({ theme }: HealthMapProps) {
                 theme === 'dark' 
                   ? 'bg-gray-700 border-gray-600 hover:bg-gray-600 hover:border-gray-500' 
                   : 'bg-gray-50 border-gray-200 hover:bg-white hover:border-primary-300'
-              } transition-all duration-200 cursor-pointer group shadow-soft hover:shadow-medium`}
+              } transition-all duration-200 ${allowDetails ? 'cursor-pointer' : 'cursor-default'} group shadow-soft hover:shadow-medium`}
             >
               <div className="flex items-center space-x-4 flex-1">
                 <div className={`w-4 h-4 rounded-full ${getHealthColor(score)} shadow-lg`}></div>
@@ -282,7 +284,7 @@ export default function HealthMap({ theme }: HealthMapProps) {
       </div>
 
       {/* Модальное окно с деталями оборудования */}
-      {selectedEquipment && (
+      {allowDetails && selectedEquipment && (
         <div className="fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className={`rounded-xl shadow-strong max-w-4xl w-full max-h-[90vh] overflow-y-auto border ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
             <div className={`p-6 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'} flex justify-between items-center sticky top-0 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
@@ -464,4 +466,3 @@ export default function HealthMap({ theme }: HealthMapProps) {
     </div>
   )
 }
-

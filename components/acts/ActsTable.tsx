@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import axios from 'axios'
@@ -6,6 +6,11 @@ import { format } from 'date-fns'
 import { useAuthStore } from '@/store/authStore'
 import { useNotificationStore } from '@/store/notificationStore'
 import { useAIContextStore } from '@/store/aiContextStore'
+import FilterBar from '@/components/ui/FilterBar'
+import Toolbar from '@/components/ui/Toolbar'
+import StatusBadge from '@/components/ui/StatusBadge'
+import EmptyState from '@/components/ui/EmptyState'
+import { canMutateData } from '@/utils/roles'
 
 const API_URL =
   typeof window !== 'undefined'
@@ -26,32 +31,34 @@ interface ActsTableProps {
   onEdit: (id: number) => void
   onView: (id: number) => void
   refreshKey?: number
+  equipmentFilterId?: number | null
 }
 
-export default function ActsTable({ onEdit, onView, refreshKey = 0 }: ActsTableProps) {
-  const { token } = useAuthStore()
+export default function ActsTable({ onEdit, onView, refreshKey = 0, equipmentFilterId = null }: ActsTableProps) {
+  const { token, user } = useAuthStore()
   const { addNotification } = useNotificationStore()
   const { setFilters, setSelection } = useAIContextStore()
+  const canMutate = canMutateData(user)
   const [acts, setActs] = useState<Act[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('')
   const [closingActId, setClosingActId] = useState<number | null>(null)
+  const isAdmin = (user?.roles || []).some((role) => role.name === 'admin')
 
   useEffect(() => {
     fetchActs()
-  }, [statusFilter, refreshKey])
+  }, [statusFilter, refreshKey, equipmentFilterId])
 
   useEffect(() => {
-    setFilters({
-      status: statusFilter,
-    })
-  }, [statusFilter, setFilters])
+    setFilters({ status: statusFilter, equipment_id: equipmentFilterId ?? undefined })
+  }, [statusFilter, equipmentFilterId, setFilters])
 
   const fetchActs = async () => {
     setLoading(true)
     try {
       const params = new URLSearchParams()
       if (statusFilter) params.append('status', statusFilter)
+      if (equipmentFilterId) params.append('equipment_id', String(equipmentFilterId))
 
       const response = await axios.get(`${API_URL}/api/acts?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -113,6 +120,7 @@ export default function ActsTable({ onEdit, onView, refreshKey = 0 }: ActsTableP
   }
 
   const handleCloseWorkflow = async (act: Act) => {
+    if (!canMutate) return
     if (!token) {
       addNotification('Ошибка авторизации', 'error')
       return
@@ -165,30 +173,59 @@ export default function ActsTable({ onEdit, onView, refreshKey = 0 }: ActsTableP
     return 'Черновик'
   }
 
-  const getStatusClass = (status: string) => {
-    if (status === 'completed') return 'bg-green-100 text-green-800'
-    if (status === 'signed') return 'bg-blue-100 text-blue-800'
-    if (status === 'archived') return 'bg-slate-200 text-slate-700'
-    return 'bg-gray-100 text-gray-800'
+  const getStatusTone = (status: string) => {
+    if (status === 'completed') return 'success'
+    if (status === 'signed') return 'info'
+    if (status === 'archived') return 'neutral'
+    return 'warning'
   }
 
   const canClose = (status: string) => !['signed', 'completed', 'archived'].includes(status)
 
+  const handleDeleteAct = async (act: Act) => {
+    if (!canMutate) return
+    if (!token) {
+      addNotification('Ошибка авторизации', 'error')
+      return
+    }
+    if (!confirm(`Удалить акт ${act.act_number}? Действие необратимо.`)) {
+      return
+    }
+    try {
+      await axios.delete(`${API_URL}/api/acts/${act.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      addNotification(`Акт ${act.act_number} удален`, 'success')
+      fetchActs()
+    } catch (error: any) {
+      addNotification(error.response?.data?.detail || 'Ошибка удаления акта', 'error')
+    }
+  }
+
   return (
-    <div className="bg-white rounded-lg shadow">
-      <div className="p-6 border-b border-gray-200">
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-        >
-          <option value="">Все статусы</option>
-          <option value="draft">Черновик</option>
-          <option value="signed">Подписан</option>
-          <option value="completed">Завершен</option>
-          <option value="archived">Архив</option>
-        </select>
-      </div>
+    <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+      <FilterBar className="border-0 border-b border-slate-200 rounded-none p-5">
+        <Toolbar>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+          >
+            <option value="">Все статусы</option>
+            <option value="draft">Черновик</option>
+            <option value="signed">Подписан</option>
+            <option value="completed">Завершен</option>
+            <option value="archived">Архив</option>
+          </select>
+        </Toolbar>
+        {equipmentFilterId && (
+          <div className="mt-3">
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-full border bg-primary-50 text-primary-700 border-primary-200">
+              Фильтр по оборудованию: #{equipmentFilterId}
+            </span>
+          </div>
+        )}
+      </FilterBar>
 
       {loading ? (
         <div className="p-6 text-center">
@@ -196,9 +233,9 @@ export default function ActsTable({ onEdit, onView, refreshKey = 0 }: ActsTableP
         </div>
       ) : (
         <div className="w-full">
-          <div className="hidden lg:block overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+          <div className="hidden lg:block overflow-x-auto max-h-[68vh]">
+            <table className="min-w-[1100px] w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Номер</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Дата</th>
@@ -222,17 +259,15 @@ export default function ActsTable({ onEdit, onView, refreshKey = 0 }: ActsTableP
                       {act.violation_ids?.length || 0}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(act.status)}`}>
-                        {getStatusLabel(act.status)}
-                      </span>
+                      <StatusBadge label={getStatusLabel(act.status)} tone={getStatusTone(act.status)} />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end space-x-2">
-                        {canClose(act.status) && (
+                      <div className="flex justify-end items-center gap-2">
+                        {canMutate && canClose(act.status) && (
                           <button
                             onClick={() => handleCloseWorkflow(act)}
                             disabled={closingActId === act.id}
-                            className="inline-flex items-center justify-center px-2 py-1 text-xs font-semibold rounded border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-60"
+                            className="inline-flex items-center justify-center px-2.5 py-1 text-xs font-semibold rounded border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-60"
                             title="Закрыть кейс: нарушения, задачи и осмотр"
                           >
                             {closingActId === act.id ? '...' : 'Закрыть'}
@@ -256,6 +291,23 @@ export default function ActsTable({ onEdit, onView, refreshKey = 0 }: ActsTableP
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                           </svg>
                         </button>
+                        {canMutate && isAdmin && (
+                          <button
+                            onClick={() => handleDeleteAct(act)}
+                            className="inline-flex items-center justify-center px-2.5 py-1 text-xs font-semibold rounded border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100"
+                            title="Удалить акт"
+                          >
+                            Удалить
+                          </button>
+                        )}
+                        {canMutate && (
+                          <button
+                            onClick={() => onEdit(act.id)}
+                            className="inline-flex items-center justify-center px-2.5 py-1 text-xs font-semibold rounded border border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100"
+                          >
+                            Редактировать
+                          </button>
+                        )}
                         <button onClick={() => handleViewAct(act)} className="text-primary-600 hover:text-primary-900">
                           Открыть
                         </button>
@@ -265,7 +317,9 @@ export default function ActsTable({ onEdit, onView, refreshKey = 0 }: ActsTableP
                 ))}
               </tbody>
             </table>
-            {acts.length === 0 && <div className="p-6 text-center text-gray-500">Акты не найдены</div>}
+            {acts.length === 0 && (
+              <EmptyState title="Акты не найдены" description="Попробуйте изменить фильтр или создать новый акт." />
+            )}
           </div>
 
           <div className="lg:hidden divide-y divide-gray-200">
@@ -277,16 +331,14 @@ export default function ActsTable({ onEdit, onView, refreshKey = 0 }: ActsTableP
                     <p className="text-sm text-gray-500">{act.organization}</p>
                     <p className="text-xs text-gray-500 mt-1">Нарушений: {act.violation_ids?.length || 0}</p>
                   </div>
-                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusClass(act.status)}`}>
-                    {getStatusLabel(act.status)}
-                  </span>
+                  <StatusBadge label={getStatusLabel(act.status)} tone={getStatusTone(act.status)} />
                 </div>
                 <div className="mt-4 text-sm text-gray-600">
                   <p className="text-xs uppercase text-gray-400">Дата</p>
                   <p className="font-semibold text-gray-800">{format(new Date(act.act_date), 'dd.MM.yyyy')}</p>
                 </div>
                 <div className="mt-4 flex flex-col sm:flex-row gap-2">
-                  {canClose(act.status) && (
+                  {canMutate && canClose(act.status) && (
                     <button
                       onClick={() => handleCloseWorkflow(act)}
                       disabled={closingActId === act.id}
@@ -307,6 +359,22 @@ export default function ActsTable({ onEdit, onView, refreshKey = 0 }: ActsTableP
                   >
                     PDF
                   </button>
+                  {canMutate && (
+                    <button
+                      onClick={() => onEdit(act.id)}
+                      className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-amber-700 bg-amber-50 rounded-lg"
+                    >
+                      Редактировать
+                    </button>
+                  )}
+                  {canMutate && isAdmin && (
+                    <button
+                      onClick={() => handleDeleteAct(act)}
+                      className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-rose-700 bg-rose-50 rounded-lg"
+                    >
+                      Удалить
+                    </button>
+                  )}
                   <button
                     onClick={() => handleViewAct(act)}
                     className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-primary-700 bg-primary-50 rounded-lg"
@@ -319,8 +387,8 @@ export default function ActsTable({ onEdit, onView, refreshKey = 0 }: ActsTableP
           </div>
 
           {acts.length === 0 && (
-            <div className="lg:hidden p-6 text-center text-gray-500">
-              Акты не найдены
+            <div className="lg:hidden">
+              <EmptyState title="Акты не найдены" description="Попробуйте изменить фильтр или создать новый акт." />
             </div>
           )}
         </div>

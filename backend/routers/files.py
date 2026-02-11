@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -33,6 +33,7 @@ class FileResponseModel(BaseModel):
     id: int
     filename: str
     original_filename: str
+    description: Optional[str]
     file_type: str
     mime_type: str
     file_size: int
@@ -91,6 +92,7 @@ async def get_files(
             id=f.id,
             filename=f.filename,
             original_filename=f.original_filename,
+            description=f.description,
             file_type=f.file_type,
             mime_type=f.mime_type,
             file_size=f.file_size,
@@ -108,6 +110,7 @@ async def get_files(
 @router.post("/upload")
 async def upload_file(
     file: UploadFile = File(),
+    description: Optional[str] = Form(None),
     equipment_id: Optional[int] = None,
     inspection_id: Optional[int] = None,
     violation_id: Optional[int] = None,
@@ -151,6 +154,7 @@ async def upload_file(
     new_file = FileModel(
         filename=filename,
         original_filename=file.filename,
+        description=description,
         file_type=file_type,
         mime_type=mime_type,
         file_size=file_size,
@@ -182,6 +186,7 @@ async def upload_file(
         id=new_file.id,
         filename=new_file.filename,
         original_filename=new_file.original_filename,
+        description=new_file.description,
         file_type=new_file.file_type,
         mime_type=new_file.mime_type,
         file_size=new_file.file_size,
@@ -256,4 +261,3 @@ async def delete_file(
     await db.delete(file_record)
     await db.commit()
     return None
-

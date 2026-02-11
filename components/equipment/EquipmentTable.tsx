@@ -9,6 +9,11 @@ import { EQUIPMENT_TYPES } from '@/constants/equipmentTypes'
 import EquipmentBulkEdit from './EquipmentBulkEdit'
 import EquipmentBulkDates from './EquipmentBulkDates'
 import { useAIContextStore } from '@/store/aiContextStore'
+import FilterBar from '@/components/ui/FilterBar'
+import Toolbar from '@/components/ui/Toolbar'
+import StatusBadge from '@/components/ui/StatusBadge'
+import EmptyState from '@/components/ui/EmptyState'
+import { canMutateData } from '@/utils/roles'
 
 const API_URL = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '') : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
 
@@ -19,6 +24,7 @@ interface Equipment {
   inventory_number: string | null
   position: string | null
   workshop: string | null
+  rostekhnadzor_registered?: boolean | null
   load_capacity: number | null
   manufacturer: string | null
   installation_date: string | null
@@ -28,6 +34,8 @@ interface Equipment {
   status: string
   created_at: string
   updated_at: string
+  violations_open?: number | null
+  violations_total?: number | null
 }
 
 interface EquipmentTableProps {
@@ -39,10 +47,11 @@ interface EquipmentTableProps {
 }
 
 export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshKey = 0, initialTaskEquipmentId }: EquipmentTableProps) {
-  const { token } = useAuthStore()
+  const { token, user } = useAuthStore()
   const { addNotification } = useNotificationStore()
   const { setFilters, setSelection } = useAIContextStore()
   const router = useRouter()
+  const canMutate = canMutateData(user)
   const [equipment, setEquipment] = useState<Equipment[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -117,7 +126,16 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
     if (initialTaskEquipmentId) {
       openTaskModalFor(initialTaskEquipmentId)
     }
-  }, [initialTaskEquipmentId])
+  }, [initialTaskEquipmentId, canMutate])
+
+  useEffect(() => {
+    if (canMutate) return
+    setSelectedIds([])
+    setShowBulkEdit(false)
+    setShowBulkDates(false)
+    setShowTaskModal(false)
+    setActionsOpenId(null)
+  }, [canMutate])
 
   const fetchEquipmentTypes = async () => {
     try {
@@ -221,6 +239,7 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
   }
 
   const handleDelete = async (id: number, passportNumber: string) => {
+    if (!canMutate) return
     if (!confirm(`Удалить оборудование ${passportNumber}?`)) return
 
     try {
@@ -235,6 +254,7 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
   }
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canMutate) return
     if (e.target.checked) {
       setSelectedIds(equipment.map(eq => eq.id))
     } else {
@@ -243,6 +263,7 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
   }
 
   const handleSelectOne = (id: number) => {
+    if (!canMutate) return
     setSelectedIds(prev => 
       prev.includes(id) 
         ? prev.filter(selectedId => selectedId !== id)
@@ -263,6 +284,13 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
     router.push(`${path}?${params.toString()}`)
   }
 
+  const pushCreateWithEquipment = (path: string, equipmentId: number) => {
+    const params = new URLSearchParams()
+    params.set('equipment_id', String(equipmentId))
+    params.set('create', '1')
+    router.push(`${path}?${params.toString()}`)
+  }
+
   const goToMap = (eq: Equipment) => {
     const params = new URLSearchParams()
     if (eq.workshop) {
@@ -273,6 +301,7 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
   }
 
   const openTaskModalFor = (equipmentId: number) => {
+    if (!canMutate) return
     setTaskEquipmentId(equipmentId)
     setTaskForm({
       title: '',
@@ -285,6 +314,7 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
 
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!canMutate) return
     if (!token) {
       addNotification('Ошибка авторизации', 'error')
       return
@@ -321,16 +351,16 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
     }
   }
 
-  const getStatusColor = (status: string) => {
+  const getStatusTone = (status: string) => {
     switch (status) {
       case 'active':
-        return 'bg-green-100 text-green-800'
+        return 'success'
       case 'inactive':
-        return 'bg-yellow-100 text-yellow-800'
+        return 'warning'
       case 'archived':
-        return 'bg-gray-100 text-gray-800'
+        return 'neutral'
       default:
-        return 'bg-blue-100 text-blue-800'
+        return 'info'
     }
   }
 
@@ -380,6 +410,21 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
     return `${value} т`
   }
 
+  const getRegistrationBadge = (registered?: boolean | null) => {
+    if (registered) {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+          Да
+        </span>
+      )
+    }
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+        Нет
+      </span>
+    )
+  }
+
   const handleViewEquipment = (eq: Equipment) => {
     setSelection({
       type: 'оборудование',
@@ -422,7 +467,7 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
 
   return (
     <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
-      <div className="p-6 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white">
+      <FilterBar className="border-0 border-b border-slate-200 rounded-none p-6 bg-gradient-to-r from-slate-50 to-white">
         <div className="relative mb-5">
           <input
             type="text"
@@ -538,7 +583,7 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
             </div>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Toolbar className="mt-3">
           <div className="inline-flex items-center gap-2 border border-slate-300 rounded-lg px-3 py-2.5 bg-white">
             <span className="text-sm text-slate-600">На странице</span>
             <select
@@ -567,7 +612,7 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
           >
             Сбросить фильтры
           </button>
-        </div>
+        </Toolbar>
         <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
           <span className="px-2.5 py-1 rounded-md bg-white border border-slate-200 text-slate-700">
             Найдено: {total}
@@ -590,7 +635,7 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
             </span>
           )}
         </div>
-        {selectedIds.length > 0 && (
+        {canMutate && selectedIds.length > 0 && (
           <div className="mt-4 p-4 bg-gradient-to-r from-primary-50 to-blue-50 border-2 border-primary-200 rounded-xl shadow-soft">
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-primary-200 shadow-sm">
@@ -631,7 +676,7 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
             </div>
           </div>
         )}
-      </div>
+      </FilterBar>
 
       {loading ? (
         <div className="p-12 text-center">
@@ -641,26 +686,28 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
       ) : (
         <div className="w-full">
           <div className="hidden lg:block overflow-x-auto max-h-[68vh]">
-            <table className="min-w-[1780px] w-full divide-y divide-slate-200">
+            <table className="min-w-[1820px] w-full divide-y divide-slate-200">
               <thead className="bg-slate-100/90 sticky top-0 z-10 backdrop-blur-sm">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide w-12">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.length === equipment.length && equipment.length > 0}
-                      onChange={handleSelectAll}
-                      className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                    />
+                    {canMutate ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.length === equipment.length && equipment.length > 0}
+                        onChange={handleSelectAll}
+                        className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                      />
+                    ) : null}
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[160px]">Паспорт</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[280px]">Тип ПС</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[170px]">Инвентарный №</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[130px]">Позиция</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[150px]">Грузоподъемность</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[260px]">Место установки</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[220px]">ТО</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[140px]">Цех</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[120px]">Статус</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[170px]">Паспорт</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[260px]">Тип ПС</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[150px]">Цех</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[140px]">Позиция</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[140px]">Статус</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[160px]">Ростехнадзор</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[150px]">ПТО</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[150px]">ЧТО</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 tracking-wide min-w-[130px]">Нарушения</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 tracking-wide min-w-[220px]">Действия</th>
                 </tr>
               </thead>
@@ -671,56 +718,76 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
                   return (
                   <tr key={eq.id} className="hover:bg-primary-50/60 even:bg-slate-50/40 transition-colors">
                     <td className="px-4 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.includes(eq.id)}
-                        onChange={() => handleSelectOne(eq.id)}
-                        className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                      />
+                      {canMutate ? (
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(eq.id)}
+                          onChange={() => handleSelectOne(eq.id)}
+                          className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                        />
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap cursor-pointer" onClick={() => handleViewEquipment(eq)}>
                       <div className="text-sm font-semibold text-slate-900 hover:text-primary-700">{eq.passport_number}</div>
+                      {eq.inventory_number && (
+                        <div className="text-[11px] text-slate-500 mt-0.5">Инв: {eq.inventory_number}</div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm font-semibold text-slate-800 truncate" title={eq.equipment_type}>
                         {eq.equipment_type}
                       </div>
+                      {eq.load_capacity && (
+                        <div className="text-[11px] text-slate-500 mt-0.5">Г/п: {formatCapacity(eq.load_capacity)}</div>
+                      )}
+                      {eq.installation_location && (
+                        <div className="text-[11px] text-slate-500 mt-0.5 truncate" title={eq.installation_location}>
+                          {eq.installation_location}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-slate-600">
-                      {eq.inventory_number || '-'}
+                      <span title={eq.workshop || '-'}>{eq.workshop || '-'}</span>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-slate-600">
                       {eq.position || '-'}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-slate-600">
-                      {formatCapacity(eq.load_capacity)}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <StatusBadge label={getStatusText(eq.status)} tone={getStatusTone(eq.status)} />
                     </td>
-                    <td className="px-4 py-3 text-sm font-medium text-slate-600">
-                      <div className="truncate max-w-[260px]" title={eq.installation_location || '-'}>
-                        {eq.installation_location || '-'}
-                      </div>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {getRegistrationBadge(eq.rostekhnadzor_registered)}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-slate-600">
-                      <div className="text-xs text-slate-700">ПТО: {formatDate(eq.pto_date)}</div>
+                      <div className="text-xs text-slate-700">{formatDate(eq.pto_date)}</div>
                       {ptoInfo && (
                         <span className={`inline-flex mt-1 px-2 py-0.5 text-[11px] font-semibold rounded ${ptoInfo.className}`}>
                           {ptoInfo.label}
                         </span>
                       )}
-                      <div className="mt-2 text-xs text-slate-700">ЧТО: {formatDate(eq.cto_date)}</div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-slate-600">
+                      <div className="text-xs text-slate-700">{formatDate(eq.cto_date)}</div>
                       {ctoInfo && (
                         <span className={`inline-flex mt-1 px-2 py-0.5 text-[11px] font-semibold rounded ${ctoInfo.className}`}>
                           {ctoInfo.label}
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-slate-600">
-                      {eq.workshop || '-'}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getStatusColor(eq.status)}`}>
-                        {getStatusText(eq.status)}
-                      </span>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          pushWithEquipment('/violations', eq.id)
+                        }}
+                        className={`inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-full ${
+                          (eq.violations_open || 0) > 0 ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-700'
+                        }`}
+                        title="Открыть нарушения"
+                      >
+                        {(eq.violations_open || 0)}/{(eq.violations_total ?? eq.violations_open) || 0}
+                      </button>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end space-x-1">
@@ -733,24 +800,28 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
                         </button>
-                        <button
-                          onClick={() => onEdit(eq.id)}
-                          className="inline-flex items-center justify-center h-8 w-8 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded-lg transition-all"
-                          title="Редактировать"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                          </svg>
-                        </button>
-                        <button
-                          onClick={() => handleDelete(eq.id, eq.passport_number)}
-                          className="inline-flex items-center justify-center h-8 w-8 text-accent-600 hover:text-accent-800 hover:bg-accent-100 rounded-lg transition-all"
-                          title="Удалить"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
+                        {canMutate && (
+                          <button
+                            onClick={() => onEdit(eq.id)}
+                            className="inline-flex items-center justify-center h-8 w-8 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded-lg transition-all"
+                            title="Редактировать"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                        )}
+                        {canMutate && (
+                          <button
+                            onClick={() => handleDelete(eq.id, eq.passport_number)}
+                            className="inline-flex items-center justify-center h-8 w-8 text-accent-600 hover:text-accent-800 hover:bg-accent-100 rounded-lg transition-all"
+                            title="Удалить"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        )}
                         <div className="relative">
                           <button
                             type="button"
@@ -781,50 +852,101 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
                               >
                                 Показать на карте
                               </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  pushWithEquipment('/inspections', eq.id)
-                                  setActionsOpenId(null)
-                                }}
-                                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
-                              >
-                                Создать осмотр
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  pushWithEquipment('/acts', eq.id)
-                                  setActionsOpenId(null)
-                                }}
-                                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
-                              >
-                                Создать акт
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  pushWithEquipment('/violations', eq.id)
-                                  setActionsOpenId(null)
-                                }}
-                                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
-                              >
-                                Создать нарушение
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  openTaskModalFor(eq.id)
-                                  setActionsOpenId(null)
-                                }}
-                                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
-                              >
-                                Создать задачу
-                              </button>
+                              {canMutate ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      pushCreateWithEquipment('/inspections', eq.id)
+                                      setActionsOpenId(null)
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
+                                  >
+                                    Создать осмотр
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      pushCreateWithEquipment('/acts', eq.id)
+                                      setActionsOpenId(null)
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
+                                  >
+                                    Создать акт
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      pushCreateWithEquipment('/violations', eq.id)
+                                      setActionsOpenId(null)
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
+                                  >
+                                    Создать нарушение
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      openTaskModalFor(eq.id)
+                                      setActionsOpenId(null)
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
+                                  >
+                                    Создать задачу
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      pushWithEquipment('/inspections', eq.id)
+                                      setActionsOpenId(null)
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
+                                  >
+                                    Осмотры
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      pushWithEquipment('/acts', eq.id)
+                                      setActionsOpenId(null)
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
+                                  >
+                                    Акты
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      pushWithEquipment('/violations', eq.id)
+                                      setActionsOpenId(null)
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
+                                  >
+                                    Нарушения
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      pushWithEquipment('/tasks', eq.id)
+                                      setActionsOpenId(null)
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
+                                  >
+                                    Задачи
+                                  </button>
+                                </>
+                              )}
                             </div>
                           )}
                         </div>
@@ -835,12 +957,15 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
               </tbody>
             </table>
             {equipment.length === 0 && (
-              <div className="p-12 text-center">
-                <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                </svg>
-                <p className="mt-4 text-sm font-semibold text-gray-500">Оборудование не найдено</p>
-              </div>
+              <EmptyState
+                title="Оборудование не найдено"
+                description="Измените фильтры или добавьте новую запись."
+                icon={(
+                  <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                  </svg>
+                )}
+              />
             )}
           </div>
 
@@ -896,12 +1021,14 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
               <div key={eq.id} className="p-4 bg-white border-b border-gray-200">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.includes(eq.id)}
-                      onChange={() => handleSelectOne(eq.id)}
-                      className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded mt-1"
-                    />
+                    {canMutate ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(eq.id)}
+                        onChange={() => handleSelectOne(eq.id)}
+                        className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded mt-1"
+                      />
+                    ) : null}
                     <div>
                       <button
                         onClick={() => handleViewEquipment(eq)}
@@ -912,9 +1039,7 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
                       <p className="text-sm text-gray-500">{eq.equipment_type}</p>
                     </div>
                   </div>
-                  <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getStatusColor(eq.status)}`}>
-                    {getStatusText(eq.status)}
-                  </span>
+                  <StatusBadge label={getStatusText(eq.status)} tone={getStatusTone(eq.status)} />
                 </div>
 
                 <div className="mt-4 grid grid-cols-2 gap-4 text-sm text-gray-600">
@@ -942,6 +1067,16 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
                       Г/п: {formatCapacity(eq.load_capacity)}
                     </span>
                   )}
+                  <span className="px-2 py-1 text-xs font-semibold bg-slate-100 text-slate-700 rounded-full">
+                    Ростехнадзор: {eq.rostekhnadzor_registered ? 'да' : 'нет'}
+                  </span>
+                  <span
+                    className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                      (eq.violations_open || 0) > 0 ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    Нарушения: {(eq.violations_open || 0)}/{(eq.violations_total ?? eq.violations_open) || 0}
+                  </span>
                   {eq.pto_date && (
                     <span className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded-full">
                       ПТО: {formatDate(eq.pto_date)}
@@ -971,24 +1106,28 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
                   >
                     Просмотр
                   </button>
-                  <button
-                    onClick={() => onEdit(eq.id)}
-                    className="flex-1 min-w-[120px] inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg"
-                  >
-                    Редактировать
-                  </button>
+                  {canMutate && (
+                    <button
+                      onClick={() => onEdit(eq.id)}
+                      className="flex-1 min-w-[120px] inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg"
+                    >
+                      Редактировать
+                    </button>
+                  )}
                   <button
                     onClick={() => onViewHistory(eq.id)}
                     className="flex-1 min-w-[120px] inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg"
                   >
                     История
                   </button>
-                  <button
-                    onClick={() => handleDelete(eq.id, eq.passport_number)}
-                    className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-accent-700 bg-accent-50 border border-accent-200 rounded-lg"
-                  >
-                    Удалить
-                  </button>
+                  {canMutate && (
+                    <button
+                      onClick={() => handleDelete(eq.id, eq.passport_number)}
+                      className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-accent-700 bg-accent-50 border border-accent-200 rounded-lg"
+                    >
+                      Удалить
+                    </button>
+                  )}
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                   <button
@@ -997,44 +1136,75 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
                   >
                     На карте
                   </button>
-                  <button
-                    onClick={() => pushWithEquipment('/inspections', eq.id)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                  >
-                    Осмотр
-                  </button>
-                  <button
-                    onClick={() => pushWithEquipment('/acts', eq.id)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                  >
-                    Акт
-                  </button>
-                  <button
-                    onClick={() => pushWithEquipment('/violations', eq.id)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                  >
-                    Нарушение
-                  </button>
-                  <button
-                    onClick={() => openTaskModalFor(eq.id)}
-                    className="col-span-2 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                  >
-                    Задача
-                  </button>
+                  {canMutate ? (
+                    <>
+                      <button
+                        onClick={() => pushCreateWithEquipment('/inspections', eq.id)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                      >
+                        Осмотр
+                      </button>
+                      <button
+                        onClick={() => pushCreateWithEquipment('/acts', eq.id)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                      >
+                        Акт
+                      </button>
+                      <button
+                        onClick={() => pushCreateWithEquipment('/violations', eq.id)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                      >
+                        Нарушение
+                      </button>
+                      <button
+                        onClick={() => openTaskModalFor(eq.id)}
+                        className="col-span-2 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                      >
+                        Задача
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => pushWithEquipment('/inspections', eq.id)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                      >
+                        Осмотры
+                      </button>
+                      <button
+                        onClick={() => pushWithEquipment('/acts', eq.id)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                      >
+                        Акты
+                      </button>
+                      <button
+                        onClick={() => pushWithEquipment('/violations', eq.id)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                      >
+                        Нарушения
+                      </button>
+                      <button
+                        onClick={() => pushWithEquipment('/tasks', eq.id)}
+                        className="col-span-2 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                      >
+                        Задачи
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )})}
           </div>
 
           {equipment.length === 0 && (
-            <div className="lg:hidden p-8 text-center text-gray-500 font-semibold">
-              Оборудование не найдено
+            <div className="lg:hidden">
+              <EmptyState title="Оборудование не найдено" description="Попробуйте изменить фильтры." />
             </div>
           )}
         </div>
       )}
 
-      {showBulkEdit && (
+      {canMutate && showBulkEdit && (
         <EquipmentBulkEdit
           selectedIds={selectedIds}
           onClose={() => setShowBulkEdit(false)}
@@ -1042,7 +1212,7 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
         />
       )}
 
-      {showBulkDates && (
+      {canMutate && showBulkDates && (
         <EquipmentBulkDates
           selectedIds={selectedIds}
           onClose={() => setShowBulkDates(false)}
@@ -1050,7 +1220,7 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
         />
       )}
 
-      {showTaskModal && (
+      {canMutate && showTaskModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg border border-gray-200">
             <div className="p-5 border-b border-gray-200 flex items-center justify-between">

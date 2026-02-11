@@ -20,3 +20,12 @@ AI_MODEL=gpt-3.5-turbo
 # AI_BASE_URL=https://api.timeweb.cloud/ai/v1/agents/your-agent-id
 # AI_MODEL=gpt-3.5-turbo
 
+
+# AI embeddings
+AI_EMBEDDING_MODEL=text-embedding-3-small
+AI_EMBEDDING_MAX_CHARS=4000
+AI_SEMANTIC_CANDIDATES=500
+AI_SEMANTIC_BACKFILL_LIMIT=50
+
+AI_EMBEDDINGS_ENABLED=true
+

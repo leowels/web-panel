@@ -30,6 +30,7 @@ export default function ActForm({ actId, onClose, onSuccess, prefillEquipmentId 
   const [selectedViolations, setSelectedViolations] = useState<number[]>([])
   const [contentText, setContentText] = useState('')
   const [aiDraft, setAiDraft] = useState('')
+  const [showCompare, setShowCompare] = useState(false)
 
   useEffect(() => {
     fetchEquipment()
@@ -104,6 +105,7 @@ export default function ActForm({ actId, onClose, onSuccess, prefillEquipmentId 
         { headers: { Authorization: `Bearer ${token}` } }
       )
       setAiDraft(response.data?.content || '')
+      setShowCompare(false)
       addNotification('Черновик акта сгенерирован', 'success')
     } catch (error: any) {
       addNotification(error.response?.data?.detail || 'Ошибка генерации', 'error')
@@ -183,20 +185,25 @@ export default function ActForm({ actId, onClose, onSuccess, prefillEquipmentId 
                 >
                   {generating ? 'Генерация...' : 'Сгенерировать черновик ИИ'}
                 </button>
-              </div>              {aiDraft && (
+              </div>
+              {aiDraft && (
                 <div className="mt-4 bg-white p-4 rounded border border-gray-200">
-                  <div className="flex justify-between items-center mb-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                     <label className="block text-sm font-medium text-gray-700">Черновик ИИ</label>
-                    <div className="flex space-x-2">
+                    <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          setContentText(aiDraft)
-                          setAiDraft('')
-                        }}
+                        onClick={() => setContentText(aiDraft)}
                         className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
                       >
-                        Применить
+                        Скопировать в акт
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowCompare((prev) => !prev)}
+                        className="px-2 py-1 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50"
+                      >
+                        {showCompare ? 'Скрыть сравнение' : 'Сравнить с текущим'}
                       </button>
                       <button
                         type="button"
@@ -208,6 +215,18 @@ export default function ActForm({ actId, onClose, onSuccess, prefillEquipmentId 
                     </div>
                   </div>
                   <div className="text-sm whitespace-pre-wrap">{aiDraft}</div>
+                  {showCompare && (
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                        <div className="text-xs font-semibold text-gray-600 mb-2">Текущий текст</div>
+                        <div className="text-sm whitespace-pre-wrap text-gray-700">{contentText || 'Пусто'}</div>
+                      </div>
+                      <div className="border border-gray-200 rounded-lg p-3 bg-white">
+                        <div className="text-xs font-semibold text-gray-600 mb-2">Черновик ИИ</div>
+                        <div className="text-sm whitespace-pre-wrap text-gray-700">{aiDraft}</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               <div className="mt-4">

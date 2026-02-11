@@ -12,6 +12,18 @@ interface AIPanelProps {
   onPaste?: (text: string) => void
 }
 
+interface AIActionProposal {
+  id: string
+  title: string
+  description?: string | null
+  action_type: string
+  endpoint: string
+  method?: string
+  payload: Record<string, any>
+  warnings?: string[] | null
+  meta?: Record<string, any> | null
+}
+
 const API_URL =
   typeof window !== 'undefined'
     ? (process.env.NEXT_PUBLIC_API_URL || '')
@@ -36,6 +48,10 @@ export default function AIPanel({ onClose }: AIPanelProps) {
   const [suggestionsLoading, setSuggestionsLoading] = useState(false)
   const [suggestionsMeta, setSuggestionsMeta] = useState<string | null>(null)
   const [responseMode, setResponseMode] = useState<'brief' | 'detailed' | 'conclusions'>('brief')
+  const [actionProposals, setActionProposals] = useState<AIActionProposal[]>([])
+  const [actionsLoading, setActionsLoading] = useState(false)
+  const [actionsError, setActionsError] = useState('')
+  const [applyingActionId, setApplyingActionId] = useState<string | null>(null)
 
   const templates = [
     {
@@ -84,6 +100,75 @@ export default function AIPanel({ onClose }: AIPanelProps) {
     }
     return lines.join('\n')
   }, [page, filters, selection])
+
+  const loadActionProposals = async () => {
+    if (!isAllowed || !token) return
+    setActionsLoading(true)
+    setActionsError('')
+    try {
+      const response = await axios.post(
+        `${API_URL}/api/ai/actions/suggest`,
+        {
+          selection,
+          page: page?.path || null,
+          filters,
+          context: [contextText, context].filter(Boolean).join('\n'),
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      setActionProposals(response.data?.proposals || [])
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || 'Ошибка загрузки предложений'
+      setActionsError(errorMsg)
+      setActionProposals([])
+    } finally {
+      setActionsLoading(false)
+    }
+  }
+
+  const applyProposal = async (proposal: AIActionProposal) => {
+    if (!isAllowed || !token) return
+    setApplyingActionId(proposal.id)
+    try {
+      const response = await axios({
+        method: proposal.method || 'post',
+        url: `${API_URL}${proposal.endpoint}`,
+        data: proposal.payload,
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      let message = 'Действие выполнено'
+      let level: 'success' | 'warning' = 'success'
+      if (proposal.action_type === 'create_task_from_violation') {
+        if (response.data?.created) {
+          message = `Задача #${response.data.task_id} создана`
+          level = 'success'
+        } else {
+          message = `Использована существующая задача #${response.data.task_id}`
+          level = 'warning'
+        }
+      }
+      if (proposal.action_type === 'create_act_from_violation') {
+        if (response.data?.created) {
+          message = `Акт ${response.data.act_number} создан`
+          level = 'success'
+        } else {
+          message = `Использован существующий акт ${response.data.act_number}`
+          level = 'warning'
+        }
+      }
+      addNotification(message, level)
+      setActionProposals((prev) => prev.filter((item) => item.id !== proposal.id))
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || 'Ошибка выполнения действия'
+      addNotification(errorMsg, 'error')
+    } finally {
+      setApplyingActionId(null)
+    }
+  }
+
+  const dismissProposal = (proposalId: string) => {
+    setActionProposals((prev) => prev.filter((item) => item.id !== proposalId))
+  }
 
   const handleSend = async () => {
     if (!prompt.trim() || !isAllowed) return
@@ -153,6 +238,11 @@ export default function AIPanel({ onClose }: AIPanelProps) {
     return () => {
       active = false
     }
+  }, [isAllowed, token])
+
+  useEffect(() => {
+    if (!isAllowed || !token) return
+    loadActionProposals()
   }, [isAllowed, token])
 
   return (
@@ -227,6 +317,73 @@ export default function AIPanel({ onClose }: AIPanelProps) {
                 ))}
                 {quickPrompts.length === 0 && (
                   <div className="text-sm text-gray-500">Нет актуальных предложений.</div>
+                )}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <p className="text-sm font-medium text-gray-700">Черновики действий</p>
+              <button
+                type="button"
+                onClick={loadActionProposals}
+                disabled={!isAllowed || actionsLoading}
+                className="px-3 py-1 text-xs font-semibold rounded-lg border border-primary-200 text-primary-700 bg-primary-50 hover:bg-primary-100 disabled:opacity-50"
+              >
+                {actionsLoading ? 'Обновление...' : 'Подобрать'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mb-2">
+              ИИ предлагает действия, но ничего не выполняется без подтверждения.
+            </p>
+            {actionsError && (
+              <div className="mb-2 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-xs">
+                {actionsError}
+              </div>
+            )}
+            {actionsLoading ? (
+              <div className="text-sm text-gray-500">Формируем предложения по текущим данным...</div>
+            ) : (
+              <div className="space-y-2">
+                {actionProposals.map((proposal) => (
+                  <div key={proposal.id} className="border border-gray-200 rounded-lg p-3 bg-white">
+                    <div className="text-sm font-semibold text-gray-900">{proposal.title}</div>
+                    {proposal.description && (
+                      <div className="text-xs text-gray-600 mt-1">{proposal.description}</div>
+                    )}
+                    {proposal.warnings && proposal.warnings.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {proposal.warnings.map((warning, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-0.5 text-[11px] rounded-full bg-amber-50 text-amber-700 border border-amber-200"
+                          >
+                            {warning}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => applyProposal(proposal)}
+                        disabled={applyingActionId === proposal.id || !isAllowed}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+                      >
+                        {applyingActionId === proposal.id ? 'Выполнение...' : 'Применить'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => dismissProposal(proposal.id)}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                      >
+                        Скрыть
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {actionProposals.length === 0 && (
+                  <div className="text-sm text-gray-500">Нет предложений для текущего контекста.</div>
                 )}
               </div>
             )}

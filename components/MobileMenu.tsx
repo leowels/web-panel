@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useAuthStore } from '@/store/authStore'
+import { getRoleNames } from '@/utils/roles'
 import DashboardIcon from './icons/DashboardIcon'
 import UsersIcon from './icons/UsersIcon'
 import EquipmentIcon from './icons/EquipmentIcon'
@@ -17,20 +19,78 @@ import SettingsIcon from './icons/SettingsIcon'
 export default function MobileMenu() {
   const [isOpen, setIsOpen] = useState(false)
   const pathname = usePathname()
+  const { user } = useAuthStore()
+  const roleNames = getRoleNames(user)
+  const isAllowed = (roles?: string[]) => {
+    if (!roles || roles.length === 0) return true
+    return roles.some((role) => roleNames.includes(role as any))
+  }
 
   const menuItems = [
     { name: 'Дашборд', href: '/dashboard', icon: DashboardIcon },
-    { name: 'Пользователи', href: '/users', icon: UsersIcon },
-    { name: 'Оборудование', href: '/equipment', icon: EquipmentIcon },
-    { name: 'Карта цеха', href: '/workshop-map', icon: EquipmentIcon },
-    { name: 'Чек-листы', href: '/checklists', icon: ChecklistIcon },
-    { name: 'Осмотры', href: '/inspections', icon: InspectionIcon },
-    { name: 'Сквозной workflow', href: '/workflow', icon: InspectionIcon },
-    { name: 'Нарушения', href: '/violations', icon: ViolationIcon },
-    { name: 'Акты', href: '/acts', icon: ActIcon },
-    { name: 'База знаний', href: '/knowledge', icon: KnowledgeIcon },
-    { name: 'Журнал аудита', href: '/audit', icon: AuditIcon },
-    { name: 'Настройки', href: '/settings', icon: SettingsIcon },
+    {
+      name: 'Отчеты',
+      href: '/dashboard/reports',
+      icon: AuditIcon,
+      roles: ['admin', 'manager', 'auditor', 'inspector'],
+    },
+    { name: 'Пользователи', href: '/users', icon: UsersIcon, roles: ['admin'] },
+    {
+      name: 'Оборудование',
+      href: '/equipment',
+      icon: EquipmentIcon,
+      roles: ['admin', 'inspector', 'operator', 'auditor', 'viewer'],
+    },
+    {
+      name: 'Карта цеха',
+      href: '/workshop-map',
+      icon: EquipmentIcon,
+      roles: ['admin', 'inspector', 'operator'],
+    },
+    {
+      name: 'Чек-листы',
+      href: '/checklists',
+      icon: ChecklistIcon,
+      roles: ['admin', 'inspector', 'operator'],
+    },
+    {
+      name: 'Осмотры',
+      href: '/inspections',
+      icon: InspectionIcon,
+      roles: ['admin', 'inspector', 'operator'],
+    },
+    {
+      name: 'Сквозной workflow',
+      href: '/workflow',
+      icon: InspectionIcon,
+      roles: ['admin', 'inspector'],
+    },
+    {
+      name: 'Нарушения',
+      href: '/violations',
+      icon: ViolationIcon,
+      roles: ['admin', 'inspector', 'operator', 'auditor', 'viewer', 'manager'],
+    },
+    {
+      name: 'Задачи',
+      href: '/tasks',
+      icon: InspectionIcon,
+      roles: ['admin', 'inspector', 'operator', 'auditor', 'manager'],
+    },
+    {
+      name: 'Акты',
+      href: '/acts',
+      icon: ActIcon,
+      roles: ['admin', 'inspector', 'auditor', 'manager'],
+    },
+    {
+      name: 'База знаний',
+      href: '/knowledge',
+      icon: KnowledgeIcon,
+      roles: ['admin', 'inspector', 'auditor', 'viewer'],
+    },
+    { name: 'Журнал аудита', href: '/audit', icon: AuditIcon, roles: ['admin', 'auditor', 'manager'] },
+    { name: 'Настройки', href: '/settings', icon: SettingsIcon, roles: ['admin'] },
   ]
 
   return (
@@ -61,7 +121,7 @@ export default function MobileMenu() {
           >
             <nav>
               <ul className="space-y-1">
-                {menuItems.map((item) => {
+                {menuItems.filter((item) => isAllowed(item.roles)).map((item) => {
                   const isActive = pathname === item.href
                   const Icon = item.icon
                   return (

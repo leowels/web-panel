@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException
+﻿from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
@@ -9,8 +9,8 @@ import httpx
 from datetime import datetime
 from pathlib import Path
 
-# Загружаем переменные окружения из .env файла ДО всех импортов
-# Это критично, так как auth.py проверяет SECRET_KEY при импорте
+# Р—Р°РіСЂСѓР¶Р°РµРј РїРµСЂРµРјРµРЅРЅС‹Рµ РѕРєСЂСѓР¶РµРЅРёСЏ РёР· .env С„Р°Р№Р»Р° Р”Рћ РІСЃРµС… РёРјРїРѕСЂС‚РѕРІ
+# Р­С‚Рѕ РєСЂРёС‚РёС‡РЅРѕ, С‚Р°Рє РєР°Рє auth.py РїСЂРѕРІРµСЂСЏРµС‚ SECRET_KEY РїСЂРё РёРјРїРѕСЂС‚Рµ
 backend_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(backend_dir)
 env_paths = [
@@ -25,38 +25,38 @@ try:
     for env_path in env_paths:
         if os.path.exists(env_path):
             load_dotenv(env_path, override=False)
-            print(f"[INFO] Загружены переменные окружения из: {env_path}")
+            print(f"[INFO] Р—Р°РіСЂСѓР¶РµРЅС‹ РїРµСЂРµРјРµРЅРЅС‹Рµ РѕРєСЂСѓР¶РµРЅРёСЏ РёР·: {env_path}")
             loaded = True
             break
     if not loaded:
-        print(f"[WARNING] Файлы с переменными окружения не найдены. Проверялись пути: {env_paths}")
-        print(f"[INFO] SECRET_KEY из окружения: {'установлен' if os.getenv('SECRET_KEY') else 'НЕ установлен'}")
+        print(f"[WARNING] Р¤Р°Р№Р»С‹ СЃ РїРµСЂРµРјРµРЅРЅС‹РјРё РѕРєСЂСѓР¶РµРЅРёСЏ РЅРµ РЅР°Р№РґРµРЅС‹. РџСЂРѕРІРµСЂСЏР»РёСЃСЊ РїСѓС‚Рё: {env_paths}")
+        print(f"[INFO] SECRET_KEY РёР· РѕРєСЂСѓР¶РµРЅРёСЏ: {'СѓСЃС‚Р°РЅРѕРІР»РµРЅ' if os.getenv('SECRET_KEY') else 'РќР• СѓСЃС‚Р°РЅРѕРІР»РµРЅ'}")
 except ImportError:
-    print("[WARNING] python-dotenv не установлен, переменные окружения не загружены из файла")
+    print("[WARNING] python-dotenv РЅРµ СѓСЃС‚Р°РЅРѕРІР»РµРЅ, РїРµСЂРµРјРµРЅРЅС‹Рµ РѕРєСЂСѓР¶РµРЅРёСЏ РЅРµ Р·Р°РіСЂСѓР¶РµРЅС‹ РёР· С„Р°Р№Р»Р°")
 
-# Настройка логирования с временными метками
+# РќР°СЃС‚СЂРѕР№РєР° Р»РѕРіРёСЂРѕРІР°РЅРёСЏ СЃ РІСЂРµРјРµРЅРЅС‹РјРё РјРµС‚РєР°РјРё
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(levelname)s | %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-# Поддержка запуска как скрипта и как модуля
+# РџРѕРґРґРµСЂР¶РєР° Р·Р°РїСѓСЃРєР° РєР°Рє СЃРєСЂРёРїС‚Р° Рё РєР°Рє РјРѕРґСѓР»СЏ
 try:
-    # Пробуем абсолютные импорты (для uvicorn через run.py)
+    # РџСЂРѕР±СѓРµРј Р°Р±СЃРѕР»СЋС‚РЅС‹Рµ РёРјРїРѕСЂС‚С‹ (РґР»СЏ uvicorn С‡РµСЂРµР· run.py)
     from backend.database import init_db, engine
     from backend.models import Base, User, Role, UserRole
     from backend.utils import get_password_hash
     from backend.routers import users, auth
 except ImportError:
     try:
-        # Пробуем относительные импорты (для uvicorn напрямую)
+        # РџСЂРѕР±СѓРµРј РѕС‚РЅРѕСЃРёС‚РµР»СЊРЅС‹Рµ РёРјРїРѕСЂС‚С‹ (РґР»СЏ uvicorn РЅР°РїСЂСЏРјСѓСЋ)
         from .database import init_db, engine
         from .models import Base, User, Role, UserRole
         from .utils import get_password_hash
         from .routers import users, auth
     except ImportError:
-        # Если не получилось, пробуем абсолютные (для прямого запуска)
+        # Р•СЃР»Рё РЅРµ РїРѕР»СѓС‡РёР»РѕСЃСЊ, РїСЂРѕР±СѓРµРј Р°Р±СЃРѕР»СЋС‚РЅС‹Рµ (РґР»СЏ РїСЂСЏРјРѕРіРѕ Р·Р°РїСѓСЃРєР°)
         from database import init_db, engine
         from models import Base, User, Role, UserRole
         from utils import get_password_hash
@@ -67,35 +67,34 @@ async def lifespan(app: FastAPI):
     # Startup
     await init_db()
     
-    # Создание ролей по умолчанию
+    # РЎРѕР·РґР°РЅРёРµ СЂРѕР»РµР№ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ
     from sqlalchemy.ext.asyncio import AsyncSession
     from sqlalchemy import select
     
     async with AsyncSession(engine) as session:
-        # Проверка существования ролей
+        # РџСЂРѕРІРµСЂРєР° СЃСѓС‰РµСЃС‚РІРѕРІР°РЅРёСЏ СЂРѕР»РµР№
         result = await session.execute(select(Role))
         existing_roles = result.scalars().all()
         
         if not existing_roles:
             roles_data = [
-                {"name": "admin", "description": "Администратор", "permissions": ["*"]},
+                {"name": "admin", "description": "РђРґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ", "permissions": ["*"]},
                 {"name": "manager", "description": "Менеджер", "permissions": [
-                    "equipment:*",  # Полный доступ к оборудованию
-                    "violations:*",  # Полный доступ к нарушениям
-                    "inspections:*",  # Полный доступ к осмотрам
-                    "acts:*",  # Полный доступ к актам
-                    "checklists:*",  # Полный доступ к чек-листам
+                    "equipment:read",
+                    "violations:read",
+                    "inspections:read",
+                    "acts:read",
+                    "checklists:read",
                     "knowledge:read",
-                    "knowledge:create",
-                    "knowledge:update",
-                    "files:*",
+                    "files:read",
                     "audit:read",
                     "settings:read",
-                    "users:read",  # Может просматривать пользователей
+                    "users:read",
                     "reports:read",
-                    "reports:export"
+                    "reports:export",
+                    "analytics:read"
                 ]},
-                {"name": "inspector", "description": "Инспектор", "permissions": [
+                {"name": "inspector", "description": "РРЅСЃРїРµРєС‚РѕСЂ", "permissions": [
                     "inspections:*", 
                     "equipment:read", 
                     "equipment:create",
@@ -114,7 +113,7 @@ async def lifespan(app: FastAPI):
                     "users:read",
                     "reports:read"
                 ]},
-                {"name": "operator", "description": "Оператор", "permissions": [
+                {"name": "operator", "description": "РћРїРµСЂР°С‚РѕСЂ", "permissions": [
                     "equipment:read",
                     "equipment:create",
                     "inspections:read",
@@ -127,7 +126,7 @@ async def lifespan(app: FastAPI):
                     "files:read",
                     "files:create"
                 ]},
-                {"name": "auditor", "description": "Аудитор", "permissions": [
+                {"name": "auditor", "description": "РђСѓРґРёС‚РѕСЂ", "permissions": [
                     "equipment:read",
                     "inspections:read",
                     "violations:read",
@@ -140,7 +139,7 @@ async def lifespan(app: FastAPI):
                     "reports:export",
                     "settings:read"
                 ]},
-                {"name": "viewer", "description": "Просмотр", "permissions": [
+                {"name": "viewer", "description": "РџСЂРѕСЃРјРѕС‚СЂ", "permissions": [
                     "equipment:read", 
                     "inspections:read",
                     "violations:read",
@@ -156,7 +155,7 @@ async def lifespan(app: FastAPI):
             
             await session.commit()
         
-        # Создание админа по умолчанию
+        # РЎРѕР·РґР°РЅРёРµ Р°РґРјРёРЅР° РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ
         result = await session.execute(select(User).where(User.username == "admin"))
         admin = result.scalar_one_or_none()
         
@@ -164,27 +163,27 @@ async def lifespan(app: FastAPI):
         logger = logging.getLogger(__name__)
         
         if not admin:
-            logger.info("Создание пользователя admin...")
+            logger.info("РЎРѕР·РґР°РЅРёРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ admin...")
             admin = User(
                 username="admin",
                 email="admin@inspectorhub.ru",
                 hashed_password=get_password_hash(admin_password),
-                full_name="Администратор",
+                full_name="РђРґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ",
                 is_active=True
             )
             session.add(admin)
             await session.flush()
             
-            # Назначение роли админа
+            # РќР°Р·РЅР°С‡РµРЅРёРµ СЂРѕР»Рё Р°РґРјРёРЅР°
             admin_role = await session.execute(select(Role).where(Role.name == "admin"))
             role = admin_role.scalar_one()
             
             user_role = UserRole(user_id=admin.id, role_id=role.id)
             session.add(user_role)
             await session.commit()
-            logger.info(f"✓ Пользователь admin создан. Пароль: {'установлен из ADMIN_PASSWORD' if os.getenv('ADMIN_PASSWORD') else 'admin123 (по умолчанию)'}")
+            logger.info(f"вњ“ РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ admin СЃРѕР·РґР°РЅ. РџР°СЂРѕР»СЊ: {'СѓСЃС‚Р°РЅРѕРІР»РµРЅ РёР· ADMIN_PASSWORD' if os.getenv('ADMIN_PASSWORD') else 'admin123 (РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ)'}")
         else:
-            logger.info("Пользователь admin уже существует")
+            logger.info("РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ admin СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚")
     
     yield
     
@@ -193,12 +192,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="InspectorHub API",
-    description="Профессиональная система управления инспекциями и контролем",
+    description="РџСЂРѕС„РµСЃСЃРёРѕРЅР°Р»СЊРЅР°СЏ СЃРёСЃС‚РµРјР° СѓРїСЂР°РІР»РµРЅРёСЏ РёРЅСЃРїРµРєС†РёСЏРјРё Рё РєРѕРЅС‚СЂРѕР»РµРј",
     version="1.0.0",
     lifespan=lifespan
 )
 
-# CORS - настройка через переменные окружения для production
+# CORS - РЅР°СЃС‚СЂРѕР№РєР° С‡РµСЂРµР· РїРµСЂРµРјРµРЅРЅС‹Рµ РѕРєСЂСѓР¶РµРЅРёСЏ РґР»СЏ production
 cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,https://leowels-panel.ru")
 cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if origin.strip()]
 
@@ -210,7 +209,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Корневой endpoint (должен быть до регистрации роутеров для health checks)
+# РљРѕСЂРЅРµРІРѕР№ endpoint (РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РґРѕ СЂРµРіРёСЃС‚СЂР°С†РёРё СЂРѕСѓС‚РµСЂРѕРІ РґР»СЏ health checks)
 @app.get("/")
 async def root():
     return {
@@ -221,13 +220,13 @@ async def root():
         "health": "/api/health"
     }
 
-# Подключение роутеров
+# РџРѕРґРєР»СЋС‡РµРЅРёРµ СЂРѕСѓС‚РµСЂРѕРІ
 app.include_router(auth.router)
 app.include_router(users.router)
 
-# Импорт остальных роутеров
+# РРјРїРѕСЂС‚ РѕСЃС‚Р°Р»СЊРЅС‹С… СЂРѕСѓС‚РµСЂРѕРІ
 try:
-    # Пробуем абсолютные импорты (для uvicorn через run.py)
+    # РџСЂРѕР±СѓРµРј Р°Р±СЃРѕР»СЋС‚РЅС‹Рµ РёРјРїРѕСЂС‚С‹ (РґР»СЏ uvicorn С‡РµСЂРµР· run.py)
     from backend.routers import (
         equipment, checklists, inspections, violations, acts, knowledge, 
         files, settings, audit, documents, tasks, permits, analytics, 
@@ -239,7 +238,7 @@ try:
         ai = None
 except ImportError:
     try:
-        # Пробуем относительные импорты (для uvicorn напрямую)
+        # РџСЂРѕР±СѓРµРј РѕС‚РЅРѕСЃРёС‚РµР»СЊРЅС‹Рµ РёРјРїРѕСЂС‚С‹ (РґР»СЏ uvicorn РЅР°РїСЂСЏРјСѓСЋ)
         from .routers import (
             equipment, checklists, inspections, violations, acts, knowledge,
             files, settings, audit, documents, tasks, permits, analytics,
@@ -250,7 +249,7 @@ except ImportError:
         except ImportError:
             ai = None
     except ImportError:
-        # Пробуем абсолютные импорты (для прямого запуска)
+        # РџСЂРѕР±СѓРµРј Р°Р±СЃРѕР»СЋС‚РЅС‹Рµ РёРјРїРѕСЂС‚С‹ (РґР»СЏ РїСЂСЏРјРѕРіРѕ Р·Р°РїСѓСЃРєР°)
         try:
             from routers import (
                 equipment, checklists, inspections, violations, acts, knowledge,
@@ -283,7 +282,7 @@ if equipment:
     app.include_router(documents.router)
     app.include_router(workshop_map.router)
 
-# Регистрация новых роутеров
+# Р РµРіРёСЃС‚СЂР°С†РёСЏ РЅРѕРІС‹С… СЂРѕСѓС‚РµСЂРѕРІ
 if tasks:
     app.include_router(tasks.router)
 if permits:
@@ -297,12 +296,12 @@ if reports:
 if workflow:
     app.include_router(workflow.router)
 
-# Регистрация AI роутера (опционально)
+# Р РµРіРёСЃС‚СЂР°С†РёСЏ AI СЂРѕСѓС‚РµСЂР° (РѕРїС†РёРѕРЅР°Р»СЊРЅРѕ)
 try:
     if ai and hasattr(ai, 'router'):
         app.include_router(ai.router)
 except (NameError, AttributeError):
-    # AI роутер не загружен, это нормально
+    # AI СЂРѕСѓС‚РµСЂ РЅРµ Р·Р°РіСЂСѓР¶РµРЅ, СЌС‚Рѕ РЅРѕСЂРјР°Р»СЊРЅРѕ
     pass
 
 @app.get("/api/health")
@@ -337,9 +336,9 @@ async def api_root():
         }
     }
 
-# Проксирование всех не-API запросов на Frontend
-# В production отключено - Frontend должен обслуживать запросы сам через веб-сервер
-# Включается по умолчанию (можно выключить переменной ENABLE_FRONTEND_PROXY=false)
+# РџСЂРѕРєСЃРёСЂРѕРІР°РЅРёРµ РІСЃРµС… РЅРµ-API Р·Р°РїСЂРѕСЃРѕРІ РЅР° Frontend
+# Р’ production РѕС‚РєР»СЋС‡РµРЅРѕ - Frontend РґРѕР»Р¶РµРЅ РѕР±СЃР»СѓР¶РёРІР°С‚СЊ Р·Р°РїСЂРѕСЃС‹ СЃР°Рј С‡РµСЂРµР· РІРµР±-СЃРµСЂРІРµСЂ
+# Р’РєР»СЋС‡Р°РµС‚СЃСЏ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ (РјРѕР¶РЅРѕ РІС‹РєР»СЋС‡РёС‚СЊ РїРµСЂРµРјРµРЅРЅРѕР№ ENABLE_FRONTEND_PROXY=false)
 ENABLE_FRONTEND_PROXY = os.getenv("ENABLE_FRONTEND_PROXY", "true").lower() == "true"
 
 if ENABLE_FRONTEND_PROXY:
@@ -349,33 +348,33 @@ if ENABLE_FRONTEND_PROXY:
     @app.delete("/{path:path}")
     @app.patch("/{path:path}")
     async def proxy_to_frontend(request: Request, path: str):
-        """Проксирование всех не-API запросов на Frontend (только если включено)"""
-        # Если это API запрос, возвращаем 404 (должен обрабатываться роутерами выше)
+        """РџСЂРѕРєСЃРёСЂРѕРІР°РЅРёРµ РІСЃРµС… РЅРµ-API Р·Р°РїСЂРѕСЃРѕРІ РЅР° Frontend (С‚РѕР»СЊРєРѕ РµСЃР»Рё РІРєР»СЋС‡РµРЅРѕ)"""
+        # Р•СЃР»Рё СЌС‚Рѕ API Р·Р°РїСЂРѕСЃ, РІРѕР·РІСЂР°С‰Р°РµРј 404 (РґРѕР»Р¶РµРЅ РѕР±СЂР°Р±Р°С‚С‹РІР°С‚СЊСЃСЏ СЂРѕСѓС‚РµСЂР°РјРё РІС‹С€Рµ)
         if path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not Found")
         
-        # Проксируем на Frontend (порт 3000)
+        # РџСЂРѕРєСЃРёСЂСѓРµРј РЅР° Frontend (РїРѕСЂС‚ 3000)
         frontend_port = os.getenv("FRONTEND_PORT", "3000")
         frontend_url = f"http://localhost:{frontend_port}/{path}"
         
-        # Добавляем query параметры
+        # Р”РѕР±Р°РІР»СЏРµРј query РїР°СЂР°РјРµС‚СЂС‹
         if request.query_params:
             frontend_url += f"?{str(request.query_params)}"
         
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                # Получаем тело запроса
+                # РџРѕР»СѓС‡Р°РµРј С‚РµР»Рѕ Р·Р°РїСЂРѕСЃР°
                 body = await request.body()
                 
-                # Подготавливаем заголовки (убираем проблемные)
+                # РџРѕРґРіРѕС‚Р°РІР»РёРІР°РµРј Р·Р°РіРѕР»РѕРІРєРё (СѓР±РёСЂР°РµРј РїСЂРѕР±Р»РµРјРЅС‹Рµ)
                 headers = {}
                 for k, v in request.headers.items():
                     k_lower = k.lower()
-                    # Убираем заголовки, которые могут вызвать проблемы
+                    # РЈР±РёСЂР°РµРј Р·Р°РіРѕР»РѕРІРєРё, РєРѕС‚РѕСЂС‹Рµ РјРѕРіСѓС‚ РІС‹Р·РІР°С‚СЊ РїСЂРѕР±Р»РµРјС‹
                     if k_lower not in ["host", "content-length", "accept-encoding", "connection", "transfer-encoding"]:
                         headers[k] = v
                 
-                # Делаем запрос к Frontend
+                # Р”РµР»Р°РµРј Р·Р°РїСЂРѕСЃ Рє Frontend
                 response = await client.request(
                     method=request.method,
                     url=frontend_url,
@@ -385,15 +384,15 @@ if ENABLE_FRONTEND_PROXY:
                     timeout=5.0
                 )
                 
-                # Подготавливаем заголовки ответа
+                # РџРѕРґРіРѕС‚Р°РІР»РёРІР°РµРј Р·Р°РіРѕР»РѕРІРєРё РѕС‚РІРµС‚Р°
                 response_headers = {}
                 for k, v in response.headers.items():
                     k_lower = k.lower()
-                    # Убираем заголовки сжатия
+                    # РЈР±РёСЂР°РµРј Р·Р°РіРѕР»РѕРІРєРё СЃР¶Р°С‚РёСЏ
                     if k_lower not in ["content-encoding", "transfer-encoding", "connection"]:
                         response_headers[k] = v
                 
-                # Возвращаем ответ от Frontend
+                # Р’РѕР·РІСЂР°С‰Р°РµРј РѕС‚РІРµС‚ РѕС‚ Frontend
                 return StreamingResponse(
                     iter([response.content]),
                     status_code=response.status_code,
@@ -401,23 +400,24 @@ if ENABLE_FRONTEND_PROXY:
                     media_type=response.headers.get("content-type", "text/html")
                 )
         except (httpx.RequestError, httpx.TimeoutException) as e:
-            # В production просто возвращаем 404, Frontend должен обслуживать запросы сам
+            # Р’ production РїСЂРѕСЃС‚Рѕ РІРѕР·РІСЂР°С‰Р°РµРј 404, Frontend РґРѕР»Р¶РµРЅ РѕР±СЃР»СѓР¶РёРІР°С‚СЊ Р·Р°РїСЂРѕСЃС‹ СЃР°Рј
             logging.getLogger(__name__).debug(f"Frontend proxy unavailable: {e}")
             raise HTTPException(status_code=404, detail="Not Found")
 else:
-    # В production просто возвращаем 404 для всех не-API запросов
+    # Р’ production РїСЂРѕСЃС‚Рѕ РІРѕР·РІСЂР°С‰Р°РµРј 404 РґР»СЏ РІСЃРµС… РЅРµ-API Р·Р°РїСЂРѕСЃРѕРІ
     @app.get("/{path:path}")
     @app.post("/{path:path}")
     @app.put("/{path:path}")
     @app.delete("/{path:path}")
     @app.patch("/{path:path}")
     async def catch_all(request: Request, path: str):
-        """Обработка всех не-API запросов - в production Frontend обслуживает их сам"""
+        """РћР±СЂР°Р±РѕС‚РєР° РІСЃРµС… РЅРµ-API Р·Р°РїСЂРѕСЃРѕРІ - РІ production Frontend РѕР±СЃР»СѓР¶РёРІР°РµС‚ РёС… СЃР°Рј"""
         if path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not Found")
-        # В production Frontend должен обслуживать эти запросы через веб-сервер (Nginx)
+        # Р’ production Frontend РґРѕР»Р¶РµРЅ РѕР±СЃР»СѓР¶РёРІР°С‚СЊ СЌС‚Рё Р·Р°РїСЂРѕСЃС‹ С‡РµСЂРµР· РІРµР±-СЃРµСЂРІРµСЂ (Nginx)
         raise HTTPException(status_code=404, detail="Not Found")
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+

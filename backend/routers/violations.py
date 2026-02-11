@@ -15,15 +15,92 @@ import io
 
 # Поддержка запуска как скрипта и как модуля
 try:
-    from backend.models import Violation, Inspection, Equipment, UserActivity, User
+    from backend.models import Violation, Inspection, Equipment, UserActivity, User, ViolationSLARule
     from backend.database import get_db
     from backend.auth import get_current_user, require_permission
 except ImportError:
-    from ..models import Violation, Inspection, Equipment, UserActivity, User
+    from ..models import Violation, Inspection, Equipment, UserActivity, User, ViolationSLARule
     from ..database import get_db
     from ..auth import get_current_user, require_permission
 
 router = APIRouter(prefix="/api/violations", tags=["violations"])
+
+def _default_sla_days(severity: Optional[str]) -> int:
+    mapping = {
+        "critical": 7,
+        "high": 15,
+        "medium": 30,
+        "low": 60,
+    }
+    if not severity:
+        return 30
+    return mapping.get(severity, 30)
+
+async def _resolve_sla_rule(
+    db: AsyncSession,
+    violation_type: Optional[str],
+    severity: Optional[str]
+) -> Optional[ViolationSLARule]:
+    result = await db.execute(select(ViolationSLARule).where(ViolationSLARule.is_active == True))
+    rules = result.scalars().all()
+    if not rules:
+        return None
+    best = None
+    best_score = -1
+    best_priority = 999999
+    for rule in rules:
+        if rule.violation_type and violation_type:
+            if rule.violation_type.strip().lower() != violation_type.strip().lower():
+                continue
+        elif rule.violation_type and not violation_type:
+            continue
+        if rule.severity and severity:
+            if rule.severity != severity:
+                continue
+        elif rule.severity and not severity:
+            continue
+        score = 0
+        if rule.violation_type and violation_type:
+            score += 2
+        if rule.severity and severity:
+            score += 1
+        priority = rule.priority if rule.priority is not None else 100
+        if score > best_score or (score == best_score and priority < best_priority):
+            best = rule
+            best_score = score
+            best_priority = priority
+    return best
+
+async def _apply_sla_deadline(db: AsyncSession, violation: Violation) -> None:
+    if violation.deadline:
+        return
+    base_time = violation.created_at or datetime.utcnow()
+    rule = await _resolve_sla_rule(db, violation.violation_type, violation.severity)
+    if rule:
+        violation.deadline = base_time + timedelta(days=rule.days)
+        violation.deadline_source = "sla"
+        violation.deadline_rule_id = rule.id
+        return
+    days = _default_sla_days(violation.severity)
+    violation.deadline = base_time + timedelta(days=days)
+    violation.deadline_source = "sla_default"
+    violation.deadline_rule_id = None
+
+async def _update_overdue_flags(db: AsyncSession, violations: List[Violation]) -> None:
+    now = datetime.utcnow()
+    changed = False
+    for violation in violations:
+        should_overdue = (
+            violation.status != "resolved"
+            and violation.deadline is not None
+            and violation.deadline < now
+        )
+        if violation.is_overdue != should_overdue:
+            violation.is_overdue = should_overdue
+            violation.overdue_at = now if should_overdue else None
+            changed = True
+    if changed:
+        await db.commit()
 
 def _equipment_summary(equipment: Optional[Equipment]) -> Optional[EquipmentSummary]:
     if not equipment:
@@ -61,6 +138,10 @@ def _violation_to_response(violation: Violation) -> ViolationResponse:
         ai_payload_raw=violation.ai_payload_raw,
         location=violation.location,
         deadline=violation.deadline,
+        deadline_source=violation.deadline_source,
+        deadline_rule_id=violation.deadline_rule_id,
+        is_overdue=violation.is_overdue,
+        overdue_at=violation.overdue_at,
         status=violation.status,
         resolved_at=violation.resolved_at,
         created_at=violation.created_at,
@@ -144,6 +225,10 @@ class ViolationResponse(BaseModel):
     ai_payload_raw: Optional[Dict[str, Any]]
     location: Optional[str]
     deadline: Optional[datetime]
+    deadline_source: Optional[str] = None
+    deadline_rule_id: Optional[int] = None
+    is_overdue: Optional[bool] = None
+    overdue_at: Optional[datetime] = None
     status: str
     resolved_at: Optional[datetime]
     created_at: datetime
@@ -189,6 +274,40 @@ class ViolationBulkStatusUpdateResponse(BaseModel):
     updated: int
     errors: List[dict]
 
+class ViolationSLARuleCreate(BaseModel):
+    name: str
+    violation_type: Optional[str] = None
+    severity: Optional[str] = None
+    days: int
+    priority: int = 100
+    is_active: bool = True
+
+class ViolationSLARuleUpdate(BaseModel):
+    name: Optional[str] = None
+    violation_type: Optional[str] = None
+    severity: Optional[str] = None
+    days: Optional[int] = None
+    priority: Optional[int] = None
+    is_active: Optional[bool] = None
+
+class ViolationSLARuleResponse(BaseModel):
+    id: int
+    name: str
+    violation_type: Optional[str]
+    severity: Optional[str]
+    days: int
+    priority: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class ViolationSLAApplyRequest(BaseModel):
+    limit: int = 200
+    only_without_deadline: bool = True
+
 @router.get("", response_model=List[ViolationResponse])
 async def get_violations(
     skip: int = Query(0, ge=0),
@@ -197,6 +316,7 @@ async def get_violations(
     inspection_id: Optional[int] = None,
     status: Optional[str] = None,
     severity: Optional[str] = None,
+    overdue: Optional[bool] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -216,10 +336,27 @@ async def get_violations(
     
     if severity:
         query = query.where(Violation.severity == severity)
+    if overdue is not None:
+        now = datetime.utcnow()
+        if overdue:
+            query = query.where(
+                Violation.status != "resolved",
+                Violation.deadline.isnot(None),
+                Violation.deadline < now
+            )
+        else:
+            query = query.where(
+                or_(
+                    Violation.deadline.is_(None),
+                    Violation.deadline >= now,
+                    Violation.status == "resolved"
+                )
+            )
     
     query = query.order_by(Violation.created_at.desc()).offset(skip).limit(limit)
     result = await db.execute(query)
     violations = result.scalars().all()
+    await _update_overdue_flags(db, violations)
     
     return [_violation_to_response(v) for v in violations]
 
@@ -312,7 +449,7 @@ async def get_violation(
     
     if not violation:
         raise HTTPException(status_code=404, detail="Violation not found")
-    
+    await _update_overdue_flags(db, [violation])
     return _violation_to_response(violation)
 
 @router.post("", response_model=ViolationResponse, status_code=status.HTTP_201_CREATED)
@@ -354,8 +491,13 @@ async def create_violation(
         status="open",
         created_by=current_user.id
     )
+    if violation_data.deadline:
+        new_violation.deadline_source = "manual"
+        new_violation.deadline_rule_id = None
     db.add(new_violation)
     await db.flush()
+    if not new_violation.deadline:
+        await _apply_sla_deadline(db, new_violation)
     
     # Логирование
     activity = UserActivity(
@@ -414,8 +556,13 @@ async def bulk_create_violations(
                 status="open",
                 created_by=current_user.id
             )
+            if payload.deadline:
+                new_violation.deadline_source = "manual"
+                new_violation.deadline_rule_id = None
             db.add(new_violation)
             await db.flush()
+            if not new_violation.deadline:
+                await _apply_sla_deadline(db, new_violation)
             created_ids.append(new_violation.id)
 
             activity = UserActivity(
@@ -477,6 +624,8 @@ async def bulk_update_violation_status(
             if payload.status == "resolved" and not violation.resolved_at:
                 violation.resolved_at = datetime.utcnow()
                 violation.resolved_by = payload.resolved_by or current_user.id
+                violation.is_overdue = False
+                violation.overdue_at = None
             elif payload.status == "open":
                 violation.resolved_at = None
                 violation.resolved_by = None
@@ -498,6 +647,126 @@ async def bulk_update_violation_status(
     await db.commit()
 
     return ViolationBulkStatusUpdateResponse(updated=updated, errors=errors)
+
+@router.get("/sla-rules", response_model=List[ViolationSLARuleResponse])
+async def get_sla_rules(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    await require_permission(current_user, "violations:read", db)
+    result = await db.execute(select(ViolationSLARule).order_by(ViolationSLARule.priority.asc()))
+    rules = result.scalars().all()
+    return [
+        ViolationSLARuleResponse(
+            id=r.id,
+            name=r.name,
+            violation_type=r.violation_type,
+            severity=r.severity,
+            days=r.days,
+            priority=r.priority,
+            is_active=r.is_active,
+            created_at=r.created_at,
+            updated_at=r.updated_at,
+        )
+        for r in rules
+    ]
+
+@router.post("/sla-rules", response_model=ViolationSLARuleResponse, status_code=status.HTTP_201_CREATED)
+async def create_sla_rule(
+    payload: ViolationSLARuleCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    await require_permission(current_user, "violations:update", db)
+    rule = ViolationSLARule(
+        name=payload.name,
+        violation_type=payload.violation_type,
+        severity=payload.severity,
+        days=payload.days,
+        priority=payload.priority,
+        is_active=payload.is_active
+    )
+    db.add(rule)
+    await db.commit()
+    await db.refresh(rule)
+    return ViolationSLARuleResponse(
+        id=rule.id,
+        name=rule.name,
+        violation_type=rule.violation_type,
+        severity=rule.severity,
+        days=rule.days,
+        priority=rule.priority,
+        is_active=rule.is_active,
+        created_at=rule.created_at,
+        updated_at=rule.updated_at,
+    )
+
+@router.put("/sla-rules/{rule_id}", response_model=ViolationSLARuleResponse)
+async def update_sla_rule(
+    rule_id: int,
+    payload: ViolationSLARuleUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    await require_permission(current_user, "violations:update", db)
+    result = await db.execute(select(ViolationSLARule).where(ViolationSLARule.id == rule_id))
+    rule = result.scalar_one_or_none()
+    if not rule:
+        raise HTTPException(status_code=404, detail="SLA rule not found")
+    update_data = payload.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(rule, field, value)
+    rule.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(rule)
+    return ViolationSLARuleResponse(
+        id=rule.id,
+        name=rule.name,
+        violation_type=rule.violation_type,
+        severity=rule.severity,
+        days=rule.days,
+        priority=rule.priority,
+        is_active=rule.is_active,
+        created_at=rule.created_at,
+        updated_at=rule.updated_at,
+    )
+
+@router.delete("/sla-rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_sla_rule(
+    rule_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    await require_permission(current_user, "violations:update", db)
+    result = await db.execute(select(ViolationSLARule).where(ViolationSLARule.id == rule_id))
+    rule = result.scalar_one_or_none()
+    if not rule:
+        raise HTTPException(status_code=404, detail="SLA rule not found")
+    await db.delete(rule)
+    await db.commit()
+    return None
+
+@router.post("/sla/apply")
+async def apply_sla_to_violations(
+    payload: ViolationSLAApplyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    await require_permission(current_user, "violations:update", db)
+    limit = max(1, min(payload.limit, 2000))
+    query = select(Violation).where(Violation.status != "resolved")
+    if payload.only_without_deadline:
+        query = query.where(Violation.deadline.is_(None))
+    result = await db.execute(query.limit(limit))
+    violations = result.scalars().all()
+    updated = 0
+    for violation in violations:
+        before = violation.deadline
+        await _apply_sla_deadline(db, violation)
+        if before != violation.deadline:
+            updated += 1
+    await db.commit()
+    return {"status": "ok", "processed": len(violations), "updated": updated}
 
 @router.post("/ai/generate", response_model=AIGenerateViolationResponse)
 async def generate_violation_ai(
@@ -894,6 +1163,8 @@ async def generate_violation_ai(
             status="open",
             created_by=current_user.id
         )
+        if deadline:
+            new_violation.deadline_source = "ai"
         db.add(new_violation)
         await db.flush()
         
@@ -947,14 +1218,39 @@ async def update_violation(
         raise HTTPException(status_code=404, detail="Violation not found")
     
     update_data = violation_data.dict(exclude_unset=True)
+    recalc_sla = False
     for field, value in update_data.items():
         setattr(violation, field, value)
-    
+
+    if "deadline" in update_data:
+        if update_data["deadline"] is not None:
+            violation.deadline_source = "manual"
+            violation.deadline_rule_id = None
+        else:
+            violation.deadline_source = None
+            violation.deadline_rule_id = None
+
+    if ("severity" in update_data or "violation_type" in update_data) and violation.deadline_source in ["sla", "sla_default"] and "deadline" not in update_data:
+        recalc_sla = True
+
     if violation_data.status == "resolved" and not violation.resolved_at:
         violation.resolved_at = datetime.utcnow()
         violation.resolved_by = current_user.id
-    
+        violation.is_overdue = False
+        violation.overdue_at = None
+    elif violation_data.status == "open":
+        violation.resolved_at = None
+        violation.resolved_by = None
+
     violation.updated_at = datetime.utcnow()
+
+    if recalc_sla:
+        violation.deadline = None
+        violation.deadline_source = None
+        violation.deadline_rule_id = None
+
+    if violation.status != "resolved" and not violation.deadline:
+        await _apply_sla_deadline(db, violation)
     
     # Логирование
     activity = UserActivity(

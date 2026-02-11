@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
+﻿from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from typing import List, Optional
@@ -10,15 +10,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Поддержка запуска как скрипта и как модуля
+# РџРѕРґРґРµСЂР¶РєР° Р·Р°РїСѓСЃРєР° РєР°Рє СЃРєСЂРёРїС‚Р° Рё РєР°Рє РјРѕРґСѓР»СЏ
 try:
     from backend.models import KnowledgeBase, UserActivity, User
     from backend.database import get_db
     from backend.auth import get_current_user, require_permission
+    from backend.knowledge_semantic import semantic_search_knowledge, apply_embeddings
 except ImportError:
     from ..models import KnowledgeBase, UserActivity, User
     from ..database import get_db
     from ..auth import get_current_user, require_permission
+    from ..knowledge_semantic import semantic_search_knowledge, apply_embeddings
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
@@ -55,6 +57,9 @@ class AISearchRequest(BaseModel):
     query: str
     document_type: Optional[str] = None
 
+class EmbeddingBackfillRequest(BaseModel):
+    limit: int = 200
+
 @router.get("", response_model=List[KnowledgeBaseResponse])
 async def get_knowledge_base(
     skip: int = Query(0, ge=0),
@@ -64,7 +69,7 @@ async def get_knowledge_base(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получить базу знаний"""
+    """РџРѕР»СѓС‡РёС‚СЊ Р±Р°Р·Сѓ Р·РЅР°РЅРёР№"""
     await require_permission(current_user, "knowledge:read", db)
     
     query = select(KnowledgeBase)
@@ -106,7 +111,7 @@ async def get_knowledge_item(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получить элемент базы знаний по ID"""
+    """РџРѕР»СѓС‡РёС‚СЊ СЌР»РµРјРµРЅС‚ Р±Р°Р·С‹ Р·РЅР°РЅРёР№ РїРѕ ID"""
     await require_permission(current_user, "knowledge:read", db)
     
     result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.id == knowledge_id))
@@ -128,7 +133,7 @@ async def get_knowledge_item(
     )
 
 def extract_text_from_pdf(file_path: str) -> str:
-    """Извлечение текста из PDF файла"""
+    """РР·РІР»РµС‡РµРЅРёРµ С‚РµРєСЃС‚Р° РёР· PDF С„Р°Р№Р»Р°"""
     try:
         import pdfplumber
         text = ""
@@ -155,7 +160,7 @@ def extract_text_from_pdf(file_path: str) -> str:
         return ""
 
 def extract_text_from_docx(file_path: str) -> str:
-    """Извлечение текста из DOCX файла"""
+    """РР·РІР»РµС‡РµРЅРёРµ С‚РµРєСЃС‚Р° РёР· DOCX С„Р°Р№Р»Р°"""
     try:
         from docx import Document
         doc = Document(file_path)
@@ -172,22 +177,22 @@ async def upload_document(
     section: Optional[str] = Form(None),
     clause_number: Optional[str] = Form(None),
     title: Optional[str] = Form(None),
-    tags: Optional[str] = Form(None),  # JSON строка или через запятую
+    tags: Optional[str] = Form(None),  # JSON СЃС‚СЂРѕРєР° РёР»Рё С‡РµСЂРµР· Р·Р°РїСЏС‚СѓСЋ
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Загрузить документ (PDF/DOCX) в базу знаний с автоматическим извлечением текста"""
+    """Р—Р°РіСЂСѓР·РёС‚СЊ РґРѕРєСѓРјРµРЅС‚ (PDF/DOCX) РІ Р±Р°Р·Сѓ Р·РЅР°РЅРёР№ СЃ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРёРј РёР·РІР»РµС‡РµРЅРёРµРј С‚РµРєСЃС‚Р°"""
     await require_permission(current_user, "knowledge:create", db)
     
-    # Проверка типа файла
+    # РџСЂРѕРІРµСЂРєР° С‚РёРїР° С„Р°Р№Р»Р°
     mime_type = file.content_type or ""
     if mime_type not in ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]:
         raise HTTPException(
             status_code=400,
-            detail="Поддерживаются только PDF и DOCX файлы"
+            detail="РџРѕРґРґРµСЂР¶РёРІР°СЋС‚СЃСЏ С‚РѕР»СЊРєРѕ PDF Рё DOCX С„Р°Р№Р»С‹"
         )
     
-    # Сохранение файла временно
+    # РЎРѕС…СЂР°РЅРµРЅРёРµ С„Р°Р№Р»Р° РІСЂРµРјРµРЅРЅРѕ
     UPLOAD_DIR = "uploads/knowledge"
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     
@@ -199,7 +204,7 @@ async def upload_document(
         content = await file.read()
         await f.write(content)
     
-    # Извлечение текста из файла
+    # РР·РІР»РµС‡РµРЅРёРµ С‚РµРєСЃС‚Р° РёР· С„Р°Р№Р»Р°
     extracted_text = ""
     if mime_type == "application/pdf":
         extracted_text = extract_text_from_pdf(file_path)
@@ -207,20 +212,20 @@ async def upload_document(
         extracted_text = extract_text_from_docx(file_path)
     
     if not extracted_text:
-        # Удаляем файл, если не удалось извлечь текст
+        # РЈРґР°Р»СЏРµРј С„Р°Р№Р», РµСЃР»Рё РЅРµ СѓРґР°Р»РѕСЃСЊ РёР·РІР»РµС‡СЊ С‚РµРєСЃС‚
         try:
             os.remove(file_path)
         except:
             pass
         raise HTTPException(
             status_code=400,
-            detail="Не удалось извлечь текст из файла. Убедитесь, что файл содержит текст (не сканированное изображение)."
+            detail="РќРµ СѓРґР°Р»РѕСЃСЊ РёР·РІР»РµС‡СЊ С‚РµРєСЃС‚ РёР· С„Р°Р№Р»Р°. РЈР±РµРґРёС‚РµСЃСЊ, С‡С‚Рѕ С„Р°Р№Р» СЃРѕРґРµСЂР¶РёС‚ С‚РµРєСЃС‚ (РЅРµ СЃРєР°РЅРёСЂРѕРІР°РЅРЅРѕРµ РёР·РѕР±СЂР°Р¶РµРЅРёРµ)."
         )
     
-    # Определение заголовка
+    # РћРїСЂРµРґРµР»РµРЅРёРµ Р·Р°РіРѕР»РѕРІРєР°
     doc_title = title or file.filename.replace('.pdf', '').replace('.docx', '').replace('.doc', '')
     
-    # Парсинг тегов
+    # РџР°СЂСЃРёРЅРі С‚РµРіРѕРІ
     tags_list = []
     if tags:
         try:
@@ -229,7 +234,7 @@ async def upload_document(
         except:
             tags_list = [tag.strip() for tag in tags.split(',') if tag.strip()]
     
-    # Создание записи в базе знаний
+    # РЎРѕР·РґР°РЅРёРµ Р·Р°РїРёСЃРё РІ Р±Р°Р·Рµ Р·РЅР°РЅРёР№
     new_knowledge = KnowledgeBase(
         document_type=document_type,
         section=section,
@@ -241,7 +246,12 @@ async def upload_document(
     db.add(new_knowledge)
     await db.flush()
     
-    # Логирование
+    try:
+        await apply_embeddings(db, [new_knowledge])
+    except Exception as exc:
+        logger.warning(f"Embedding generation failed for knowledge upload: {exc}")
+    
+    # Р›РѕРіРёСЂРѕРІР°РЅРёРµ
     activity = UserActivity(
         user_id=current_user.id,
         action_type="create",
@@ -254,7 +264,7 @@ async def upload_document(
     await db.commit()
     await db.refresh(new_knowledge)
     
-    # Удаляем временный файл после обработки
+    # РЈРґР°Р»СЏРµРј РІСЂРµРјРµРЅРЅС‹Р№ С„Р°Р№Р» РїРѕСЃР»Рµ РѕР±СЂР°Р±РѕС‚РєРё
     try:
         os.remove(file_path)
     except:
@@ -278,7 +288,7 @@ async def create_knowledge_item(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Создать элемент базы знаний вручную"""
+    """РЎРѕР·РґР°С‚СЊ СЌР»РµРјРµРЅС‚ Р±Р°Р·С‹ Р·РЅР°РЅРёР№ РІСЂСѓС‡РЅСѓСЋ"""
     await require_permission(current_user, "knowledge:create", db)
     
     new_knowledge = KnowledgeBase(
@@ -292,7 +302,12 @@ async def create_knowledge_item(
     db.add(new_knowledge)
     await db.flush()
     
-    # Логирование
+    try:
+        await apply_embeddings(db, [new_knowledge])
+    except Exception as exc:
+        logger.warning(f"Embedding generation failed for knowledge create: {exc}")
+    
+    # Р›РѕРіРёСЂРѕРІР°РЅРёРµ
     activity = UserActivity(
         user_id=current_user.id,
         action_type="create",
@@ -325,30 +340,16 @@ async def ai_search_knowledge(
 ):
     """Поиск в базе знаний через ИИ"""
     await require_permission(current_user, "knowledge:read", db)
-    
+
     try:
-        # Используем универсальный AI клиент
-        try:
-            from backend.ai_client import get_ai_client_async
-        except ImportError:
-            from ai_client import get_ai_client_async
-        
-        ai_client = await get_ai_client_async(db)
-        
-        # Fallback на обычный поиск, если AI не настроен
-        if not ai_client:
-            query = select(KnowledgeBase)
-            if request.document_type:
-                query = query.where(KnowledgeBase.document_type == request.document_type)
-            query = query.where(
-                or_(
-                    KnowledgeBase.title.ilike(f"%{request.query}%"),
-                    KnowledgeBase.content.ilike(f"%{request.query}%")
-                )
-            )
-            result = await db.execute(query.limit(10))
-            knowledge = result.scalars().all()
-            
+        semantic_results = await semantic_search_knowledge(
+            db,
+            request.query,
+            document_type=request.document_type,
+            limit=10,
+            backfill=True
+        )
+        if semantic_results:
             return [
                 KnowledgeBaseResponse(
                     id=k.id,
@@ -361,93 +362,61 @@ async def ai_search_knowledge(
                     created_at=k.created_at,
                     updated_at=k.updated_at,
                 )
-                for k in knowledge
+                for k in semantic_results
             ]
-        
-        # Получение релевантных документов
-        query = select(KnowledgeBase)
-        if request.document_type:
-            query = query.where(KnowledgeBase.document_type == request.document_type)
-        result = await db.execute(query.limit(50))
-        all_knowledge = result.scalars().all()
-        
-        # Использование ИИ для ранжирования
-        context = "\n\n".join([f"{k.title}: {k.content[:200]}" for k in all_knowledge[:20]])
-        
-        ai_prompt = f"""Найди наиболее релевантные документы из базы знаний инспекции для запроса: "{request.query}"
+    except Exception as exc:
+        logger.warning(f"Semantic search failed, fallback to plain search: {exc}")
 
-Документы:
-{context}
+    # Fallback: обычный поиск
+    query = select(KnowledgeBase)
+    if request.document_type:
+        query = query.where(KnowledgeBase.document_type == request.document_type)
+    query = query.where(
+        or_(
+            KnowledgeBase.title.ilike(f"%{request.query}%"),
+            KnowledgeBase.content.ilike(f"%{request.query}%")
+        )
+    )
+    result = await db.execute(query.limit(10))
+    knowledge = result.scalars().all()
 
-Верни только номера наиболее релевантных документов (первые 5)."""
-        
-        system_prompt = "Ты помощник для поиска в базе знаний инспекции. Ответ только на русском."
-        
-        ai_response = ai_client.generate_text(
-            prompt=ai_prompt,
-            system_prompt=system_prompt,
-            max_tokens=100,
-            temperature=0.3
+    return [
+        KnowledgeBaseResponse(
+            id=k.id,
+            document_type=k.document_type,
+            section=k.section,
+            clause_number=k.clause_number,
+            title=k.title,
+            content=k.content,
+            tags=k.tags,
+            created_at=k.created_at,
+            updated_at=k.updated_at,
         )
-        
-        # Парсинг ответа (упрощенный)
-        # В реальности нужен более сложный парсинг
-        # Пока возвращаем обычный поиск
-        search_query = select(KnowledgeBase)
-        if request.document_type:
-            search_query = search_query.where(KnowledgeBase.document_type == request.document_type)
-        search_query = search_query.where(
-            or_(
-                KnowledgeBase.title.ilike(f"%{request.query}%"),
-                KnowledgeBase.content.ilike(f"%{request.query}%")
-            )
-        )
-        result = await db.execute(search_query.limit(10))
-        knowledge = result.scalars().all()
-        
-        return [
-            KnowledgeBaseResponse(
-                id=k.id,
-                document_type=k.document_type,
-                section=k.section,
-                clause_number=k.clause_number,
-                title=k.title,
-                content=k.content,
-                tags=k.tags,
-                created_at=k.created_at,
-                updated_at=k.updated_at,
-            )
-            for k in knowledge
-        ]
-    except Exception as e:
-        # Fallback на обычный поиск
-        query = select(KnowledgeBase)
-        if request.document_type:
-            query = query.where(KnowledgeBase.document_type == request.document_type)
-        query = query.where(
-            or_(
-                KnowledgeBase.title.ilike(f"%{request.query}%"),
-                KnowledgeBase.content.ilike(f"%{request.query}%")
-            )
-        )
-        result = await db.execute(query.limit(10))
-        knowledge = result.scalars().all()
-        
-        return [
-            KnowledgeBaseResponse(
-                id=k.id,
-                document_type=k.document_type,
-                section=k.section,
-                clause_number=k.clause_number,
-                title=k.title,
-                content=k.content,
-                tags=k.tags,
-                created_at=k.created_at,
-                updated_at=k.updated_at,
-            )
-            for k in knowledge
-        ]
+        for k in knowledge
+    ]
 
+@router.post("/embeddings/backfill")
+async def backfill_knowledge_embeddings(
+    request: EmbeddingBackfillRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Backfill knowledge embeddings"""
+    await require_permission(current_user, "knowledge:update", db)
+    limit = max(1, min(request.limit, 1000))
+    result = await db.execute(
+        select(KnowledgeBase).where(KnowledgeBase.embedding.is_(None)).limit(limit)
+    )
+    items = result.scalars().all()
+    if not items:
+        return {"status": "ok", "processed": 0, "updated": 0}
+    updated = await apply_embeddings(db, items)
+    await db.commit()
+    return {
+        "status": "ok",
+        "processed": len(items),
+        "updated": len(items) if updated else 0
+    }
 @router.put("/{knowledge_id}", response_model=KnowledgeBaseResponse)
 async def update_knowledge_item(
     knowledge_id: int,
@@ -455,7 +424,7 @@ async def update_knowledge_item(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Обновить элемент базы знаний"""
+    """РћР±РЅРѕРІРёС‚СЊ СЌР»РµРјРµРЅС‚ Р±Р°Р·С‹ Р·РЅР°РЅРёР№"""
     await require_permission(current_user, "knowledge:update", db)
     
     result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.id == knowledge_id))
@@ -469,8 +438,13 @@ async def update_knowledge_item(
         setattr(knowledge, field, value)
     
     knowledge.updated_at = datetime.utcnow()
+    if any(field in update_data for field in ["title", "content", "section", "clause_number"]):
+        try:
+            await apply_embeddings(db, [knowledge])
+        except Exception as exc:
+            logger.warning(f"Embedding generation failed for knowledge update: {exc}")
     
-    # Логирование
+    # Р›РѕРіРёСЂРѕРІР°РЅРёРµ
     activity = UserActivity(
         user_id=current_user.id,
         action_type="update",
@@ -501,7 +475,7 @@ async def delete_knowledge_item(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Удалить элемент базы знаний"""
+    """РЈРґР°Р»РёС‚СЊ СЌР»РµРјРµРЅС‚ Р±Р°Р·С‹ Р·РЅР°РЅРёР№"""
     await require_permission(current_user, "knowledge:delete", db)
     
     result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.id == knowledge_id))
@@ -510,7 +484,7 @@ async def delete_knowledge_item(
     if not knowledge:
         raise HTTPException(status_code=404, detail="Knowledge base item not found")
     
-    # Логирование
+    # Р›РѕРіРёСЂРѕРІР°РЅРёРµ
     activity = UserActivity(
         user_id=current_user.id,
         action_type="delete",
@@ -523,3 +497,7 @@ async def delete_knowledge_item(
     await db.delete(knowledge)
     await db.commit()
     return None
+
+
+
+

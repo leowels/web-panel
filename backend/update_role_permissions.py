@@ -1,5 +1,5 @@
-"""
-Скрипт для обновления прав роли "inspector"
+﻿"""
+Скрипт для обновления прав ролей "inspector" и "manager"
 Запуск: python update_role_permissions.py
 """
 import asyncio
@@ -27,26 +27,26 @@ async def update_role_permissions():
     # Используем DATABASE_URL из database.py или переменную окружения
     db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./inspectorhub.db")
     engine = create_async_engine(db_url, echo=True)
-    
+
     async with AsyncSession(engine) as session:
         # Получаем роль inspector
         result = await session.execute(select(Role).where(Role.name == "inspector"))
         inspector_role = result.scalar_one_or_none()
-        
+
         if not inspector_role:
             print("Роль 'inspector' не найдена.")
             return
-        
-        # Обновляем права
+
+        # Обновляем права inspector
         inspector_role.permissions = [
-            "inspections:*", 
-            "equipment:read", 
+            "inspections:*",
+            "equipment:read",
             "equipment:create",
             "equipment:update",
-            "violations:*", 
+            "violations:*",
             "acts:read",
             "acts:create",
-            "acts:update",  # Инспектор может обновлять акты
+            "acts:update",
             "checklists:read",
             "checklists:create",
             "knowledge:read",
@@ -54,17 +54,40 @@ async def update_role_permissions():
             "files:create",
             "audit:read",
             "settings:read",
-            "users:read"  # Добавляем право просмотра пользователей
+            "users:read",
         ]
-        
+
+        # Получаем роль manager
+        result = await session.execute(select(Role).where(Role.name == "manager"))
+        manager_role = result.scalar_one_or_none()
+        if manager_role:
+            manager_role.permissions = [
+                "equipment:read",
+                "violations:read",
+                "inspections:read",
+                "acts:read",
+                "checklists:read",
+                "knowledge:read",
+                "files:read",
+                "audit:read",
+                "settings:read",
+                "users:read",
+                "reports:read",
+                "reports:export",
+                "analytics:read",
+            ]
+            session.add(manager_role)
+
         session.add(inspector_role)
         await session.commit()
-        
-        print(f"Права роли 'inspector' обновлены:")
+
+        print("Права роли 'inspector' обновлены:")
         print(f"  {inspector_role.permissions}")
-    
+        if manager_role:
+            print("Права роли 'manager' обновлены:")
+            print(f"  {manager_role.permissions}")
+
     await engine.dispose()
 
 if __name__ == "__main__":
     asyncio.run(update_role_permissions())
-

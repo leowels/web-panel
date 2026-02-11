@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import axios from 'axios'
@@ -40,6 +40,13 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
   const [checklistList, setChecklistList] = useState<any[]>([])
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([])
   const [answers, setAnswers] = useState<Record<number, InspectionAnswer>>({})
+  const [conditions, setConditions] = useState({
+    weather: '',
+    wind: '',
+    lighting: '',
+    temperature: '',
+    visibility: '',
+  })
   const [notes, setNotes] = useState('')
 
   useEffect(() => {
@@ -132,6 +139,25 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
     })
   }
 
+  const buildNotes = () => {
+    const hasConditions = Object.values(conditions).some((value) => value && value.trim())
+    if (!hasConditions) {
+      return notes.trim()
+    }
+    const lines = [
+      'Условия:',
+      `Погода: ${conditions.weather || '—'}`,
+      `Ветер: ${conditions.wind || '—'}`,
+      `Освещенность: ${conditions.lighting || '—'}`,
+      `Температура: ${conditions.temperature || '—'}`,
+      `Видимость: ${conditions.visibility || '—'}`,
+      '',
+      'Примечания:',
+      notes.trim() || '—',
+    ]
+    return lines.join('\n')
+  }
+
   const handleSubmit = async () => {
     setLoading(true)
     try {
@@ -140,7 +166,7 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
         const inspectionData = {
           equipment_id: equipmentId,
           checklist_template_id: checklistTemplateId,
-          notes,
+          notes: buildNotes(),
         }
         const response = await axios.post(
           `${API_URL}/api/inspections`,
@@ -161,7 +187,7 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
         // Обновление статуса
         await axios.put(
           `${API_URL}/api/inspections/${newInspectionId}`,
-          { status: 'in_progress', notes },
+          { status: 'in_progress', notes: buildNotes() },
           { headers: { Authorization: `Bearer ${token}` } }
         )
 
@@ -178,7 +204,7 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
 
         await axios.put(
           `${API_URL}/api/inspections/${inspectionId}`,
-          { notes },
+          { notes: buildNotes() },
           { headers: { Authorization: `Bearer ${token}` } }
         )
 
@@ -199,7 +225,7 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
     try {
       await axios.put(
         `${API_URL}/api/inspections/${inspectionId}`,
-        { status: 'completed', notes },
+        { status: 'completed', notes: buildNotes() },
         { headers: { Authorization: `Bearer ${token}` } }
       )
       addNotification('Осмотр завершен', 'success')
@@ -210,6 +236,9 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
       setLoading(false)
     }
   }
+
+  const selectedEquipment = equipmentList.find((eq) => eq.id === equipmentId)
+  const selectedChecklist = checklistList.find((item) => item.id === checklistTemplateId)
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
@@ -225,53 +254,71 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
           </button>
         </div>
 
-        <div className="p-6">
-          {/* Шаги */}
-          <div className="mb-6">
+        <div className="p-6 space-y-6">
+          <div className="mb-4">
             <div className="flex items-center">
               <div className={`flex items-center ${step >= 1 ? 'text-primary-600' : 'text-gray-400'}`}>
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= 1 ? 'bg-primary-600 text-white' : 'bg-gray-200'}`}>
                   1
                 </div>
-                <span className="ml-2 text-sm font-medium">Выбор оборудования</span>
+                <span className="ml-2 text-sm font-medium">Чек-лист</span>
               </div>
               <div className={`flex-1 h-1 mx-4 ${step >= 2 ? 'bg-primary-600' : 'bg-gray-200'}`}></div>
               <div className={`flex items-center ${step >= 2 ? 'text-primary-600' : 'text-gray-400'}`}>
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= 2 ? 'bg-primary-600 text-white' : 'bg-gray-200'}`}>
                   2
                 </div>
-                <span className="ml-2 text-sm font-medium">Выбор чек-листа</span>
+                <span className="ml-2 text-sm font-medium">Условия</span>
               </div>
               <div className={`flex-1 h-1 mx-4 ${step >= 3 ? 'bg-primary-600' : 'bg-gray-200'}`}></div>
               <div className={`flex items-center ${step >= 3 ? 'text-primary-600' : 'text-gray-400'}`}>
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= 3 ? 'bg-primary-600 text-white' : 'bg-gray-200'}`}>
                   3
                 </div>
-                <span className="ml-2 text-sm font-medium">Заполнение</span>
+                <span className="ml-2 text-sm font-medium">Итог</span>
               </div>
             </div>
           </div>
 
-          {/* Шаг 1: Выбор оборудования */}
           {step === 1 && (
             <div className="space-y-4">
-              <h3 className="text-lg font-semibold">Выберите оборудование</h3>
-              <select
-                value={equipmentId || ''}
-                onChange={(e) => setEquipmentId(Number(e.target.value))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-              >
-                <option value="">Выберите оборудование</option>
-                {equipmentList.map((eq) => (
-                  <option key={eq.id} value={eq.id}>
-                    {eq.passport_number} - {eq.equipment_type}
-                  </option>
-                ))}
-              </select>
+              <h3 className="text-lg font-semibold">Чек-лист</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Оборудование</label>
+                  <select
+                    value={equipmentId || ''}
+                    onChange={(e) => setEquipmentId(Number(e.target.value))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="">Выберите оборудование</option>
+                    {equipmentList.map((eq) => (
+                      <option key={eq.id} value={eq.id}>
+                        {eq.passport_number} - {eq.equipment_type}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Шаблон чек-листа</label>
+                  <select
+                    value={checklistTemplateId || ''}
+                    onChange={(e) => handleChecklistSelect(Number(e.target.value))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="">Выберите чек-лист</option>
+                    {checklistList.map((checklist) => (
+                      <option key={checklist.id} value={checklist.id}>
+                        {checklist.name} (v{checklist.version})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
               <div className="flex justify-end">
                 <button
-                  onClick={() => equipmentId && setStep(2)}
-                  disabled={!equipmentId}
+                  onClick={() => equipmentId && checklistTemplateId && setStep(2)}
+                  disabled={!equipmentId || !checklistTemplateId}
                   className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
                 >
                   Далее
@@ -280,22 +327,65 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
             </div>
           )}
 
-          {/* Шаг 2: Выбор чек-листа */}
           {step === 2 && (
             <div className="space-y-4">
-              <h3 className="text-lg font-semibold">Выберите чек-лист</h3>
-              <select
-                value={checklistTemplateId || ''}
-                onChange={(e) => handleChecklistSelect(Number(e.target.value))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-              >
-                <option value="">Выберите чек-лист</option>
-                {checklistList.map((checklist) => (
-                  <option key={checklist.id} value={checklist.id}>
-                    {checklist.name} (v{checklist.version})
-                  </option>
-                ))}
-              </select>
+              <h3 className="text-lg font-semibold">Условия осмотра</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Погода</label>
+                  <input
+                    type="text"
+                    value={conditions.weather}
+                    onChange={(e) => setConditions((prev) => ({ ...prev, weather: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Ветер</label>
+                  <input
+                    type="text"
+                    value={conditions.wind}
+                    onChange={(e) => setConditions((prev) => ({ ...prev, wind: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Освещенность</label>
+                  <input
+                    type="text"
+                    value={conditions.lighting}
+                    onChange={(e) => setConditions((prev) => ({ ...prev, lighting: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Температура</label>
+                  <input
+                    type="text"
+                    value={conditions.temperature}
+                    onChange={(e) => setConditions((prev) => ({ ...prev, temperature: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Видимость</label>
+                  <input
+                    type="text"
+                    value={conditions.visibility}
+                    onChange={(e) => setConditions((prev) => ({ ...prev, visibility: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Примечания</label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
               <div className="flex justify-between">
                 <button
                   onClick={() => setStep(1)}
@@ -304,9 +394,8 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
                   Назад
                 </button>
                 <button
-                  onClick={() => checklistTemplateId && setStep(3)}
-                  disabled={!checklistTemplateId}
-                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+                  onClick={() => setStep(3)}
+                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
                 >
                   Далее
                 </button>
@@ -314,10 +403,19 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
             </div>
           )}
 
-          {/* Шаг 3: Заполнение */}
           {step === 3 && (
             <div className="space-y-4">
-              <h3 className="text-lg font-semibold">Заполните чек-лист</h3>
+              <h3 className="text-lg font-semibold">Итог осмотра</h3>
+              <div className="border border-gray-200 rounded-lg p-4 text-sm text-gray-700">
+                <div>
+                  <span className="font-semibold">Оборудование:</span>{' '}
+                  {selectedEquipment ? `${selectedEquipment.passport_number} • ${selectedEquipment.equipment_type}` : `ПС #${equipmentId || '—'}`}
+                </div>
+                <div className="mt-1">
+                  <span className="font-semibold">Чек-лист:</span>{' '}
+                  {selectedChecklist ? `${selectedChecklist.name} (v${selectedChecklist.version})` : `Шаблон #${checklistTemplateId || '—'}`}
+                </div>
+              </div>
               <div className="space-y-4">
                 {checklistItems
                   .sort((a, b) => a.order - b.order)
@@ -330,7 +428,6 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
                       {item.description && (
                         <p className="text-sm text-gray-500 mb-2">{item.description}</p>
                       )}
-                      
                       {item.item_type === 'text' && (
                         <input
                           type="text"
@@ -340,7 +437,6 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
                           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                         />
                       )}
-                      
                       {item.item_type === 'bool' && (
                         <select
                           value={answers[item.id]?.value || ''}
@@ -353,7 +449,6 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
                           <option value="false">Нет</option>
                         </select>
                       )}
-                      
                       {item.item_type === 'number' && (
                         <input
                           type="number"
@@ -363,13 +458,11 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
                           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                         />
                       )}
-                      
                       {item.item_type === 'photo' && (
                         <input
                           type="file"
                           accept="image/*"
-                          onChange={(e) => {
-                            // TODO: Загрузка фото
+                          onChange={() => {
                             handleAnswerChange(item.id, 'photo_uploaded')
                           }}
                           required={item.is_required}
@@ -379,17 +472,6 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
                     </div>
                   ))}
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Примечания</label>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={3}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                />
-              </div>
-
               <div className="flex justify-between pt-4 border-t border-gray-200">
                 <button
                   onClick={() => setStep(2)}
@@ -423,3 +505,4 @@ export default function InspectionWizard({ inspectionId, onClose, onSuccess, ini
     </div>
   )
 }
+

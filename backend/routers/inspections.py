@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from datetime import datetime
@@ -11,11 +11,11 @@ import io
 
 # Поддержка запуска как скрипта и как модуля
 try:
-    from backend.models import Inspection, InspectionAnswer, Equipment, ChecklistTemplate, UserActivity, User
+    from backend.models import Inspection, InspectionAnswer, Equipment, ChecklistTemplate, UserActivity, User, Violation
     from backend.database import get_db
     from backend.auth import get_current_user, require_permission
 except ImportError:
-    from ..models import Inspection, InspectionAnswer, Equipment, ChecklistTemplate, UserActivity, User
+    from ..models import Inspection, InspectionAnswer, Equipment, ChecklistTemplate, UserActivity, User, Violation
     from ..database import get_db
     from ..auth import get_current_user, require_permission
 
@@ -65,6 +65,10 @@ class InspectionResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     is_synced: bool
+    equipment_passport: Optional[str] = None
+    equipment_type: Optional[str] = None
+    checklist_name: Optional[str] = None
+    violations_count: Optional[int] = 0
     answers: List[InspectionAnswerResponse] = []
 
     class Config:
@@ -82,7 +86,11 @@ async def get_inspections(
     """Получить список осмотров"""
     await require_permission(current_user, "inspections:read", db)
     
-    query = select(Inspection).options(selectinload(Inspection.answers))
+    query = select(Inspection).options(
+        selectinload(Inspection.answers),
+        selectinload(Inspection.equipment),
+        selectinload(Inspection.checklist_template),
+    )
     
     # Фильтр по пользователю (если не админ)
     user_roles = [ur.role.name for ur in current_user.roles]
@@ -98,7 +106,20 @@ async def get_inspections(
     query = query.order_by(Inspection.updated_at.desc()).offset(skip).limit(limit)
     result = await db.execute(query)
     inspections = result.scalars().all()
-    
+
+    inspection_ids = [i.id for i in inspections]
+    violations_map: dict[int, int] = {}
+    if inspection_ids:
+        count_result = await db.execute(
+            select(Violation.inspection_id, func.count()).where(
+                Violation.inspection_id.in_(inspection_ids)
+            ).group_by(Violation.inspection_id)
+        )
+        for row in count_result.all():
+            if not row:
+                continue
+            violations_map[row[0]] = int(row[1] or 0)
+
     return [
         InspectionResponse(
             id=i.id,
@@ -115,6 +136,10 @@ async def get_inspections(
             created_at=i.created_at,
             updated_at=i.updated_at,
             is_synced=i.is_synced,
+            equipment_passport=i.equipment.passport_number if i.equipment else None,
+            equipment_type=i.equipment.equipment_type if i.equipment else None,
+            checklist_name=i.checklist_template.name if i.checklist_template else None,
+            violations_count=violations_map.get(i.id, 0),
             answers=[
                 InspectionAnswerResponse(
                     id=a.id,
@@ -212,7 +237,11 @@ async def get_inspection(
     
     result = await db.execute(
         select(Inspection)
-        .options(selectinload(Inspection.answers))
+        .options(
+            selectinload(Inspection.answers),
+            selectinload(Inspection.equipment),
+            selectinload(Inspection.checklist_template),
+        )
         .where(Inspection.id == inspection_id)
     )
     inspection = result.scalar_one_or_none()
@@ -225,6 +254,10 @@ async def get_inspection(
     if "admin" not in user_roles and inspection.inspector_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
     
+    violations_count = (await db.execute(
+        select(func.count()).select_from(Violation).where(Violation.inspection_id == inspection.id)
+    )).scalar() or 0
+
     return InspectionResponse(
         id=inspection.id,
         equipment_id=inspection.equipment_id,
@@ -240,6 +273,10 @@ async def get_inspection(
         created_at=inspection.created_at,
         updated_at=inspection.updated_at,
         is_synced=inspection.is_synced,
+        equipment_passport=inspection.equipment.passport_number if inspection.equipment else None,
+        equipment_type=inspection.equipment.equipment_type if inspection.equipment else None,
+        checklist_name=inspection.checklist_template.name if inspection.checklist_template else None,
+        violations_count=violations_count,
         answers=[
             InspectionAnswerResponse(
                 id=a.id,
@@ -499,4 +536,3 @@ async def delete_inspection(
     await db.delete(inspection)
     await db.commit()
     return None
-

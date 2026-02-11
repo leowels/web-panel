@@ -102,24 +102,111 @@ def _apply_custom_migrations(sync_conn):
     """
     logger = logging.getLogger(__name__)
     inspector = inspect(sync_conn)
-    if "equipment" not in inspector.get_table_names():
+    table_names = set(inspector.get_table_names())
+    if "equipment" not in table_names and "knowledge_base" not in table_names:
         return
 
-    existing_columns = {col["name"] for col in inspector.get_columns("equipment")}
     alter_statements = []
 
-    if "inventory_number" not in existing_columns:
-        alter_statements.append(
-            "ALTER TABLE equipment ADD COLUMN inventory_number VARCHAR(255)"
-        )
-    if "position" not in existing_columns:
-        alter_statements.append(
-            "ALTER TABLE equipment ADD COLUMN position VARCHAR(255)"
-        )
-    if "workshop" not in existing_columns:
-        alter_statements.append(
-            "ALTER TABLE equipment ADD COLUMN workshop VARCHAR(255)"
-        )
+    if "equipment" in table_names:
+        existing_columns = {col["name"] for col in inspector.get_columns("equipment")}
+
+        if "inventory_number" not in existing_columns:
+            alter_statements.append(
+                "ALTER TABLE equipment ADD COLUMN inventory_number VARCHAR(255)"
+            )
+        if "position" not in existing_columns:
+            alter_statements.append(
+                "ALTER TABLE equipment ADD COLUMN position VARCHAR(255)"
+            )
+        if "workshop" not in existing_columns:
+            alter_statements.append(
+                "ALTER TABLE equipment ADD COLUMN workshop VARCHAR(255)"
+            )
+        if "rostekhnadzor_registered" not in existing_columns:
+            alter_statements.append(
+                "ALTER TABLE equipment ADD COLUMN rostekhnadzor_registered BOOLEAN DEFAULT FALSE"
+            )
+        if "expertise_date" not in existing_columns:
+            alter_statements.append(
+                "ALTER TABLE equipment ADD COLUMN expertise_date TIMESTAMP"
+            )
+        if "operation_permit_until" not in existing_columns:
+            alter_statements.append(
+                "ALTER TABLE equipment ADD COLUMN operation_permit_until TIMESTAMP"
+            )
+        if "operation_banned" not in existing_columns:
+            alter_statements.append(
+                "ALTER TABLE equipment ADD COLUMN operation_banned BOOLEAN DEFAULT FALSE"
+            )
+        if "epb_positive_details" not in existing_columns:
+            alter_statements.append(
+                "ALTER TABLE equipment ADD COLUMN epb_positive_details TEXT"
+            )
+
+    if "knowledge_base" in table_names:
+        knowledge_columns = {col["name"] for col in inspector.get_columns("knowledge_base")}
+        if "embedding" not in knowledge_columns:
+            alter_statements.append(
+                "ALTER TABLE knowledge_base ADD COLUMN embedding JSON"
+            )
+        if "embedding_model" not in knowledge_columns:
+            alter_statements.append(
+                "ALTER TABLE knowledge_base ADD COLUMN embedding_model VARCHAR(255)"
+            )
+        if "embedding_updated_at" not in knowledge_columns:
+            alter_statements.append(
+                "ALTER TABLE knowledge_base ADD COLUMN embedding_updated_at TIMESTAMP"
+            )
+
+    if "files" in table_names:
+        file_columns = {col["name"] for col in inspector.get_columns("files")}
+        if "description" not in file_columns:
+            alter_statements.append(
+                "ALTER TABLE files ADD COLUMN description TEXT"
+            )
+
+    
+    if "violations" in table_names:
+        violation_columns = {col["name"] for col in inspector.get_columns("violations")}
+        if "deadline_source" not in violation_columns:
+            alter_statements.append(
+                "ALTER TABLE violations ADD COLUMN deadline_source VARCHAR(50)"
+            )
+        if "deadline_rule_id" not in violation_columns:
+            alter_statements.append(
+                "ALTER TABLE violations ADD COLUMN deadline_rule_id INTEGER"
+            )
+        if "is_overdue" not in violation_columns:
+            alter_statements.append(
+                "ALTER TABLE violations ADD COLUMN is_overdue BOOLEAN DEFAULT FALSE"
+            )
+        if "overdue_at" not in violation_columns:
+            alter_statements.append(
+                "ALTER TABLE violations ADD COLUMN overdue_at TIMESTAMP"
+            )
+
+    if "violation_sla_rules" not in table_names:
+        try:
+            id_sql = "SERIAL PRIMARY KEY" if sync_conn.dialect.name != "sqlite" else "INTEGER PRIMARY KEY AUTOINCREMENT"
+            sync_conn.execute(text(
+                f"""
+                CREATE TABLE IF NOT EXISTS violation_sla_rules (
+                    id {id_sql},
+                    name VARCHAR(255) NOT NULL,
+                    violation_type VARCHAR(255),
+                    severity VARCHAR(32),
+                    days INTEGER NOT NULL,
+                    priority INTEGER DEFAULT 100,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            ))
+            logger.info("? Applied migration: create table violation_sla_rules")
+        except Exception as exc:
+            logger.warning(f"? Failed to create table violation_sla_rules: {exc}")
 
     for stmt in alter_statements:
         try:
@@ -127,4 +214,7 @@ def _apply_custom_migrations(sync_conn):
             logger.info(f"✓ Applied migration: {stmt}")
         except Exception as exc:
             logger.warning(f"⚠️ Failed to apply migration '{stmt}': {exc}")
+
+
+
 
