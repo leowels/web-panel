@@ -1,21 +1,26 @@
 ﻿'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/authStore'
+import { useAuthHydrated } from '@/store/useAuthHydrated'
 
 export default function LoginPage() {
   const router = useRouter()
   const { login, isAuthenticated } = useAuthStore()
+  const hydrated = useAuthHydrated()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  if (isAuthenticated) {
-    router.push('/dashboard')
-    return null
-  }
+  useEffect(() => {
+    if (hydrated && isAuthenticated) {
+      router.push('/dashboard')
+    }
+  }, [hydrated, isAuthenticated, router])
+
+  if (!hydrated || isAuthenticated) return null
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -115,3 +120,4 @@ export default function LoginPage() {
     </div>
   )
 }
+

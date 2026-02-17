@@ -15,14 +15,17 @@ import AIPanel from '@/components/dashboard/AIPanel'
 import TopRiskEquipment from '@/components/dashboard/TopRiskEquipment'
 import SLAAlertsCard from '@/components/dashboard/SLAAlertsCard'
 import { isManagerOnly } from '@/utils/roles'
+import { useAuthHydrated } from '@/store/useAuthHydrated'
 
 export default function DashboardPage() {
   const router = useRouter()
   const { isAuthenticated, user, fetchUser } = useAuthStore()
+  const hydrated = useAuthHydrated()
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const isManager = isManagerOnly(user)
 
   useEffect(() => {
+    if (!hydrated) return
     if (!isAuthenticated) {
       router.push('/login')
       return
@@ -34,9 +37,9 @@ export default function DashboardPage() {
     if (savedTheme) {
       setTheme(savedTheme)
     }
-  }, [isAuthenticated, router, fetchUser])
+  }, [hydrated, isAuthenticated, router, fetchUser])
 
-  if (!isAuthenticated) {
+  if (!hydrated || !isAuthenticated) {
     return null
   }
 
