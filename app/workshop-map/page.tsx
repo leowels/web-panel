@@ -17,7 +17,15 @@ function WorkshopMapPageContent() {
   const initialEquipmentId = searchParams.get('equipment_id')
     ? Number(searchParams.get('equipment_id'))
     : null
-  const [selectedWorkshop, setSelectedWorkshop] = useState<string>(initialWorkshop)
+  const [selectedWorkshop, setSelectedWorkshop] = useState<string>(() => {
+    if (initialWorkshop) {
+      return initialWorkshop
+    }
+    if (typeof window === 'undefined') {
+      return ''
+    }
+    return window.localStorage.getItem('workshop_map_selected_workshop') || ''
+  })
   const [customWorkshop, setCustomWorkshop] = useState<string>('')
   const [focusEquipmentId, setFocusEquipmentId] = useState<number | null>(
     initialEquipmentId && !Number.isNaN(initialEquipmentId) ? initialEquipmentId : null
@@ -33,6 +41,15 @@ function WorkshopMapPageContent() {
       fetchWorkshops()
     }
   }, [isAuthenticated, token])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (selectedWorkshop) {
+      window.localStorage.setItem('workshop_map_selected_workshop', selectedWorkshop)
+    } else {
+      window.localStorage.removeItem('workshop_map_selected_workshop')
+    }
+  }, [selectedWorkshop])
 
   useEffect(() => {
     const eqIdRaw = searchParams.get('equipment_id')
@@ -64,7 +81,16 @@ function WorkshopMapPageContent() {
         )
       ) as string[]
 
-      setWorkshops(uniqueWorkshops.sort())
+      const sortedWorkshops = uniqueWorkshops.sort()
+      setWorkshops(sortedWorkshops)
+
+      if (!customWorkshop.trim()) {
+        if (!selectedWorkshop && sortedWorkshops.length > 0) {
+          setSelectedWorkshop(sortedWorkshops[0])
+        } else if (selectedWorkshop && !sortedWorkshops.includes(selectedWorkshop) && sortedWorkshops.length > 0) {
+          setSelectedWorkshop(sortedWorkshops[0])
+        }
+      }
     } catch (error) {
       console.error('Ошибка загрузки цехов:', error)
     } finally {
@@ -148,7 +174,14 @@ function WorkshopMapPageContent() {
               </div>
             )
           ) : (
-            <WorkshopMap workshop={effectiveWorkshop} focusEquipmentId={focusEquipmentId} />
+            effectiveWorkshop ? (
+              <WorkshopMap workshop={effectiveWorkshop} focusEquipmentId={focusEquipmentId} />
+            ) : (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 text-center">
+                <p className="text-amber-800 font-medium">Выберите цех для отображения карты</p>
+                <p className="text-amber-700 text-sm mt-1">Если нужного цеха нет в списке, введите его вручную</p>
+              </div>
+            )
           )}
         </div>
       </div>
