@@ -12,6 +12,8 @@ import PTOCalendar from '@/components/dashboard/PTOCalendar'
 import DefectsKanban from '@/components/dashboard/DefectsKanban'
 import QuickActions from '@/components/dashboard/QuickActions'
 import AIPanel from '@/components/dashboard/AIPanel'
+import TopRiskEquipment from '@/components/dashboard/TopRiskEquipment'
+import SLAAlertsCard from '@/components/dashboard/SLAAlertsCard'
 import { isManagerOnly } from '@/utils/roles'
 
 export default function DashboardPage() {
@@ -104,6 +106,12 @@ export default function DashboardPage() {
 
               {/* Р›РµРЅС‚Р° СЃРѕР±С‹С‚РёР№ */}
               <EventFeed theme={theme} />
+
+              {/* SLA-уведомления */}
+              <SLAAlertsCard theme={theme} />
+
+              {/* Топ рискованных ПС */}
+              <TopRiskEquipment theme={theme} />
 
               {/* AI-РїР°РЅРµР»СЊ */}
               <AIPanel theme={theme} />

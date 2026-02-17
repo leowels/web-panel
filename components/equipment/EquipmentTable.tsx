@@ -218,19 +218,26 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
     try {
       setExporting(true)
       const response = await axios.get(`${API_URL}/api/equipment/export`, {
-        params: buildFilterParams(),
+        params: {
+          ...buildFilterParams(),
+          format: 'xlsx',
+        },
         headers: { Authorization: `Bearer ${token}` },
         responseType: 'blob',
       })
-      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'text/csv;charset=utf-8' }))
+      const url = window.URL.createObjectURL(
+        new Blob([response.data], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        })
+      )
       const link = document.createElement('a')
       link.href = url
-      link.download = `equipment_${new Date().toISOString().slice(0, 10)}.csv`
+      link.download = `equipment_${new Date().toISOString().slice(0, 10)}.xlsx`
       document.body.appendChild(link)
       link.click()
       link.remove()
       window.URL.revokeObjectURL(url)
-      addNotification('Экспорт оборудования подготовлен', 'success')
+      addNotification('Excel-экспорт оборудования готов', 'success')
     } catch (error: any) {
       addNotification(error.response?.data?.detail || 'Ошибка экспорта', 'error')
     } finally {
@@ -602,7 +609,7 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
             disabled={exporting}
             className="px-4 py-2.5 border border-blue-200 rounded-lg text-sm font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {exporting ? 'Экспорт...' : 'Экспорт CSV'}
+            {exporting ? 'Экспорт...' : 'Экспорт Excel'}
           </button>
           <button
             type="button"

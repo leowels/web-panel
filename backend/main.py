@@ -1,13 +1,18 @@
 ﻿from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.responses import JSONResponse
 from contextlib import asynccontextmanager
 import os
 import sys
 import logging
 import httpx
+import asyncio
 from datetime import datetime
 from pathlib import Path
+import uuid
+from sqlalchemy.exc import SQLAlchemyError, TimeoutError as SQLAlchemyTimeoutError, OperationalError, DBAPIError
 
 # Р—Р°РіСЂСѓР¶Р°РµРј РїРµСЂРµРјРµРЅРЅС‹Рµ РѕРєСЂСѓР¶РµРЅРёСЏ РёР· .env С„Р°Р№Р»Р° Р”Рћ РІСЃРµС… РёРјРїРѕСЂС‚РѕРІ
 # Р­С‚Рѕ РєСЂРёС‚РёС‡РЅРѕ, С‚Р°Рє РєР°Рє auth.py РїСЂРѕРІРµСЂСЏРµС‚ SECRET_KEY РїСЂРё РёРјРїРѕСЂС‚Рµ
@@ -44,28 +49,45 @@ logging.basicConfig(
 # РџРѕРґРґРµСЂР¶РєР° Р·Р°РїСѓСЃРєР° РєР°Рє СЃРєСЂРёРїС‚Р° Рё РєР°Рє РјРѕРґСѓР»СЏ
 try:
     # РџСЂРѕР±СѓРµРј Р°Р±СЃРѕР»СЋС‚РЅС‹Рµ РёРјРїРѕСЂС‚С‹ (РґР»СЏ uvicorn С‡РµСЂРµР· run.py)
-    from backend.database import init_db, engine
+    from backend.database import init_db, engine, async_session
     from backend.models import Base, User, Role, UserRole
     from backend.utils import get_password_hash
     from backend.routers import users, auth
 except ImportError:
     try:
         # РџСЂРѕР±СѓРµРј РѕС‚РЅРѕСЃРёС‚РµР»СЊРЅС‹Рµ РёРјРїРѕСЂС‚С‹ (РґР»СЏ uvicorn РЅР°РїСЂСЏРјСѓСЋ)
-        from .database import init_db, engine
+        from .database import init_db, engine, async_session
         from .models import Base, User, Role, UserRole
         from .utils import get_password_hash
         from .routers import users, auth
     except ImportError:
         # Р•СЃР»Рё РЅРµ РїРѕР»СѓС‡РёР»РѕСЃСЊ, РїСЂРѕР±СѓРµРј Р°Р±СЃРѕР»СЋС‚РЅС‹Рµ (РґР»СЏ РїСЂСЏРјРѕРіРѕ Р·Р°РїСѓСЃРєР°)
-        from database import init_db, engine
+        from database import init_db, engine, async_session
         from models import Base, User, Role, UserRole
         from utils import get_password_hash
         from routers import users, auth
+
+try:
+    from backend.alert_engine import run_sla_alert_cycle
+except ImportError:
+    try:
+        from .alert_engine import run_sla_alert_cycle
+    except ImportError:
+        run_sla_alert_cycle = None
+
+try:
+    from backend.error_monitor import capture_error_event
+except ImportError:
+    try:
+        from .error_monitor import capture_error_event
+    except ImportError:
+        capture_error_event = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await init_db()
+    sla_task = None
     
     # РЎРѕР·РґР°РЅРёРµ СЂРѕР»РµР№ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -185,9 +207,31 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ admin СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚")
     
+    if run_sla_alert_cycle and os.getenv("ENABLE_SLA_ALERT_ENGINE", "true").lower() == "true":
+        interval_seconds = int(os.getenv("SLA_ALERT_CHECK_INTERVAL_SECONDS", "600"))
+        logger = logging.getLogger(__name__)
+
+        async def _sla_alert_worker():
+            while True:
+                try:
+                    async with async_session() as db:
+                        await run_sla_alert_cycle(db)
+                except Exception as exc:
+                    logger.warning("SLA alert cycle failed: %s", exc)
+                await asyncio.sleep(max(60, interval_seconds))
+
+        sla_task = asyncio.create_task(_sla_alert_worker())
+        logger.info("SLA alert engine started (interval=%ss)", interval_seconds)
+
     yield
     
     # Shutdown
+    if sla_task:
+        sla_task.cancel()
+        try:
+            await sla_task
+        except asyncio.CancelledError:
+            pass
     await engine.dispose()
 
 app = FastAPI(
@@ -196,6 +240,204 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+
+def _build_error_payload(
+    *,
+    code: str,
+    message: str,
+    trace_id: str,
+    retryable: bool,
+    status_code: int,
+):
+    # Keep legacy fields to avoid breaking existing frontend parsers.
+    return {
+        "error": {
+            "code": code,
+            "message": message,
+            "trace_id": trace_id,
+            "retryable": retryable,
+            "status_code": status_code,
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+        "detail": message,
+        "trace_id": trace_id,
+    }
+
+
+@app.middleware("http")
+async def trace_id_middleware(request: Request, call_next):
+    trace_id = request.headers.get("x-trace-id") or str(uuid.uuid4())
+    request.state.trace_id = trace_id
+    method = request.method.upper()
+    is_retryable_method = method in {"GET", "HEAD", "OPTIONS"}
+    max_retries = int(os.getenv("DB_TRANSIENT_RETRY_COUNT", "2")) if is_retryable_method else 0
+
+    last_exc = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = await call_next(request)
+            content_type = response.headers.get("content-type", "")
+            if (
+                content_type
+                and "charset=" not in content_type.lower()
+                and (
+                    content_type.startswith("application/json")
+                    or content_type.startswith("text/")
+                )
+            ):
+                response.headers["content-type"] = f"{content_type}; charset=utf-8"
+            response.headers["x-trace-id"] = trace_id
+            return response
+        except Exception as exc:
+            is_transient = isinstance(
+                exc,
+                (
+                    TimeoutError,
+                    ConnectionResetError,
+                    asyncio.TimeoutError,
+                    SQLAlchemyTimeoutError,
+                    OperationalError,
+                    DBAPIError,
+                ),
+            )
+            if not is_retryable_method or not is_transient or attempt >= max_retries:
+                raise
+            last_exc = exc
+            logging.getLogger(__name__).warning(
+                "Transient request error, retrying (%s/%s), trace_id=%s, path=%s, err=%s",
+                attempt + 1,
+                max_retries,
+                trace_id,
+                request.url.path,
+                str(exc),
+            )
+            await asyncio.sleep(0.1 * (attempt + 1))
+
+    if last_exc:
+        raise last_exc
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
+    detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
+    retryable = exc.status_code in (408, 409, 425, 429, 500, 502, 503, 504)
+    code_map = {
+        400: "BAD_REQUEST",
+        401: "UNAUTHORIZED",
+        403: "FORBIDDEN",
+        404: "NOT_FOUND",
+        409: "CONFLICT",
+        422: "VALIDATION_ERROR",
+        429: "TOO_MANY_REQUESTS",
+        500: "INTERNAL_ERROR",
+        502: "BAD_GATEWAY",
+        503: "SERVICE_UNAVAILABLE",
+        504: "GATEWAY_TIMEOUT",
+    }
+    payload = _build_error_payload(
+        code=code_map.get(exc.status_code, "HTTP_ERROR"),
+        message=detail,
+        trace_id=trace_id,
+        retryable=retryable,
+        status_code=exc.status_code,
+    )
+    if capture_error_event and exc.status_code >= 500:
+        await capture_error_event(
+            code=payload["error"]["code"],
+            message=detail,
+            trace_id=trace_id,
+            path=request.url.path,
+            method=request.method,
+            status_code=exc.status_code,
+            retryable=retryable,
+            details={"source": "http_exception_handler"},
+        )
+    headers = dict(exc.headers or {})
+    headers["x-trace-id"] = trace_id
+    return JSONResponse(status_code=exc.status_code, content=payload, headers=headers)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
+    payload = _build_error_payload(
+        code="VALIDATION_ERROR",
+        message="Validation failed",
+        trace_id=trace_id,
+        retryable=False,
+        status_code=422,
+    )
+    payload["error"]["validation"] = exc.errors()
+    return JSONResponse(status_code=422, content=payload, headers={"x-trace-id": trace_id})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
+    logging.getLogger(__name__).exception("Unhandled exception (trace_id=%s): %s", trace_id, str(exc))
+    if isinstance(exc, (TimeoutError, asyncio.TimeoutError, SQLAlchemyTimeoutError, OperationalError, DBAPIError)):
+        payload = _build_error_payload(
+            code="DB_TIMEOUT",
+            message="Не удалось подключиться к базе данных",
+            trace_id=trace_id,
+            retryable=True,
+            status_code=503,
+        )
+        if capture_error_event:
+            await capture_error_event(
+                code="DB_TIMEOUT",
+                message=str(exc),
+                trace_id=trace_id,
+                path=request.url.path,
+                method=request.method,
+                status_code=503,
+                retryable=True,
+                details={"source": "unhandled_exception_handler", "type": type(exc).__name__},
+            )
+        return JSONResponse(status_code=503, content=payload, headers={"x-trace-id": trace_id})
+
+    if isinstance(exc, SQLAlchemyError):
+        payload = _build_error_payload(
+            code="DB_ERROR",
+            message="Ошибка базы данных",
+            trace_id=trace_id,
+            retryable=True,
+            status_code=500,
+        )
+        if capture_error_event:
+            await capture_error_event(
+                code="DB_ERROR",
+                message=str(exc),
+                trace_id=trace_id,
+                path=request.url.path,
+                method=request.method,
+                status_code=500,
+                retryable=True,
+                details={"source": "unhandled_exception_handler", "type": type(exc).__name__},
+            )
+        return JSONResponse(status_code=500, content=payload, headers={"x-trace-id": trace_id})
+
+    payload = _build_error_payload(
+        code="INTERNAL_ERROR",
+        message="Internal server error",
+        trace_id=trace_id,
+        retryable=True,
+        status_code=500,
+    )
+    if capture_error_event:
+        await capture_error_event(
+            code="INTERNAL_ERROR",
+            message=str(exc),
+            trace_id=trace_id,
+            path=request.url.path,
+            method=request.method,
+            status_code=500,
+            retryable=True,
+            details={"source": "unhandled_exception_handler", "type": type(exc).__name__},
+        )
+    return JSONResponse(status_code=500, content=payload, headers={"x-trace-id": trace_id})
 
 # CORS - РЅР°СЃС‚СЂРѕР№РєР° С‡РµСЂРµР· РїРµСЂРµРјРµРЅРЅС‹Рµ РѕРєСЂСѓР¶РµРЅРёСЏ РґР»СЏ production
 cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,https://leowels-panel.ru")
@@ -230,7 +472,7 @@ try:
     from backend.routers import (
         equipment, checklists, inspections, violations, acts, knowledge, 
         files, settings, audit, documents, tasks, permits, analytics, 
-        notifications, reports, workshop_map, workflow
+        notifications, reports, alerts, workshop_map, workflow
     )
     try:
         from backend.routers import ai
@@ -242,7 +484,7 @@ except ImportError:
         from .routers import (
             equipment, checklists, inspections, violations, acts, knowledge,
             files, settings, audit, documents, tasks, permits, analytics,
-            notifications, reports, workshop_map, workflow
+            notifications, reports, alerts, workshop_map, workflow
         )
         try:
             from .routers import ai
@@ -254,7 +496,7 @@ except ImportError:
             from routers import (
                 equipment, checklists, inspections, violations, acts, knowledge,
                 files, settings, audit, documents, tasks, permits, analytics,
-                notifications, reports, workshop_map, workflow
+                notifications, reports, alerts, workshop_map, workflow
             )
             try:
                 from routers import ai
@@ -266,7 +508,7 @@ except ImportError:
             import traceback
             traceback.print_exc()
             equipment = checklists = inspections = violations = acts = knowledge = files = settings = audit = documents = None
-            tasks = permits = analytics = notifications = reports = workshop_map = workflow = None
+            tasks = permits = analytics = notifications = reports = alerts = workshop_map = workflow = None
             ai = None
 
 if equipment:
@@ -293,6 +535,8 @@ if notifications:
     app.include_router(notifications.router)
 if reports:
     app.include_router(reports.router)
+if alerts:
+    app.include_router(alerts.router)
 if workflow:
     app.include_router(workflow.router)
 
@@ -330,6 +574,7 @@ async def api_root():
             "permits": "/api/permits",
             "analytics": "/api/analytics",
             "notifications": "/api/notifications",
+            "alerts": "/api/alerts",
             "reports": "/api/reports",
             "ai": "/api/ai",
             "workflow": "/api/workflow"

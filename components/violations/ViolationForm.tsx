@@ -18,6 +18,7 @@ export default function ViolationForm({ violationId, onClose, onSuccess, initial
   const { token } = useAuthStore()
   const { addNotification } = useNotificationStore()
   const [loading, setLoading] = useState(false)
+  const submitLockRef = useRef(false)
   const [generating, setGenerating] = useState(false)
   const isEditing = !!violationId
   const [violationDetails, setViolationDetails] = useState<any | null>(null)
@@ -230,6 +231,10 @@ export default function ViolationForm({ violationId, onClose, onSuccess, initial
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (submitLockRef.current || loading) {
+      return
+    }
+    submitLockRef.current = true
     setLoading(true)
 
     if (!token) {
@@ -336,6 +341,7 @@ export default function ViolationForm({ violationId, onClose, onSuccess, initial
       
       addNotification(errorMessage, 'error')
     } finally {
+      submitLockRef.current = false
       setLoading(false)
     }
   }

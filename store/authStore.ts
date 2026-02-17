@@ -24,11 +24,18 @@ interface User {
 interface AuthState {
   user: User | null
   token: string | null
+  refreshToken: string | null
   isAuthenticated: boolean
   login: (username: string, password: string) => Promise<void>
   register: (username: string, email: string, password: string, fullName?: string) => Promise<void>
   logout: () => void
   fetchUser: () => Promise<void>
+  refreshAccessToken: () => Promise<string>
+}
+
+const parseApiError = (error: any, fallback: string) => {
+  const data = error?.response?.data
+  return data?.error?.message || data?.detail || fallback
 }
 
 const storage = typeof window !== 'undefined'
@@ -44,6 +51,7 @@ export const useAuthStore = create<AuthState>()(
     (set, get) => ({
       user: null,
       token: null,
+      refreshToken: null,
       isAuthenticated: false,
 
       login: async (username: string, password: string) => {
@@ -51,16 +59,16 @@ export const useAuthStore = create<AuthState>()(
           const response = await axios.post(`${API_URL}/api/auth/login`, {
             username,
             password,
-          })
-          const { access_token } = response.data
-          set({ token: access_token, isAuthenticated: true })
+          }, { withCredentials: true })
+          const { access_token, refresh_token } = response.data
+          set({ token: access_token, refreshToken: refresh_token, isAuthenticated: true })
 
           const userResponse = await axios.get(`${API_URL}/api/users/me`, {
             headers: { Authorization: `Bearer ${access_token}` },
           })
           set({ user: userResponse.data })
         } catch (error: any) {
-          throw new Error(error.response?.data?.detail || 'Ошибка входа')
+          throw new Error(parseApiError(error, 'Ошибка входа'))
         }
       },
 
@@ -69,7 +77,31 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
-        set({ user: null, token: null, isAuthenticated: false })
+        const { refreshToken } = get()
+        if (refreshToken) {
+          axios.post(`${API_URL}/api/auth/logout`, { refresh_token: refreshToken }, { withCredentials: true }).catch(() => {})
+        } else {
+          axios.post(`${API_URL}/api/auth/logout`, {}, { withCredentials: true }).catch(() => {})
+        }
+        set({ user: null, token: null, refreshToken: null, isAuthenticated: false })
+      },
+
+      refreshAccessToken: async () => {
+        const { refreshToken } = get()
+        if (!refreshToken) throw new Error('No refresh token')
+
+        const response = await axios.post(
+          `${API_URL}/api/auth/refresh`,
+          { refresh_token: refreshToken },
+          { withCredentials: true }
+        )
+        const { access_token, refresh_token } = response.data
+        set({
+          token: access_token,
+          refreshToken: refresh_token,
+          isAuthenticated: true,
+        })
+        return access_token
       },
 
       fetchUser: async () => {
@@ -81,7 +113,18 @@ export const useAuthStore = create<AuthState>()(
             headers: { Authorization: `Bearer ${token}` },
           })
           set({ user: response.data })
-        } catch (error) {
+        } catch (error: any) {
+          if (error?.response?.status === 401 && get().refreshToken) {
+            try {
+              const newToken = await get().refreshAccessToken()
+              const retryResponse = await axios.get(`${API_URL}/api/users/me`, {
+                headers: { Authorization: `Bearer ${newToken}` },
+              })
+              set({ user: retryResponse.data })
+              return
+            } catch {
+            }
+          }
           get().logout()
         }
       },
@@ -89,7 +132,51 @@ export const useAuthStore = create<AuthState>()(
     {
       name: 'auth-storage',
       storage: storage as any,
-      partialize: (state) => ({ token: state.token, isAuthenticated: state.isAuthenticated }),
+      partialize: (state) => ({ token: state.token, refreshToken: state.refreshToken, isAuthenticated: state.isAuthenticated }),
     }
   )
 )
+
+let refreshPromise: Promise<string> | null = null
+let interceptorsInstalled = false
+
+if (typeof window !== 'undefined' && !interceptorsInstalled) {
+  interceptorsInstalled = true
+  axios.defaults.withCredentials = true
+  axios.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+      const status = error?.response?.status
+      const original = error?.config || {}
+      const url: string = original?.url || ''
+      const isAuthRoute = url.includes('/api/auth/login') || url.includes('/api/auth/refresh')
+
+      if (status !== 401 || original._retry || isAuthRoute) {
+        throw error
+      }
+
+      const auth = useAuthStore.getState()
+      if (!auth.refreshToken) {
+        auth.logout()
+        throw error
+      }
+
+      original._retry = true
+
+      try {
+        if (!refreshPromise) {
+          refreshPromise = auth.refreshAccessToken().finally(() => {
+            refreshPromise = null
+          })
+        }
+        const newToken = await refreshPromise
+        original.headers = original.headers || {}
+        original.headers.Authorization = `Bearer ${newToken}`
+        return axios(original)
+      } catch {
+        useAuthStore.getState().logout()
+        throw error
+      }
+    }
+  )
+}

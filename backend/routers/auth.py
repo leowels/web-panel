@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -6,31 +6,34 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from datetime import datetime, timedelta
 import secrets
+import os
 
-# Поддержка запуска как скрипта и как модуля
+# Support running as module and script
 try:
     from backend.models import User, UserActivity, UserRole, RefreshToken
     from backend.database import get_db
-    from backend.auth import create_access_token, get_current_user
+    from backend.auth import create_access_token, get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
     from backend.utils import verify_password, get_password_hash
 except ImportError:
     from ..models import User, UserActivity, UserRole, RefreshToken
     from ..database import get_db
-    from ..auth import create_access_token, get_current_user
+    from ..auth import create_access_token, get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
     from ..utils import verify_password, get_password_hash
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+
 class UserLogin(BaseModel):
     username: str
     password: str
-    # telegram_user_id: Optional[str] = None  # ВРЕМЕННО ОТКЛЮЧЕНО
+
 
 class UserRegister(BaseModel):
     username: str
     email: EmailStr
     password: str
     full_name: Optional[str] = None
+
 
 class Token(BaseModel):
     access_token: str
@@ -39,8 +42,10 @@ class Token(BaseModel):
     expires_in: int
     user: dict
 
+
 class RefreshTokenRequest(BaseModel):
-    refresh_token: str
+    refresh_token: Optional[str] = None
+
 
 class UserMeResponse(BaseModel):
     id: int
@@ -54,260 +59,283 @@ class UserMeResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
+def _refresh_days() -> int:
+    return int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "14"))
+
+
+def _set_refresh_cookie(response: Response, refresh_token: str):
+    secure_cookie = os.getenv("JWT_COOKIE_SECURE", "false").lower() == "true"
+    same_site = os.getenv("JWT_COOKIE_SAMESITE", "lax")
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=secure_cookie,
+        samesite=same_site,
+        max_age=_refresh_days() * 24 * 60 * 60,
+        path="/",
+    )
+
+
+def _clear_refresh_cookie(response: Response):
+    response.delete_cookie(key="refresh_token", path="/")
+
+
+def _extract_refresh_token(request: Request, token_data: Optional[RefreshTokenRequest]) -> Optional[str]:
+    token_from_body = token_data.refresh_token if token_data else None
+    token_from_cookie = request.cookies.get("refresh_token")
+    return token_from_body or token_from_cookie
+
+
 async def create_refresh_token(user_id: int, db: AsyncSession) -> str:
-    """Создать refresh токен"""
-    # Удаляем старые токены пользователя
-    await db.execute(
-        select(RefreshToken).where(RefreshToken.user_id == user_id)
-    )
-    old_tokens = await db.execute(
-        select(RefreshToken).where(RefreshToken.user_id == user_id)
-    )
+    """Create refresh token and revoke old ones for rotation."""
+    old_tokens = await db.execute(select(RefreshToken).where(RefreshToken.user_id == user_id))
     for token in old_tokens.scalars().all():
-        await db.delete(token)
-    
-    # Создаем новый токен
+        token.is_revoked = True
+
     token_value = secrets.token_urlsafe(32)
-    expires_at = datetime.utcnow() + timedelta(days=30)  # 30 дней
-    
+    expires_at = datetime.utcnow() + timedelta(days=_refresh_days())
+
     refresh_token = RefreshToken(
         token=token_value,
         user_id=user_id,
-        expires_at=expires_at
+        expires_at=expires_at,
+        is_revoked=False,
     )
     db.add(refresh_token)
     await db.flush()
-    
     return token_value
+
 
 @router.post("/login", response_model=Token)
 async def login(
     user_data: UserLogin,
+    response: Response,
     request: Request,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    """Вход в систему (обычный или через Telegram)"""
     import logging
+
     logger = logging.getLogger(__name__)
-    
-    user = None
-    
-    # Обычный вход (Telegram временно отключен)
+
     if not user_data.username or not user_data.password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username and password are required"
+            detail="Username and password are required",
         )
-    
-    logger.info(f"Попытка обычного входа для пользователя: {user_data.username}")
-    
+
+    logger.info("Login attempt for user: %s", user_data.username)
+
     result = await db.execute(
         select(User)
         .options(selectinload(User.roles).selectinload(UserRole.role))
         .where(User.username == user_data.username)
     )
     user = result.scalar_one_or_none()
-    
-    if not user:
-        logger.warning(f"Попытка входа с несуществующим username: {user_data.username}")
+
+    if not user or not verify_password(user_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    if not verify_password(user_data.password, user.hashed_password):
-        logger.warning(f"Неверный пароль для пользователя: {user_data.username}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
+
     if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User is inactive"
-        )
-    
-    # Обновление last_login
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
+
     user.last_login = datetime.utcnow()
-    
-    # Создаем токены
+
     access_token = create_access_token(data={"sub": user.username})
     refresh_token = await create_refresh_token(user.id, db)
-    
-    # Логирование входа
-    login_method = "password"
+    _set_refresh_cookie(response, refresh_token)
+
     activity = UserActivity(
         user_id=user.id,
         action_type="login",
-        description=f"User {user.username} logged in via {login_method}",
+        description=f"User {user.username} logged in via password",
         ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent")
+        user_agent=request.headers.get("user-agent"),
     )
     db.add(activity)
-    
+
     await db.commit()
-    
+
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
-        "expires_in": 3600,  # 1 час
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         "user": {
             "id": user.id,
             "username": user.username,
             "full_name": user.full_name,
-            "email": user.email
-        }
+            "email": user.email,
+        },
     }
+
 
 @router.post("/register", response_model=Token)
 async def register(
     user_data: UserRegister,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    """Регистрация нового пользователя"""
-    # ����������� ���������. ������������ ��������� ���������������.
+    """Registration is disabled. Users are created by admin."""
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail="Registration is disabled"
+        detail="Registration is disabled",
     )
 
-    # Проверка существования
     result = await db.execute(
-        select(User).where(
-            (User.username == user_data.username) | (User.email == user_data.email)
-        )
+        select(User).where((User.username == user_data.username) | (User.email == user_data.email))
     )
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Username or email already registered")
-    
-    # Создание пользователя
+
     new_user = User(
         username=user_data.username,
         email=user_data.email,
         hashed_password=get_password_hash(user_data.password),
         full_name=user_data.full_name,
-        is_active=True
+        is_active=True,
     )
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
-    
-    # Создаем токены
+
     access_token = create_access_token(data={"sub": new_user.username})
     refresh_token = await create_refresh_token(new_user.id, db)
-    
+
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
-        "expires_in": 3600,
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         "user": {
             "id": new_user.id,
             "username": new_user.username,
             "full_name": new_user.full_name,
-            "email": new_user.email
-        }
+            "email": new_user.email,
+        },
     }
+
 
 @router.post("/refresh", response_model=Token)
 async def refresh_token(
-    token_data: RefreshTokenRequest,
-    db: AsyncSession = Depends(get_db)
+    response: Response,
+    request: Request,
+    token_data: Optional[RefreshTokenRequest] = None,
+    db: AsyncSession = Depends(get_db),
 ):
-    """Обновление access токена через refresh токен"""
+    """Refresh access token using body token or HttpOnly cookie."""
     import logging
+
     logger = logging.getLogger(__name__)
-    
-    # Ищем refresh токен
+    refresh_token_value = _extract_refresh_token(request, token_data)
+
+    if not refresh_token_value:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token is required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     result = await db.execute(
         select(RefreshToken)
         .options(selectinload(RefreshToken.user).selectinload(User.roles).selectinload(UserRole.role))
-        .where(RefreshToken.token == token_data.refresh_token)
+        .where(RefreshToken.token == refresh_token_value)
     )
     refresh_token_obj = result.scalar_one_or_none()
-    
+
     if not refresh_token_obj:
-        logger.warning(f"Попытка использования несуществующего refresh токена")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # Проверяем срок действия
+
     if refresh_token_obj.expires_at < datetime.utcnow():
-        logger.warning(f"Попытка использования просроченного refresh токена")
-        await db.delete(refresh_token_obj)
+        refresh_token_obj.is_revoked = True
         await db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token expired",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # Проверяем, не отозван ли токен
+
     if refresh_token_obj.is_revoked:
-        logger.warning(f"Попытка использования отозванного refresh токена")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token revoked",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     user = refresh_token_obj.user
-    
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User is inactive"
-        )
-    
-    # Создаем новые токены
+    if not user or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
+
     new_access_token = create_access_token(data={"sub": user.username})
     new_refresh_token = await create_refresh_token(user.id, db)
-    
-    # Логирование
+    _set_refresh_cookie(response, new_refresh_token)
+
     activity = UserActivity(
         user_id=user.id,
         action_type="token_refresh",
-        description=f"Access token refreshed for user {user.username}"
+        description=f"Access token refreshed for user {user.username}",
     )
     db.add(activity)
-    
+
     await db.commit()
-    
-    logger.info(f"Токены обновлены для пользователя: {user.username}")
-    
+    logger.info("Tokens refreshed for user: %s", user.username)
+
     return {
         "access_token": new_access_token,
         "refresh_token": new_refresh_token,
         "token_type": "bearer",
-        "expires_in": 3600,
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         "user": {
             "id": user.id,
             "username": user.username,
             "full_name": user.full_name,
-            "email": user.email
-        }
+            "email": user.email,
+        },
     }
+
+
+@router.post("/logout")
+async def logout(
+    response: Response,
+    request: Request,
+    token_data: Optional[RefreshTokenRequest] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Logout and revoke current refresh token."""
+    refresh_token_value = _extract_refresh_token(request, token_data)
+
+    if refresh_token_value:
+        result = await db.execute(select(RefreshToken).where(RefreshToken.token == refresh_token_value))
+        token_obj = result.scalar_one_or_none()
+        if token_obj:
+            token_obj.is_revoked = True
+            await db.commit()
+
+    _clear_refresh_cookie(response)
+    return {"status": "ok"}
+
 
 @router.get("/me", response_model=UserMeResponse)
 async def get_current_user_info(
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    """Получить информацию о текущем пользователе"""
+    """Get current user profile."""
     result = await db.execute(
         select(User)
         .options(selectinload(User.roles).selectinload(UserRole.role))
         .where(User.id == current_user.id)
     )
     user = result.scalar_one()
-    
+
     return UserMeResponse(
         id=user.id,
         username=user.username,
@@ -315,8 +343,5 @@ async def get_current_user_info(
         full_name=user.full_name,
         organization=user.organization,
         is_active=user.is_active,
-        roles=[{"id": ur.role.id, "name": ur.role.name} for ur in user.roles]
+        roles=[{"id": ur.role.id, "name": ur.role.name} for ur in user.roles],
     )
-
-
-

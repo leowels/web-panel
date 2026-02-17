@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
@@ -14,10 +14,12 @@ try:
     from backend.models import Inspection, InspectionAnswer, Equipment, ChecklistTemplate, UserActivity, User, Violation
     from backend.database import get_db
     from backend.auth import get_current_user, require_permission
+    from backend.audit import log_audit_event, build_field_changes
 except ImportError:
     from ..models import Inspection, InspectionAnswer, Equipment, ChecklistTemplate, UserActivity, User, Violation
     from ..database import get_db
     from ..auth import get_current_user, require_permission
+    from ..audit import log_audit_event, build_field_changes
 
 router = APIRouter(prefix="/api/inspections", tags=["inspections"])
 
@@ -363,6 +365,7 @@ async def create_inspection(
 async def update_inspection(
     inspection_id: int,
     inspection_data: InspectionUpdate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -384,6 +387,12 @@ async def update_inspection(
     if "admin" not in user_roles and inspection.inspector_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
     
+    before_state = {
+        "status": inspection.status,
+        "notes": inspection.notes,
+        "completed_at": inspection.completed_at.isoformat() if inspection.completed_at else None,
+    }
+
     update_data = inspection_data.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(inspection, field, value)
@@ -395,6 +404,12 @@ async def update_inspection(
         inspection.completed_at = datetime.utcnow()
     
     inspection.updated_at = datetime.utcnow()
+    after_state = {
+        "status": inspection.status,
+        "notes": inspection.notes,
+        "completed_at": inspection.completed_at.isoformat() if inspection.completed_at else None,
+    }
+    field_changes = build_field_changes(before_state, after_state)
     
     # Логирование
     activity = UserActivity(
@@ -405,7 +420,19 @@ async def update_inspection(
         description=f"Updated inspection {inspection.id}"
     )
     db.add(activity)
-    
+
+    if field_changes:
+        await log_audit_event(
+            db,
+            entity_type="inspection",
+            entity_id=inspection.id,
+            action="STATUS_CHANGE" if "status" in field_changes else "UPDATE",
+            field_changes=field_changes,
+            performed_by=current_user.id,
+            source="ui",
+            trace_id=getattr(request.state, "trace_id", None),
+        )
+
     await db.commit()
     await db.refresh(inspection)
     

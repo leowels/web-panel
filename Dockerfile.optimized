@@ -11,7 +11,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # Устанавливаем зависимости (этот слой будет кэшироваться)
-RUN npm ci --only=production --silent
+RUN npm ci --silent
 
 # Копируем исходники
 COPY . .
@@ -50,10 +50,11 @@ WORKDIR /app
 # Минимальные runtime зависимости
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Копируем Python пакеты
-COPY --from=backend-builder /root/.local /root/.local
+COPY --from=backend-builder /root/.local /home/appuser/.local
 
 # Копируем Backend
 COPY backend/ ./backend/
@@ -74,7 +75,9 @@ USER appuser
 # Переменные
 ENV PYTHONUNBUFFERED=1
 ENV NODE_ENV=production
-ENV PATH=/root/.local/bin:$PATH
+ENV PATH=/home/appuser/.local/bin:$PATH
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 
 EXPOSE 3000 8000
 

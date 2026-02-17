@@ -2,7 +2,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func, desc, asc, nullslast, case
 from sqlalchemy.orm import selectinload
-from typing import List, Optional, Union
+from collections import defaultdict
+from typing import Any, List, Optional, Union, Dict
 from datetime import datetime, timedelta
 from pydantic import BaseModel, ValidationError
 import logging
@@ -28,6 +29,22 @@ except ImportError:
     from ..auth import get_current_user, require_permission
 
 router = APIRouter(prefix="/api/equipment", tags=["equipment"])
+
+EXPORT_STATUS_LABELS = {
+    "active": "Активно",
+    "inactive": "Неактивно",
+    "archived": "Архив",
+}
+
+
+def _format_date_ru(value: Optional[datetime]) -> str:
+    if not value:
+        return ""
+    return value.strftime("%d.%m.%Y")
+
+
+def _format_bool_ru(value: Optional[bool]) -> str:
+    return "Да" if bool(value) else "Нет"
 
 DEFAULT_EQUIPMENT_TYPES = [
     "Кран",
@@ -196,6 +213,31 @@ class EquipmentOCRImportRequest(BaseModel):
     file_id: Optional[int] = None
 
 
+class EquipmentRiskResponse(BaseModel):
+    equipment_id: int
+    risk_score: float
+    risk_level: str
+    active_violations: int
+    overdue: int
+    repeat_violations: int
+
+
+class EquipmentRiskTopItem(BaseModel):
+    equipment_id: int
+    passport_number: str
+    equipment_type: str
+    workshop: Optional[str] = None
+    risk_score: float
+    risk_level: str
+    active_violations: int
+    overdue: int
+    repeat_violations: int
+
+
+class EquipmentRiskTopResponse(BaseModel):
+    items: List[EquipmentRiskTopItem]
+
+
 def _equipment_to_response(
     equipment: Equipment,
     violations_open: int = 0,
@@ -296,6 +338,65 @@ def _apply_equipment_sort(query, sort_by: Optional[str], sort_dir: Optional[str]
     if sort_by in ("pto_date", "cto_date", "installation_date"):
         return query.order_by(nullslast(sort_func(sort_col)))
     return query.order_by(sort_func(sort_col))
+
+
+SEVERITY_WEIGHT = {
+    "low": 1.0,
+    "medium": 2.0,
+    "high": 3.0,
+    "critical": 5.0,
+}
+
+
+def _risk_level_from_score(score: float) -> str:
+    if score >= 25:
+        return "critical"
+    if score >= 16:
+        return "high"
+    if score >= 6:
+        return "medium"
+    return "low"
+
+
+def _build_repeat_key(violation: Any) -> str:
+    violation_type = (getattr(violation, "violation_type", None) or "").strip().lower()
+    if violation_type:
+        return f"type:{violation_type}"
+    description = (getattr(violation, "description", None) or "").strip().lower()
+    if description:
+        return f"desc:{description[:120]}"
+    return f"id:{getattr(violation, 'id', 'unknown')}"
+
+
+def _calculate_equipment_risk(violations: List[Any]) -> Dict[str, Any]:
+    now = datetime.utcnow()
+    active_violations = len(violations)
+    overdue = 0
+    weighted_sum = 0.0
+    repeat_counter: Dict[str, int] = defaultdict(int)
+
+    for violation in violations:
+        severity = (getattr(violation, "severity", None) or "medium").lower()
+        weighted_sum += SEVERITY_WEIGHT.get(severity, SEVERITY_WEIGHT["medium"])
+
+        deadline = getattr(violation, "deadline", None)
+        if deadline and deadline < now:
+            overdue += 1
+
+        repeat_key = _build_repeat_key(violation)
+        repeat_counter[repeat_key] += 1
+
+    repeat_violations = sum(count for count in repeat_counter.values() if count > 1)
+    risk_score = weighted_sum + (overdue * 2.0) + (repeat_violations * 1.5)
+    risk_score = round(risk_score, 1)
+
+    return {
+        "risk_score": risk_score,
+        "risk_level": _risk_level_from_score(risk_score),
+        "active_violations": active_violations,
+        "overdue": overdue,
+        "repeat_violations": repeat_violations,
+    }
 
 
 async def _bulk_create_equipment_items(
@@ -598,12 +699,13 @@ async def export_equipment_csv(
     workshop: Optional[str] = None,
     maintenance: Optional[str] = Query(None, regex="^(overdue|due_30|due_60)$"),
     maintenance_scope: Optional[str] = Query("any", regex="^(any|pto|cto)$"),
+    export_format: str = Query("xlsx", alias="format", regex="^(csv|xlsx)$"),
     sort_by: Optional[str] = Query("updated_at", regex="^(updated_at|passport_number|equipment_type|status|pto_date|cto_date|installation_date)$"),
     sort_dir: Optional[str] = Query("desc", regex="^(asc|desc)$"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Р В­Р С”РЎРѓР С—Р С•РЎР‚РЎвЂљ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ Р Р† CSV РЎРѓ РЎС“РЎвЂЎРЎвЂРЎвЂљР С•Р С РЎвЂћР С‘Р В»РЎРЉРЎвЂљРЎР‚Р С•Р Р†."""
+    """Экспорт оборудования в CSV или XLSX c русскими полями и визуальным форматированием."""
     await require_permission(current_user, "equipment:read", db)
 
     filters = _build_equipment_filters(
@@ -623,58 +725,262 @@ async def export_equipment_csv(
     result = await db.execute(query)
     equipment_list = result.scalars().all()
 
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow([
-        "id",
-        "equipment_type",
-        "passport_number",
-        "inventory_number",
-        "position",
-        "workshop",
-        "load_capacity_t",
-        "manufacturer",
-        "installation_date",
-        "pto_date",
-        "cto_date",
-        "installation_location",
-        "rostekhnadzor_registered",
-        "expertise_date",
-        "operation_permit_until",
-        "operation_banned",
-        "epb_positive_details",
-        "status",
-        "updated_at",
-    ])
+    violation_stats: Dict[int, Dict[str, int]] = {}
+    equipment_ids = [eq.id for eq in equipment_list]
+    if equipment_ids:
+        stats_result = await db.execute(
+            select(
+                Violation.equipment_id,
+                func.count(Violation.id).label("total_count"),
+                func.sum(
+                    case((Violation.status != "resolved", 1), else_=0)
+                ).label("open_count"),
+            )
+            .where(Violation.equipment_id.in_(equipment_ids))
+            .group_by(Violation.equipment_id)
+        )
+        for row in stats_result:
+            violation_stats[int(row.equipment_id)] = {
+                "open": int(row.open_count or 0),
+                "total": int(row.total_count or 0),
+            }
 
+    columns = [
+        ("id", "ID"),
+        ("equipment_type", "Тип оборудования"),
+        ("passport_number", "Паспорт"),
+        ("inventory_number", "Инвентарный №"),
+        ("workshop", "Цех"),
+        ("position", "Позиция"),
+        ("status", "Статус"),
+        ("load_capacity", "Грузоподъемность, т"),
+        ("manufacturer", "Производитель"),
+        ("installation_location", "Место установки"),
+        ("installation_date", "Дата ввода"),
+        ("pto_date", "Дата ПТО"),
+        ("cto_date", "Дата ЧТО"),
+        ("rostekhnadzor_registered", "Регистрация в Ростехнадзоре"),
+        ("expertise_date", "Дата экспертизы"),
+        ("operation_permit_until", "Разрешено до"),
+        ("operation_banned", "Запрет эксплуатации"),
+        ("epb_positive_details", "Реквизиты положительной ЭПБ"),
+        ("violations_open", "Нарушений в работе"),
+        ("violations_total", "Нарушений всего"),
+        ("updated_at", "Обновлено"),
+    ]
+
+    rows = []
     for eq in equipment_list:
-        writer.writerow([
-            eq.id,
-            eq.equipment_type or "",
-            eq.passport_number or "",
-            eq.inventory_number or "",
-            eq.position or "",
-            eq.workshop or "",
-            eq.load_capacity if eq.load_capacity is not None else "",
-            eq.manufacturer or "",
-            eq.installation_date.isoformat() if eq.installation_date else "",
-            eq.pto_date.isoformat() if eq.pto_date else "",
-            eq.cto_date.isoformat() if eq.cto_date else "",
-            eq.installation_location or "",
-            "yes" if eq.rostekhnadzor_registered else "no",
-            eq.expertise_date.isoformat() if eq.expertise_date else "",
-            eq.operation_permit_until.isoformat() if eq.operation_permit_until else "",
-            "yes" if eq.operation_banned else "no",
-            eq.epb_positive_details or "",
-            eq.status or "",
-            eq.updated_at.isoformat() if eq.updated_at else "",
-        ])
+        stats = violation_stats.get(eq.id, {"open": 0, "total": 0})
+        rows.append(
+            {
+                "id": eq.id,
+                "equipment_type": eq.equipment_type or "",
+                "passport_number": eq.passport_number or "",
+                "inventory_number": eq.inventory_number or "",
+                "workshop": eq.workshop or "",
+                "position": eq.position or "",
+                "status": EXPORT_STATUS_LABELS.get(eq.status or "", eq.status or ""),
+                "load_capacity": eq.load_capacity if eq.load_capacity is not None else "",
+                "manufacturer": eq.manufacturer or "",
+                "installation_location": eq.installation_location or "",
+                "installation_date": _format_date_ru(eq.installation_date),
+                "pto_date": _format_date_ru(eq.pto_date),
+                "cto_date": _format_date_ru(eq.cto_date),
+                "rostekhnadzor_registered": _format_bool_ru(eq.rostekhnadzor_registered),
+                "expertise_date": _format_date_ru(eq.expertise_date),
+                "operation_permit_until": _format_date_ru(eq.operation_permit_until),
+                "operation_banned": _format_bool_ru(eq.operation_banned),
+                "epb_positive_details": eq.epb_positive_details or "",
+                "violations_open": stats["open"],
+                "violations_total": stats["total"],
+                "updated_at": _format_date_ru(eq.updated_at),
+            }
+        )
 
-    filename = f"equipment_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+
+    if export_format == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output, delimiter=";")
+        writer.writerow([title for _, title in columns])
+        for row in rows:
+            writer.writerow([row[key] for key, _ in columns])
+        filename = f"equipment_{timestamp}.csv"
+        return Response(
+            content=output.getvalue().encode("utf-8-sig"),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Для XLSX-экспорта требуется пакет openpyxl",
+        ) from exc
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Оборудование"
+
+    header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True, size=11)
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    body_alignment = Alignment(vertical="top", wrap_text=True)
+    border = Border(
+        left=Side(style="thin", color="CBD5E1"),
+        right=Side(style="thin", color="CBD5E1"),
+        top=Side(style="thin", color="CBD5E1"),
+        bottom=Side(style="thin", color="CBD5E1"),
+    )
+    even_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+
+    status_fills = {
+        "Активно": PatternFill(start_color="DCFCE7", end_color="DCFCE7", fill_type="solid"),
+        "Неактивно": PatternFill(start_color="FEF3C7", end_color="FEF3C7", fill_type="solid"),
+        "Архив": PatternFill(start_color="E5E7EB", end_color="E5E7EB", fill_type="solid"),
+    }
+
+    for col_idx, (_, title) in enumerate(columns, start=1):
+        cell = sheet.cell(row=1, column=col_idx, value=title)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = border
+
+    widths = [8, 30, 16, 18, 14, 14, 14, 18, 20, 24, 14, 14, 14, 20, 16, 16, 16, 40, 18, 16, 14]
+    for idx, width in enumerate(widths, start=1):
+        sheet.column_dimensions[chr(64 + idx)].width = width
+
+    status_col_idx = [i for i, (key, _) in enumerate(columns, start=1) if key == "status"][0]
+    register_col_idx = [i for i, (key, _) in enumerate(columns, start=1) if key == "rostekhnadzor_registered"][0]
+    ban_col_idx = [i for i, (key, _) in enumerate(columns, start=1) if key == "operation_banned"][0]
+
+    for row_idx, row_data in enumerate(rows, start=2):
+        for col_idx, (key, _) in enumerate(columns, start=1):
+            cell = sheet.cell(row=row_idx, column=col_idx, value=row_data[key])
+            cell.border = border
+            cell.alignment = body_alignment
+            if row_idx % 2 == 0:
+                cell.fill = even_fill
+
+        status_value = row_data["status"]
+        if status_value in status_fills:
+            sheet.cell(row=row_idx, column=status_col_idx).fill = status_fills[status_value]
+
+        register_cell = sheet.cell(row=row_idx, column=register_col_idx)
+        register_cell.fill = PatternFill(
+            start_color="DCFCE7" if row_data["rostekhnadzor_registered"] == "Да" else "FEE2E2",
+            end_color="DCFCE7" if row_data["rostekhnadzor_registered"] == "Да" else "FEE2E2",
+            fill_type="solid",
+        )
+
+        ban_cell = sheet.cell(row=row_idx, column=ban_col_idx)
+        ban_cell.fill = PatternFill(
+            start_color="FEE2E2" if row_data["operation_banned"] == "Да" else "DCFCE7",
+            end_color="FEE2E2" if row_data["operation_banned"] == "Да" else "DCFCE7",
+            fill_type="solid",
+        )
+
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:U{max(2, len(rows) + 1)}"
+
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    filename = f"equipment_{timestamp}.xlsx"
     return Response(
-        content=output.getvalue().encode("utf-8-sig"),
-        media_type="text/csv; charset=utf-8",
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/risk/top", response_model=EquipmentRiskTopResponse)
+async def get_top_risk_equipment(
+    limit: int = Query(5, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Топ оборудования с максимальным risk_score."""
+    await require_permission(current_user, "equipment:read", db)
+
+    equipment_result = await db.execute(
+        select(Equipment).where(Equipment.status != "archived")
+    )
+    equipment_list = equipment_result.scalars().all()
+    if not equipment_list:
+        return EquipmentRiskTopResponse(items=[])
+
+    equipment_ids = [eq.id for eq in equipment_list]
+    violations_result = await db.execute(
+        select(Violation).where(
+            Violation.equipment_id.in_(equipment_ids),
+            Violation.status != "resolved",
+        )
+    )
+    open_violations = violations_result.scalars().all()
+
+    violations_by_equipment: Dict[int, List[Violation]] = defaultdict(list)
+    for violation in open_violations:
+        violations_by_equipment[violation.equipment_id].append(violation)
+
+    items: List[EquipmentRiskTopItem] = []
+    for equipment in equipment_list:
+        metrics = _calculate_equipment_risk(violations_by_equipment.get(equipment.id, []))
+        items.append(
+            EquipmentRiskTopItem(
+                equipment_id=equipment.id,
+                passport_number=equipment.passport_number,
+                equipment_type=equipment.equipment_type,
+                workshop=equipment.workshop,
+                risk_score=metrics["risk_score"],
+                risk_level=metrics["risk_level"],
+                active_violations=metrics["active_violations"],
+                overdue=metrics["overdue"],
+                repeat_violations=metrics["repeat_violations"],
+            )
+        )
+
+    items.sort(key=lambda item: item.risk_score, reverse=True)
+    return EquipmentRiskTopResponse(items=items[:limit])
+
+
+@router.get("/{equipment_id}/risk", response_model=EquipmentRiskResponse)
+async def get_equipment_risk(
+    equipment_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Расчет risk_score для конкретного оборудования."""
+    await require_permission(current_user, "equipment:read", db)
+
+    equipment_result = await db.execute(
+        select(Equipment.id).where(Equipment.id == equipment_id)
+    )
+    if equipment_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Equipment not found")
+
+    violations_result = await db.execute(
+        select(Violation).where(
+            Violation.equipment_id == equipment_id,
+            Violation.status != "resolved",
+        )
+    )
+    open_violations = violations_result.scalars().all()
+    metrics = _calculate_equipment_risk(open_violations)
+
+    return EquipmentRiskResponse(
+        equipment_id=equipment_id,
+        risk_score=metrics["risk_score"],
+        risk_level=metrics["risk_level"],
+        active_violations=metrics["active_violations"],
+        overdue=metrics["overdue"],
+        repeat_violations=metrics["repeat_violations"],
     )
 
 @router.get("/{equipment_id}", response_model=EquipmentResponse)

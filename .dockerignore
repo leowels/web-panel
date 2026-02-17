@@ -1,66 +1,25 @@
-# Dependencies
-node_modules
-npm-debug.log
-yarn-error.log
-.pnp
-.pnp.js
-
-# Testing
-coverage
-.nyc_output
-
-# Next.js
-.next
-out
-build
-dist
-
-# Production
-*.log
-
-# Misc
-.DS_Store
-*.pem
-
-# Debug
-.vscode
-.idea
-
-# Local env files
-.env*.local
-.env
-
-# Python
-__pycache__
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-env/
-ENV/
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Uploads
-uploads/
-backend/uploads/
-
-# Git
-.git
-.gitignore
-
-# Documentation
-*.md
-!README.md
-
-# Docker
-docker-compose*.yml
-.dockerignore
-
-# Scripts (кроме entrypoint)
-*.sh
-!docker-entrypoint.sh
+**/.classpath
+**/.dockerignore
+**/.env
+**/.git
+**/.gitignore
+**/.project
+**/.settings
+**/.toolstarget
+**/.vs
+**/.vscode
+**/*.*proj.user
+**/*.dbmdl
+**/*.jfm
+**/bin
+**/charts
+**/docker-compose*
+**/compose*
+**/Dockerfile*
+**/node_modules
+**/npm-debug.log
+**/obj
+**/secrets.dev.yaml
+**/values.dev.yaml
+LICENSE
+README.md

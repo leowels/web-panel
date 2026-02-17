@@ -1,0 +1,6 @@
+services:
+  webpanel:
+    image: webpanel
+    build:
+      context: .
+      dockerfile: ./Dockerfile.optimized

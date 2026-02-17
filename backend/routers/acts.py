@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
@@ -15,10 +15,12 @@ try:
     from backend.models import Act, ActViolation, Violation, Equipment, Inspection, UserActivity, User
     from backend.database import get_db
     from backend.auth import get_current_user, require_permission
+    from backend.audit import log_audit_event, build_field_changes
 except ImportError:
     from ..models import Act, ActViolation, Violation, Equipment, Inspection, UserActivity, User
     from ..database import get_db
     from ..auth import get_current_user, require_permission
+    from ..audit import log_audit_event, build_field_changes
 
 router = APIRouter(prefix="/api/acts", tags=["acts"])
 
@@ -350,6 +352,7 @@ async def create_act(
 @router.post("/{act_id}/generate", response_model=ActResponse)
 async def generate_act_content(
     act_id: int,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -502,8 +505,16 @@ async def generate_act_content(
             temperature=0.7
         )
         
+        before_state = {
+            "content": act.content,
+            "status": act.status,
+        }
         act.content = ai_content
         act.updated_at = datetime.utcnow()
+        after_state = {
+            "content": act.content,
+            "status": act.status,
+        }
         
         # Логирование
         activity = UserActivity(
@@ -514,7 +525,19 @@ async def generate_act_content(
             description=f"AI-generated content for act {act.act_number}"
         )
         db.add(activity)
-        
+
+        field_changes = build_field_changes(before_state, after_state, tracked_fields=["content", "status"])
+        await log_audit_event(
+            db,
+            entity_type="act",
+            entity_id=act.id,
+            action="UPDATE",
+            field_changes=field_changes,
+            performed_by=current_user.id,
+            source="ai",
+            trace_id=getattr(request.state, "trace_id", None),
+        )
+
         await db.commit()
         await db.refresh(act)
         

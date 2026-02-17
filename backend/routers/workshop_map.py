@@ -20,7 +20,9 @@ except ImportError:
 
 router = APIRouter(prefix="/api/workshop-map", tags=["workshop-map"])
 
-UPLOAD_DIR = "uploads/workshop_maps"
+# Persist workshop map backgrounds outside container layer.
+# You can override with WORKSHOP_MAP_UPLOAD_DIR.
+UPLOAD_DIR = os.getenv("WORKSHOP_MAP_UPLOAD_DIR", "/app/persistent/workshop_maps")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 DEFAULT_DATA = {

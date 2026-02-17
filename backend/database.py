@@ -60,15 +60,40 @@ if DATABASE_URL.startswith("postgresql+asyncpg://") or DATABASE_URL.startswith("
     # Для asyncpg SSL настраивается через connect_args
     # Проверяем, требуется ли SSL (по умолчанию для внешних БД - да)
     ssl_required = os.getenv("POSTGRESQL_SSL", "true").lower() == "true"
+    connect_timeout = float(os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "8"))
+    command_timeout = float(os.getenv("DB_COMMAND_TIMEOUT_SECONDS", "20"))
     if ssl_required:
         import ssl
         # Создаем SSL контекст без проверки сертификата (для self-signed сертификатов)
         ssl_context = ssl.create_default_context()
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
-        connect_args = {"ssl": ssl_context}
+        connect_args = {
+            "ssl": ssl_context,
+            "timeout": connect_timeout,
+            "command_timeout": command_timeout,
+            "server_settings": {"client_encoding": "UTF8"},
+        }
+    else:
+        connect_args = {
+            "timeout": connect_timeout,
+            "command_timeout": command_timeout,
+            "server_settings": {"client_encoding": "UTF8"},
+        }
 
-engine = create_async_engine(DATABASE_URL, echo=False, connect_args=connect_args)
+engine_kwargs = {
+    "echo": False,
+    "connect_args": connect_args,
+    "pool_pre_ping": True,
+    "pool_recycle": int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800")),
+}
+
+if DATABASE_URL.startswith("postgresql+asyncpg://") or DATABASE_URL.startswith("postgresql://"):
+    engine_kwargs["pool_size"] = int(os.getenv("DB_POOL_SIZE", "10"))
+    engine_kwargs["max_overflow"] = int(os.getenv("DB_MAX_OVERFLOW", "20"))
+    engine_kwargs["pool_timeout"] = int(os.getenv("DB_POOL_TIMEOUT_SECONDS", "8"))
+
+engine = create_async_engine(DATABASE_URL, **engine_kwargs)
 async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 async def get_db():
@@ -207,6 +232,146 @@ def _apply_custom_migrations(sync_conn):
             logger.info("? Applied migration: create table violation_sla_rules")
         except Exception as exc:
             logger.warning(f"? Failed to create table violation_sla_rules: {exc}")
+
+    if "audit_logs" not in table_names:
+        try:
+            sync_conn.execute(text(
+                """
+                CREATE TABLE IF NOT EXISTS audit_logs (
+                    id VARCHAR(36) PRIMARY KEY,
+                    entity_type VARCHAR(64) NOT NULL,
+                    entity_id VARCHAR(64) NOT NULL,
+                    action VARCHAR(32) NOT NULL,
+                    field_changes JSON,
+                    performed_by INTEGER,
+                    performed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    source VARCHAR(32) DEFAULT 'ui',
+                    trace_id VARCHAR(36),
+                    FOREIGN KEY(performed_by) REFERENCES users(id)
+                )
+                """
+            ))
+            logger.info("? Applied migration: create table audit_logs")
+        except Exception as exc:
+            logger.warning(f"? Failed to create table audit_logs: {exc}")
+
+    if "alerts" not in table_names:
+        try:
+            id_sql = "SERIAL PRIMARY KEY" if sync_conn.dialect.name != "sqlite" else "INTEGER PRIMARY KEY AUTOINCREMENT"
+            sync_conn.execute(text(
+                f"""
+                CREATE TABLE IF NOT EXISTS alerts (
+                    id {id_sql},
+                    entity_type VARCHAR(50) NOT NULL,
+                    entity_id INTEGER NOT NULL,
+                    type VARCHAR(50) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    acknowledged_at TIMESTAMP
+                )
+                """
+            ))
+            logger.info("? Applied migration: create table alerts")
+        except Exception as exc:
+            logger.warning(f"? Failed to create table alerts: {exc}")
+
+    if "error_events" in table_names:
+        error_event_columns = {col["name"] for col in inspector.get_columns("error_events")}
+        if "code" not in error_event_columns:
+            alter_statements.append("ALTER TABLE error_events ADD COLUMN code VARCHAR(64)")
+        if "message" not in error_event_columns:
+            alter_statements.append("ALTER TABLE error_events ADD COLUMN message TEXT")
+        if "trace_id" not in error_event_columns:
+            alter_statements.append("ALTER TABLE error_events ADD COLUMN trace_id VARCHAR(36)")
+        if "path" not in error_event_columns:
+            alter_statements.append("ALTER TABLE error_events ADD COLUMN path VARCHAR(255)")
+        if "method" not in error_event_columns:
+            alter_statements.append("ALTER TABLE error_events ADD COLUMN method VARCHAR(16)")
+        if "status_code" not in error_event_columns:
+            alter_statements.append("ALTER TABLE error_events ADD COLUMN status_code INTEGER")
+        if "retryable" not in error_event_columns:
+            alter_statements.append("ALTER TABLE error_events ADD COLUMN retryable BOOLEAN DEFAULT FALSE")
+        if "details" not in error_event_columns:
+            alter_statements.append("ALTER TABLE error_events ADD COLUMN details JSON")
+        if "created_at" not in error_event_columns:
+            alter_statements.append("ALTER TABLE error_events ADD COLUMN created_at TIMESTAMP")
+        if "resolved_at" not in error_event_columns:
+            alter_statements.append("ALTER TABLE error_events ADD COLUMN resolved_at TIMESTAMP")
+        if "resolved_by" not in error_event_columns:
+            alter_statements.append("ALTER TABLE error_events ADD COLUMN resolved_by INTEGER")
+
+    if "error_events" not in table_names:
+        try:
+            id_sql = "SERIAL PRIMARY KEY" if sync_conn.dialect.name != "sqlite" else "INTEGER PRIMARY KEY AUTOINCREMENT"
+            sync_conn.execute(text(
+                f"""
+                CREATE TABLE IF NOT EXISTS error_events (
+                    id {id_sql},
+                    code VARCHAR(64) NOT NULL,
+                    message TEXT NOT NULL,
+                    trace_id VARCHAR(36) NOT NULL,
+                    path VARCHAR(255),
+                    method VARCHAR(16),
+                    status_code INTEGER NOT NULL,
+                    retryable BOOLEAN DEFAULT FALSE,
+                    details JSON,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    resolved_at TIMESTAMP,
+                    resolved_by INTEGER,
+                    FOREIGN KEY(resolved_by) REFERENCES users(id)
+                )
+                """
+            ))
+            logger.info("? Applied migration: create table error_events")
+        except Exception as exc:
+            logger.warning(f"? Failed to create table error_events: {exc}")
+
+    try:
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_audit_logs_entity ON audit_logs(entity_type, entity_id)"
+        ))
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_audit_logs_performed_at ON audit_logs(performed_at)"
+        ))
+    except Exception as exc:
+        logger.warning(f"? Failed to create audit_logs indexes: {exc}")
+
+    try:
+        sync_conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_alert_entity_type ON alerts(entity_type, entity_id, type)"
+        ))
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_alerts_created_at ON alerts(created_at)"
+        ))
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_alerts_acknowledged_at ON alerts(acknowledged_at)"
+        ))
+    except Exception as exc:
+        logger.warning(f"? Failed to create alerts indexes: {exc}")
+
+    try:
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_error_events_created_at ON error_events(created_at)"
+        ))
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_error_events_code ON error_events(code)"
+        ))
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_error_events_trace_id ON error_events(trace_id)"
+        ))
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_error_events_status_code ON error_events(status_code)"
+        ))
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_error_events_method ON error_events(method)"
+        ))
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_error_events_path ON error_events(path)"
+        ))
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_error_events_resolved_at ON error_events(resolved_at)"
+        ))
+    except Exception as exc:
+        logger.warning(f"? Failed to create error_events indexes: {exc}")
 
     for stmt in alter_statements:
         try:

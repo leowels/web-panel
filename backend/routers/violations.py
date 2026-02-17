@@ -1,7 +1,7 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import selectinload
@@ -13,15 +13,17 @@ import os
 import csv
 import io
 
-# Поддержка запуска как скрипта и как модуля
+# РџРѕРґРґРµСЂР¶РєР° Р·Р°РїСѓСЃРєР° РєР°Рє СЃРєСЂРёРїС‚Р° Рё РєР°Рє РјРѕРґСѓР»СЏ
 try:
-    from backend.models import Violation, Inspection, Equipment, UserActivity, User, ViolationSLARule
+    from backend.models import Violation, Inspection, Equipment, UserActivity, User, ViolationSLARule, AuditLog
     from backend.database import get_db
     from backend.auth import get_current_user, require_permission
+    from backend.audit import log_audit_event, build_field_changes
 except ImportError:
-    from ..models import Violation, Inspection, Equipment, UserActivity, User, ViolationSLARule
+    from ..models import Violation, Inspection, Equipment, UserActivity, User, ViolationSLARule, AuditLog
     from ..database import get_db
     from ..auth import get_current_user, require_permission
+    from ..audit import log_audit_event, build_field_changes
 
 router = APIRouter(prefix="/api/violations", tags=["violations"])
 
@@ -239,15 +241,27 @@ class ViolationResponse(BaseModel):
         from_attributes = True
 
 class AIGenerateViolationResponse(BaseModel):
-    """Ответ с информацией о сгенерированном нарушении и использованных документах"""
+    """РћС‚РІРµС‚ СЃ РёРЅС„РѕСЂРјР°С†РёРµР№ Рѕ СЃРіРµРЅРµСЂРёСЂРѕРІР°РЅРЅРѕРј РЅР°СЂСѓС€РµРЅРёРё Рё РёСЃРїРѕР»СЊР·РѕРІР°РЅРЅС‹С… РґРѕРєСѓРјРµРЅС‚Р°С…"""
     violation: ViolationResponse
-    used_documents: List[dict] = []  # Список документов из базы знаний, которые были использованы
+    used_documents: List[dict] = []  # РЎРїРёСЃРѕРє РґРѕРєСѓРјРµРЅС‚РѕРІ РёР· Р±Р°Р·С‹ Р·РЅР°РЅРёР№, РєРѕС‚РѕСЂС‹Рµ Р±С‹Р»Рё РёСЃРїРѕР»СЊР·РѕРІР°РЅС‹
 
 class AIGenerateViolationRequest(BaseModel):
     inspection_id: Optional[int] = None
     equipment_id: int
-    violation_type: str  # Тип нарушения (краткое описание от пользователя)
+    violation_type: str  # РўРёРї РЅР°СЂСѓС€РµРЅРёСЏ (РєСЂР°С‚РєРѕРµ РѕРїРёСЃР°РЅРёРµ РѕС‚ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ)
     context: Optional[str] = None
+
+
+class AuditEventResponse(BaseModel):
+    id: str
+    entity_type: str
+    entity_id: str
+    action: str
+    field_changes: Optional[Dict[str, Any]] = None
+    performed_by: Optional[int] = None
+    performed_at: datetime
+    source: str
+    trace_id: Optional[str] = None
 
 class ViolationBulkCreate(BaseModel):
     equipment_ids: List[int]
@@ -320,7 +334,7 @@ async def get_violations(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получить список нарушений"""
+    """РџРѕР»СѓС‡РёС‚СЊ СЃРїРёСЃРѕРє РЅР°СЂСѓС€РµРЅРёР№"""
     await require_permission(current_user, "violations:read", db)
     
     query = select(Violation).options(selectinload(Violation.equipment))
@@ -367,10 +381,11 @@ async def export_violations(
     inspection_id: Optional[int] = None,
     status: Optional[str] = None,
     severity: Optional[str] = None,
+    export_format: str = Query("xlsx", alias="format", regex="^(csv|xlsx)$"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Экспорт нарушений в CSV"""
+    """Экспорт нарушений в CSV или XLSX."""
     await require_permission(current_user, "violations:read", db)
 
     query = select(Violation).options(selectinload(Violation.equipment))
@@ -387,57 +402,166 @@ async def export_violations(
     result = await db.execute(query.order_by(Violation.created_at.desc()))
     violations = result.scalars().all()
 
-    output = io.StringIO()
-    writer = csv.writer(output, delimiter=';', quoting=csv.QUOTE_MINIMAL)
-    writer.writerow([
-        "id",
-        "created_at",
-        "status",
-        "severity",
-        "equipment_passport",
-        "equipment_position",
-        "workshop",
-        "description",
-        "fnp_clause",
-        "gost_clause",
-        "deadline",
-    ])
+    status_map = {
+        "resolved": "Устранено",
+        "open": "В работе",
+        "in_progress": "В работе",
+    }
+    severity_map = {
+        "critical": "Критическое",
+        "high": "Высокое",
+        "medium": "Среднее",
+        "low": "Низкое",
+    }
 
+    def _format_date_ru(value: Optional[datetime]) -> str:
+        if not value:
+            return ""
+        return value.strftime("%d.%m.%Y")
+
+    columns = [
+        ("id", "ID"),
+        ("created_at", "Дата создания"),
+        ("status", "Статус"),
+        ("severity", "Критичность"),
+        ("equipment_passport", "Паспорт оборудования"),
+        ("equipment_position", "Позиция"),
+        ("workshop", "Цех"),
+        ("description", "Описание нарушения"),
+        ("fnp_clause", "Пункт ФНП"),
+        ("gost_clause", "Пункт ГОСТ"),
+        ("deadline", "Срок устранения"),
+        ("is_overdue", "Просрочено"),
+    ]
+
+    rows = []
     for violation in violations:
         equipment = getattr(violation, "equipment", None)
-        writer.writerow([
-            violation.id,
-            violation.created_at.isoformat() if violation.created_at else "",
-            violation.status,
-            violation.severity,
-            equipment.passport_number if equipment else "",
-            equipment.position if equipment else "",
-            equipment.workshop if equipment else "",
-            violation.description.replace("\n", " ") if violation.description else "",
-            violation.fnp_clause or "",
-            violation.gost_clause or "",
-            violation.deadline.isoformat() if violation.deadline else "",
-        ])
+        rows.append({
+            "id": violation.id,
+            "created_at": _format_date_ru(violation.created_at),
+            "status": status_map.get(violation.status, violation.status or ""),
+            "severity": severity_map.get(violation.severity, violation.severity or ""),
+            "equipment_passport": equipment.passport_number if equipment else "",
+            "equipment_position": equipment.position if equipment else "",
+            "workshop": equipment.workshop if equipment else "",
+            "description": violation.description.replace("\n", " ") if violation.description else "",
+            "fnp_clause": violation.fnp_clause or "",
+            "gost_clause": violation.gost_clause or "",
+            "deadline": _format_date_ru(violation.deadline),
+            "is_overdue": "Да" if violation.is_overdue else "Нет",
+        })
 
-    output.seek(0)
-    filename = f"violations_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
-    headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"',
-        "Content-Type": "text/csv; charset=utf-8",
-    }
-    return StreamingResponse(
-        iter([output.getvalue().encode("utf-8-sig")]),
-        media_type="text/csv",
-        headers=headers,
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+
+    if export_format == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+        writer.writerow([title for _, title in columns])
+        for row in rows:
+            writer.writerow([row[key] for key, _ in columns])
+        filename = f"violations_{timestamp}.csv"
+        return Response(
+            content=output.getvalue().encode("utf-8-sig"),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Для XLSX-экспорта требуется пакет openpyxl",
+        ) from exc
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Нарушения"
+
+    header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True, size=11)
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    body_alignment = Alignment(vertical="top", wrap_text=True)
+    border = Border(
+        left=Side(style="thin", color="CBD5E1"),
+        right=Side(style="thin", color="CBD5E1"),
+        top=Side(style="thin", color="CBD5E1"),
+        bottom=Side(style="thin", color="CBD5E1"),
     )
+    even_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
 
+    status_fills = {
+        "Устранено": PatternFill(start_color="DCFCE7", end_color="DCFCE7", fill_type="solid"),
+        "В работе": PatternFill(start_color="FEF3C7", end_color="FEF3C7", fill_type="solid"),
+    }
+    severity_fills = {
+        "Критическое": PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid"),
+        "Высокое": PatternFill(start_color="FFEDD5", end_color="FFEDD5", fill_type="solid"),
+        "Среднее": PatternFill(start_color="FEF3C7", end_color="FEF3C7", fill_type="solid"),
+        "Низкое": PatternFill(start_color="DBEAFE", end_color="DBEAFE", fill_type="solid"),
+    }
+
+    for col_idx, (_, title) in enumerate(columns, start=1):
+        cell = sheet.cell(row=1, column=col_idx, value=title)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = border
+
+    widths = [8, 14, 14, 14, 22, 16, 14, 46, 16, 16, 16, 12]
+    for idx, width in enumerate(widths, start=1):
+        letter = chr(64 + idx)
+        sheet.column_dimensions[letter].width = width
+
+    status_col_idx = [i for i, (key, _) in enumerate(columns, start=1) if key == "status"][0]
+    severity_col_idx = [i for i, (key, _) in enumerate(columns, start=1) if key == "severity"][0]
+    overdue_col_idx = [i for i, (key, _) in enumerate(columns, start=1) if key == "is_overdue"][0]
+
+    for row_idx, row_data in enumerate(rows, start=2):
+        for col_idx, (key, _) in enumerate(columns, start=1):
+            cell = sheet.cell(row=row_idx, column=col_idx, value=row_data[key])
+            cell.border = border
+            cell.alignment = body_alignment
+            if row_idx % 2 == 0:
+                cell.fill = even_fill
+
+        status_cell = sheet.cell(row=row_idx, column=status_col_idx)
+        if row_data["status"] in status_fills:
+            status_cell.fill = status_fills[row_data["status"]]
+
+        severity_cell = sheet.cell(row=row_idx, column=severity_col_idx)
+        if row_data["severity"] in severity_fills:
+            severity_cell.fill = severity_fills[row_data["severity"]]
+
+        overdue_cell = sheet.cell(row=row_idx, column=overdue_col_idx)
+        overdue_cell.fill = PatternFill(
+            start_color="FEE2E2" if row_data["is_overdue"] == "Да" else "DCFCE7",
+            end_color="FEE2E2" if row_data["is_overdue"] == "Да" else "DCFCE7",
+            fill_type="solid",
+        )
+
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:L{max(2, len(rows) + 1)}"
+
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    filename = f"violations_{timestamp}.xlsx"
+    return Response(
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 @router.get("/{violation_id}", response_model=ViolationResponse)
 async def get_violation(
     violation_id: int,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получить нарушение по ID"""
+    """РџРѕР»СѓС‡РёС‚СЊ РЅР°СЂСѓС€РµРЅРёРµ РїРѕ ID"""
     await require_permission(current_user, "violations:read", db)
     
     result = await db.execute(
@@ -452,16 +576,47 @@ async def get_violation(
     await _update_overdue_flags(db, [violation])
     return _violation_to_response(violation)
 
+
+@router.get("/{violation_id}/audit", response_model=List[AuditEventResponse])
+async def get_violation_audit_history(
+    violation_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await require_permission(current_user, "violations:read", db)
+
+    result = await db.execute(
+        select(AuditLog)
+        .where(AuditLog.entity_type == "violation", AuditLog.entity_id == str(violation_id))
+        .order_by(AuditLog.performed_at.desc())
+    )
+    rows = result.scalars().all()
+    return [
+        AuditEventResponse(
+            id=row.id,
+            entity_type=row.entity_type,
+            entity_id=row.entity_id,
+            action=row.action,
+            field_changes=row.field_changes,
+            performed_by=row.performed_by,
+            performed_at=row.performed_at,
+            source=row.source,
+            trace_id=row.trace_id,
+        )
+        for row in rows
+    ]
+
 @router.post("", response_model=ViolationResponse, status_code=status.HTTP_201_CREATED)
 async def create_violation(
     violation_data: ViolationCreate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Создать новое нарушение"""
+    """РЎРѕР·РґР°С‚СЊ РЅРѕРІРѕРµ РЅР°СЂСѓС€РµРЅРёРµ"""
     await require_permission(current_user, "violations:create", db)
     
-    # Проверка существования оборудования
+    # РџСЂРѕРІРµСЂРєР° СЃСѓС‰РµСЃС‚РІРѕРІР°РЅРёСЏ РѕР±РѕСЂСѓРґРѕРІР°РЅРёСЏ
     eq_result = await db.execute(select(Equipment).where(Equipment.id == violation_data.equipment_id))
     equipment = eq_result.scalar_one_or_none()
     if not equipment:
@@ -499,7 +654,7 @@ async def create_violation(
     if not new_violation.deadline:
         await _apply_sla_deadline(db, new_violation)
     
-    # Логирование
+    # Р›РѕРіРёСЂРѕРІР°РЅРёРµ
     activity = UserActivity(
         user_id=current_user.id,
         action_type="create",
@@ -508,7 +663,23 @@ async def create_violation(
         description=f"Created violation for equipment {violation_data.equipment_id}"
     )
     db.add(activity)
-    
+
+    await log_audit_event(
+        db,
+        entity_type="violation",
+        entity_id=new_violation.id,
+        action="CREATE",
+        field_changes={
+            "status": {"old": None, "new": new_violation.status},
+            "severity": {"old": None, "new": new_violation.severity},
+            "deadline": {"old": None, "new": new_violation.deadline.isoformat() if new_violation.deadline else None},
+            "description": {"old": None, "new": new_violation.description},
+        },
+        performed_by=current_user.id,
+        source=(new_violation.source or "ui"),
+        trace_id=getattr(request.state, "trace_id", None),
+    )
+
     await db.commit()
     await db.refresh(new_violation)
     new_violation.equipment = equipment
@@ -522,7 +693,7 @@ async def bulk_create_violations(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Массовое создание нарушений для нескольких ПС"""
+    """РњР°СЃСЃРѕРІРѕРµ СЃРѕР·РґР°РЅРёРµ РЅР°СЂСѓС€РµРЅРёР№ РґР»СЏ РЅРµСЃРєРѕР»СЊРєРёС… РџРЎ"""
     await require_permission(current_user, "violations:create", db)
 
     if not payload.equipment_ids:
@@ -596,7 +767,7 @@ async def bulk_update_violation_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Массовое изменение статусов нарушений"""
+    """РњР°СЃСЃРѕРІРѕРµ РёР·РјРµРЅРµРЅРёРµ СЃС‚Р°С‚СѓСЃРѕРІ РЅР°СЂСѓС€РµРЅРёР№"""
     await require_permission(current_user, "violations:update", db)
 
     if not payload.violation_ids:
@@ -630,7 +801,7 @@ async def bulk_update_violation_status(
                 violation.resolved_at = None
                 violation.resolved_by = None
 
-            # Логирование
+            # Р›РѕРіРёСЂРѕРІР°РЅРёРµ
             activity = UserActivity(
                 user_id=current_user.id,
                 action_type="update",
@@ -771,138 +942,142 @@ async def apply_sla_to_violations(
 @router.post("/ai/generate", response_model=AIGenerateViolationResponse)
 async def generate_violation_ai(
     request: AIGenerateViolationRequest,
+    http_request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Генерация нарушения через ИИ"""
+    """Р“РµРЅРµСЂР°С†РёСЏ РЅР°СЂСѓС€РµРЅРёСЏ С‡РµСЂРµР· РР"""
     await require_permission(current_user, "violations:create", db)
     
     import logging
     logger = logging.getLogger(__name__)
     
     try:
-        # Используем универсальный AI клиент
+        # РСЃРїРѕР»СЊР·СѓРµРј СѓРЅРёРІРµСЂСЃР°Р»СЊРЅС‹Р№ AI РєР»РёРµРЅС‚
         try:
-            from backend.ai_client import get_ai_client_async
+            from backend.ai_client import get_ai_client_async, AITemporarilyUnavailableError
         except ImportError:
-            from ai_client import get_ai_client_async
+            from ai_client import get_ai_client_async, AITemporarilyUnavailableError
         
-        # Загружаем настройки из БД
-        logger.info(f"Загрузка AI клиента для пользователя {current_user.id}")
+        # Р—Р°РіСЂСѓР¶Р°РµРј РЅР°СЃС‚СЂРѕР№РєРё РёР· Р‘Р”
+        logger.info(f"Р—Р°РіСЂСѓР·РєР° AI РєР»РёРµРЅС‚Р° РґР»СЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ {current_user.id}")
         ai_client = await get_ai_client_async(db)
         if not ai_client:
-            logger.error("AI клиент не настроен")
+            logger.error("AI РєР»РёРµРЅС‚ РЅРµ РЅР°СЃС‚СЂРѕРµРЅ")
             raise HTTPException(
                 status_code=400, 
-                detail="AI не настроен. Перейдите в раздел 'Настройки' -> 'Системные настройки' и настройте AI провайдера."
+                detail="AI РЅРµ РЅР°СЃС‚СЂРѕРµРЅ. РџРµСЂРµР№РґРёС‚Рµ РІ СЂР°Р·РґРµР» 'РќР°СЃС‚СЂРѕР№РєРё' -> 'РЎРёСЃС‚РµРјРЅС‹Рµ РЅР°СЃС‚СЂРѕР№РєРё' Рё РЅР°СЃС‚СЂРѕР№С‚Рµ AI РїСЂРѕРІР°Р№РґРµСЂР°."
             )
         
-        logger.info(f"AI клиент загружен, провайдер: {ai_client.provider}")
+        logger.info(f"AI РєР»РёРµРЅС‚ Р·Р°РіСЂСѓР¶РµРЅ, РїСЂРѕРІР°Р№РґРµСЂ: {ai_client.provider}")
         
-        # Получение информации об оборудовании
+        # РџРѕР»СѓС‡РµРЅРёРµ РёРЅС„РѕСЂРјР°С†РёРё РѕР± РѕР±РѕСЂСѓРґРѕРІР°РЅРёРё
         eq_result = await db.execute(select(Equipment).where(Equipment.id == request.equipment_id))
         equipment = eq_result.scalar_one_or_none()
         if not equipment:
-            logger.error(f"Оборудование с ID {request.equipment_id} не найдено")
+            logger.error(f"РћР±РѕСЂСѓРґРѕРІР°РЅРёРµ СЃ ID {request.equipment_id} РЅРµ РЅР°Р№РґРµРЅРѕ")
             raise HTTPException(status_code=404, detail="Equipment not found")
         
-        logger.info(f"Генерация нарушения для оборудования {equipment.id}")
+        logger.info(f"Р“РµРЅРµСЂР°С†РёСЏ РЅР°СЂСѓС€РµРЅРёСЏ РґР»СЏ РѕР±РѕСЂСѓРґРѕРІР°РЅРёСЏ {equipment.id}")
         
-        # Получаем релевантную информацию из базы знаний
+        # РџРѕР»СѓС‡Р°РµРј СЂРµР»РµРІР°РЅС‚РЅСѓСЋ РёРЅС„РѕСЂРјР°С†РёСЋ РёР· Р±Р°Р·С‹ Р·РЅР°РЅРёР№
         knowledge_context = ""
-        used_documents = []  # Список использованных документов для ответа
+        used_documents = []  # РЎРїРёСЃРѕРє РёСЃРїРѕР»СЊР·РѕРІР°РЅРЅС‹С… РґРѕРєСѓРјРµРЅС‚РѕРІ РґР»СЏ РѕС‚РІРµС‚Р°
+        has_knowledge_sources = False
         try:
             try:
                 from backend.models import KnowledgeBase
             except ImportError:
                 from ..models import KnowledgeBase
             
-            # ПРИОРИТЕТ: Сначала ищем документы ФНП 461 и ГОСТ
-            # Ищем по типу нарушения и типу оборудования
+            # РџР РРћР РРўР•Рў: РЎРЅР°С‡Р°Р»Р° РёС‰РµРј Р¤РќРџ 461/Р“РћРЎРў, Р·Р°С‚РµРј Р»СЋР±С‹Рµ РґРѕРєСѓРјРµРЅС‚С‹.
+            # Р’Р°Р¶РЅРѕ: РґРѕРєСѓРјРµРЅС‚С‹ РјРѕРіСѓС‚ Р±С‹С‚СЊ Р·Р°РіСЂСѓР¶РµРЅС‹ РєР°Рє "other"/"manual", РїРѕСЌС‚РѕРјСѓ РґРµР»Р°РµРј РєР°СЃРєР°РґРЅС‹Р№ РїРѕРёСЃРє.
             search_terms = [
-                request.violation_type.lower(),  # Тип нарушения от пользователя
-                equipment.equipment_type.lower(),
-                request.context.lower() if request.context else ""
+                (request.violation_type or "").strip().lower(),
+                (equipment.equipment_type or "").strip().lower(),
+                (request.context or "").strip().lower(),
             ]
-            
-            # Сначала ищем ФНП 461 и ГОСТ документы
+            search_terms = [term for term in search_terms if term and len(term) >= 2]
+
+            def build_search_conditions(include_clause_number: bool = True):
+                conditions = []
+                for term in search_terms:
+                    term_filters = [
+                        KnowledgeBase.title.ilike(f"%{term}%"),
+                        KnowledgeBase.content.ilike(f"%{term}%"),
+                        KnowledgeBase.section.ilike(f"%{term}%"),
+                    ]
+                    if include_clause_number:
+                        term_filters.append(KnowledgeBase.clause_number.ilike(f"%{term}%"))
+                    conditions.append(or_(*term_filters))
+                return conditions
+
             fnp_gost_query = select(KnowledgeBase).where(
                 KnowledgeBase.document_type.in_(["fnp461", "gost"])
-            ).limit(10)
-            
-            # Добавляем условия поиска по содержимому
-            fnp_conditions = []
-            for term in search_terms:
-                if term and term.strip():
-                    fnp_conditions.append(
-                        or_(
-                            KnowledgeBase.title.ilike(f"%{term}%"),
-                            KnowledgeBase.content.ilike(f"%{term}%"),
-                            KnowledgeBase.section.ilike(f"%{term}%"),
-                            KnowledgeBase.clause_number.ilike(f"%{term}%")
-                        )
-                    )
-            
+            )
+            fnp_conditions = build_search_conditions(include_clause_number=True)
             if fnp_conditions:
                 fnp_gost_query = fnp_gost_query.where(or_(*fnp_conditions))
-            
+            fnp_gost_query = fnp_gost_query.limit(10)
+
             result = await db.execute(fnp_gost_query)
             knowledge_items = result.scalars().all()
-            
-            # Если не нашли ФНП/ГОСТ, ищем любые документы
+
+            # 2) Р•СЃР»Рё РЅРµС‚ Р¤РќРџ/Р“РћРЎРў - Р±РµСЂРµРј Р»СЋР±РѕР№ С‚РёРї РґРѕРєСѓРјРµРЅС‚Р° СЃ С‚РµРјРё Р¶Рµ С‚РµСЂРјРёРЅР°РјРё.
             if not knowledge_items:
-                logger.info("ФНП/ГОСТ документы не найдены, ищем любые документы")
-                general_query = select(KnowledgeBase).limit(10)
-                general_conditions = []
-                for term in search_terms:
-                    if term and term.strip():
-                        general_conditions.append(
-                            or_(
-                                KnowledgeBase.title.ilike(f"%{term}%"),
-                                KnowledgeBase.content.ilike(f"%{term}%"),
-                                KnowledgeBase.section.ilike(f"%{term}%")
-                            )
-                        )
+                logger.info("Р РµР»РµРІР°РЅС‚РЅС‹Рµ Р¤РќРџ/Р“РћРЎРў РЅРµ РЅР°Р№РґРµРЅС‹, РёС‰РµРј РІСЃРµ С‚РёРїС‹ РґРѕРєСѓРјРµРЅС‚РѕРІ")
+                general_query = select(KnowledgeBase)
+                general_conditions = build_search_conditions(include_clause_number=False)
                 if general_conditions:
                     general_query = general_query.where(or_(*general_conditions))
+                general_query = general_query.limit(10)
                 result = await db.execute(general_query)
+                knowledge_items = result.scalars().all()
+
+            # 3) РџРѕСЃР»РµРґРЅРёР№ fallback: РµСЃР»Рё РїРѕ РєР»СЋС‡РµРІС‹Рј СЃР»РѕРІР°Рј РЅРёС‡РµРіРѕ РЅРµ РЅР°С€Р»Рё,
+            # РІСЃРµ СЂР°РІРЅРѕ РїРµСЂРµРґР°РµРј РІ РР С‡Р°СЃС‚СЊ Р±Р°Р·С‹ Р·РЅР°РЅРёР№, С‡С‚РѕР±С‹ РЅРµ Р±С‹Р»Рѕ Р»РѕР¶РЅРѕРіРѕ "Р±Р°Р·Р° РїСѓСЃС‚Р°".
+            if not knowledge_items:
+                logger.info("РџРѕ РєР»СЋС‡РµРІС‹Рј СЃР»РѕРІР°Рј РЅРµС‚ СЃРѕРІРїР°РґРµРЅРёР№, Р±РµСЂРµРј РїРѕСЃР»РµРґРЅРёРµ РґРѕРєСѓРјРµРЅС‚С‹ РёР· Р±Р°Р·С‹")
+                fallback_query = select(KnowledgeBase).order_by(KnowledgeBase.updated_at.desc()).limit(10)
+                result = await db.execute(fallback_query)
                 knowledge_items = result.scalars().all()
             
             if knowledge_items:
-                knowledge_context = "\n\n=== РЕЛЕВАНТНАЯ ДОКУМЕНТАЦИЯ ИЗ БАЗЫ ЗНАНИЙ ===\n"
-                logger.info(f"Найдено {len(knowledge_items)} документов в базе знаний")
+                has_knowledge_sources = True
+                knowledge_context = "\n\n=== Р Р•Р›Р•Р’РђРќРўРќРђРЇ Р”РћРљРЈРњР•РќРўРђР¦РРЇ РР— Р‘РђР—Р« Р—РќРђРќРР™ ===\n"
+                logger.info(f"РќР°Р№РґРµРЅРѕ {len(knowledge_items)} РґРѕРєСѓРјРµРЅС‚РѕРІ РІ Р±Р°Р·Рµ Р·РЅР°РЅРёР№")
                 
-                # Функция для умного извлечения релевантных частей документа
+                # Р¤СѓРЅРєС†РёСЏ РґР»СЏ СѓРјРЅРѕРіРѕ РёР·РІР»РµС‡РµРЅРёСЏ СЂРµР»РµРІР°РЅС‚РЅС‹С… С‡Р°СЃС‚РµР№ РґРѕРєСѓРјРµРЅС‚Р°
                 def extract_relevant_content(content: str, search_terms: list, max_length: int = 10000) -> str:
-                    """Извлекает релевантные части документа вокруг ключевых слов"""
+                    """РР·РІР»РµРєР°РµС‚ СЂРµР»РµРІР°РЅС‚РЅС‹Рµ С‡Р°СЃС‚Рё РґРѕРєСѓРјРµРЅС‚Р° РІРѕРєСЂСѓРі РєР»СЋС‡РµРІС‹С… СЃР»РѕРІ"""
                     if not search_terms or not any(term.strip() for term in search_terms):
-                        # Если нет поисковых терминов, берем начало документа
+                        # Р•СЃР»Рё РЅРµС‚ РїРѕРёСЃРєРѕРІС‹С… С‚РµСЂРјРёРЅРѕРІ, Р±РµСЂРµРј РЅР°С‡Р°Р»Рѕ РґРѕРєСѓРјРµРЅС‚Р°
                         return content[:max_length] + ("..." if len(content) > max_length else "")
                     
                     content_lower = content.lower()
                     relevant_parts = []
                     used_positions = set()
                     
-                    # Ищем вхождения каждого термина
+                    # РС‰РµРј РІС…РѕР¶РґРµРЅРёСЏ РєР°Р¶РґРѕРіРѕ С‚РµСЂРјРёРЅР°
                     for term in search_terms:
                         if not term or not term.strip():
                             continue
                         term_lower = term.lower().strip()
-                        if len(term_lower) < 3:  # Пропускаем слишком короткие термины
+                        if len(term_lower) < 3:  # РџСЂРѕРїСѓСЃРєР°РµРј СЃР»РёС€РєРѕРј РєРѕСЂРѕС‚РєРёРµ С‚РµСЂРјРёРЅС‹
                             continue
                         
-                        # Ищем все вхождения термина
+                        # РС‰РµРј РІСЃРµ РІС…РѕР¶РґРµРЅРёСЏ С‚РµСЂРјРёРЅР°
                         start = 0
                         while True:
                             pos = content_lower.find(term_lower, start)
                             if pos == -1:
                                 break
                             
-                            # Извлекаем контекст вокруг найденного термина (2000 символов до и после)
+                            # РР·РІР»РµРєР°РµРј РєРѕРЅС‚РµРєСЃС‚ РІРѕРєСЂСѓРі РЅР°Р№РґРµРЅРЅРѕРіРѕ С‚РµСЂРјРёРЅР° (2000 СЃРёРјРІРѕР»РѕРІ РґРѕ Рё РїРѕСЃР»Рµ)
                             context_start = max(0, pos - 2000)
                             context_end = min(len(content), pos + len(term_lower) + 2000)
                             
-                            # Проверяем, не пересекается ли с уже использованными частями
+                            # РџСЂРѕРІРµСЂСЏРµРј, РЅРµ РїРµСЂРµСЃРµРєР°РµС‚СЃСЏ Р»Рё СЃ СѓР¶Рµ РёСЃРїРѕР»СЊР·РѕРІР°РЅРЅС‹РјРё С‡Р°СЃС‚СЏРјРё
                             overlap = False
                             for used_start, used_end in used_positions:
                                 if not (context_end < used_start or context_start > used_end):
@@ -915,25 +1090,25 @@ async def generate_violation_ai(
                             
                             start = pos + 1
                             
-                            # Ограничиваем количество найденных вхождений
+                            # РћРіСЂР°РЅРёС‡РёРІР°РµРј РєРѕР»РёС‡РµСЃС‚РІРѕ РЅР°Р№РґРµРЅРЅС‹С… РІС…РѕР¶РґРµРЅРёР№
                             if len(relevant_parts) >= 5:
                                 break
                     
                     if relevant_parts:
-                        # Сортируем по позиции и объединяем
+                        # РЎРѕСЂС‚РёСЂСѓРµРј РїРѕ РїРѕР·РёС†РёРё Рё РѕР±СЉРµРґРёРЅСЏРµРј
                         relevant_parts.sort()
                         result_parts = []
                         current_start, current_end = relevant_parts[0]
                         
                         for start, end in relevant_parts[1:]:
-                            if start <= current_end + 500:  # Объединяем близкие части
+                            if start <= current_end + 500:  # РћР±СЉРµРґРёРЅСЏРµРј Р±Р»РёР·РєРёРµ С‡Р°СЃС‚Рё
                                 current_end = max(current_end, end)
                             else:
                                 result_parts.append((current_start, current_end))
                                 current_start, current_end = start, end
                         result_parts.append((current_start, current_end))
                         
-                        # Объединяем части
+                        # РћР±СЉРµРґРёРЅСЏРµРј С‡Р°СЃС‚Рё
                         extracted = []
                         for start, end in result_parts:
                             part = content[start:end]
@@ -944,41 +1119,41 @@ async def generate_violation_ai(
                                 extracted.append("...")
                         
                         result = "".join(extracted)
-                        # Ограничиваем общую длину
+                        # РћРіСЂР°РЅРёС‡РёРІР°РµРј РѕР±С‰СѓСЋ РґР»РёРЅСѓ
                         if len(result) > max_length:
-                            result = result[:max_length] + "\n[Документ продолжается, показаны релевантные части]"
+                            result = result[:max_length] + "\n[Р”РѕРєСѓРјРµРЅС‚ РїСЂРѕРґРѕР»Р¶Р°РµС‚СЃСЏ, РїРѕРєР°Р·Р°РЅС‹ СЂРµР»РµРІР°РЅС‚РЅС‹Рµ С‡Р°СЃС‚Рё]"
                         return result
                     else:
-                        # Если не нашли релевантных частей, берем начало документа
+                        # Р•СЃР»Рё РЅРµ РЅР°С€Р»Рё СЂРµР»РµРІР°РЅС‚РЅС‹С… С‡Р°СЃС‚РµР№, Р±РµСЂРµРј РЅР°С‡Р°Р»Рѕ РґРѕРєСѓРјРµРЅС‚Р°
                         return content[:max_length] + ("..." if len(content) > max_length else "")
                 
-                # Обрабатываем документы
-                for item in knowledge_items[:15]:  # Увеличиваем до 15 документов
+                # РћР±СЂР°Р±Р°С‚С‹РІР°РµРј РґРѕРєСѓРјРµРЅС‚С‹
+                for item in knowledge_items[:15]:  # РЈРІРµР»РёС‡РёРІР°РµРј РґРѕ 15 РґРѕРєСѓРјРµРЅС‚РѕРІ
                     doc_type_name = {
-                        "fnp461": "ФНП 461",
-                        "gost": "ГОСТ",
-                        "manual": "Методичка"
+                        "fnp461": "Р¤РќРџ 461",
+                        "gost": "Р“РћРЎРў",
+                        "manual": "РњРµС‚РѕРґРёС‡РєР°"
                     }.get(item.document_type, item.document_type.upper())
                     
                     knowledge_context += f"\n{'='*60}\n[{doc_type_name}] {item.title}\n{'='*60}\n"
                     if item.section:
-                        knowledge_context += f"Раздел: {item.section}\n"
+                        knowledge_context += f"Р Р°Р·РґРµР»: {item.section}\n"
                     if item.clause_number:
-                        knowledge_context += f"Пункт: {item.clause_number}\n"
+                        knowledge_context += f"РџСѓРЅРєС‚: {item.clause_number}\n"
                     knowledge_context += "\n"
                     
-                    # Умное извлечение контента:
-                    # - ФНП/ГОСТ: до 10000 символов релевантных частей или весь документ
-                    # - Методички: до 5000 символов
+                    # РЈРјРЅРѕРµ РёР·РІР»РµС‡РµРЅРёРµ РєРѕРЅС‚РµРЅС‚Р°:
+                    # - Р¤РќРџ/Р“РћРЎРў: РґРѕ 10000 СЃРёРјРІРѕР»РѕРІ СЂРµР»РµРІР°РЅС‚РЅС‹С… С‡Р°СЃС‚РµР№ РёР»Рё РІРµСЃСЊ РґРѕРєСѓРјРµРЅС‚
+                    # - РњРµС‚РѕРґРёС‡РєРё: РґРѕ 5000 СЃРёРјРІРѕР»РѕРІ
                     if item.document_type in ["fnp461", "gost"]:
-                        # Для ФНП/ГОСТ используем умное извлечение релевантных частей
+                        # Р”Р»СЏ Р¤РќРџ/Р“РћРЎРў РёСЃРїРѕР»СЊР·СѓРµРј СѓРјРЅРѕРµ РёР·РІР»РµС‡РµРЅРёРµ СЂРµР»РµРІР°РЅС‚РЅС‹С… С‡Р°СЃС‚РµР№
                         content_preview = extract_relevant_content(
                             item.content, 
                             search_terms, 
-                            max_length=10000  # Увеличиваем до 10000 символов
+                            max_length=10000  # РЈРІРµР»РёС‡РёРІР°РµРј РґРѕ 10000 СЃРёРјРІРѕР»РѕРІ
                         )
                     else:
-                        # Для методичек тоже используем умное извлечение, но меньше
+                        # Р”Р»СЏ РјРµС‚РѕРґРёС‡РµРє С‚РѕР¶Рµ РёСЃРїРѕР»СЊР·СѓРµРј СѓРјРЅРѕРµ РёР·РІР»РµС‡РµРЅРёРµ, РЅРѕ РјРµРЅСЊС€Рµ
                         content_preview = extract_relevant_content(
                             item.content,
                             search_terms,
@@ -987,7 +1162,7 @@ async def generate_violation_ai(
                     
                     knowledge_context += f"{content_preview}\n\n"
                     
-                    # Сохраняем информацию о документе для ответа
+                    # РЎРѕС…СЂР°РЅСЏРµРј РёРЅС„РѕСЂРјР°С†РёСЋ Рѕ РґРѕРєСѓРјРµРЅС‚Рµ РґР»СЏ РѕС‚РІРµС‚Р°
                     used_documents.append({
                         "id": item.id,
                         "document_type": item.document_type,
@@ -997,142 +1172,156 @@ async def generate_violation_ai(
                         "content_preview": content_preview[:200] + "..." if len(content_preview) > 200 else content_preview
                     })
                     
-                    logger.info(f"Добавлен документ в контекст: {doc_type_name} - {item.title} (ID: {item.id})")
+                    logger.info(f"Р”РѕР±Р°РІР»РµРЅ РґРѕРєСѓРјРµРЅС‚ РІ РєРѕРЅС‚РµРєСЃС‚: {doc_type_name} - {item.title} (ID: {item.id})")
             else:
-                logger.warning("База знаний пуста или не содержит релевантных документов. ИИ будет генерировать пункты ФНП без контекста.")
-                knowledge_context = "\n\n⚠️ ВНИМАНИЕ: База знаний не содержит документов ФНП 461 или ГОСТ. Используй только РЕАЛЬНЫЕ пункты, которые ты знаешь. Если не уверен - укажи 'не применимо'.\n"
+                logger.warning("Р‘Р°Р·Р° Р·РЅР°РЅРёР№ РїСѓСЃС‚Р° РёР»Рё РЅРµ СЃРѕРґРµСЂР¶РёС‚ СЂРµР»РµРІР°РЅС‚РЅС‹С… РґРѕРєСѓРјРµРЅС‚РѕРІ. РР Р±СѓРґРµС‚ РіРµРЅРµСЂРёСЂРѕРІР°С‚СЊ РїСѓРЅРєС‚С‹ Р¤РќРџ Р±РµР· РєРѕРЅС‚РµРєСЃС‚Р°.")
+                knowledge_context = "\n\nвљ пёЏ Р’РќРРњРђРќРР•: Р‘Р°Р·Р° Р·РЅР°РЅРёР№ РЅРµ СЃРѕРґРµСЂР¶РёС‚ РґРѕРєСѓРјРµРЅС‚РѕРІ Р¤РќРџ 461 РёР»Рё Р“РћРЎРў. РСЃРїРѕР»СЊР·СѓР№ С‚РѕР»СЊРєРѕ Р Р•РђР›Р¬РќР«Р• РїСѓРЅРєС‚С‹, РєРѕС‚РѕСЂС‹Рµ С‚С‹ Р·РЅР°РµС€СЊ. Р•СЃР»Рё РЅРµ СѓРІРµСЂРµРЅ - СѓРєР°Р¶Рё 'РЅРµ РїСЂРёРјРµРЅРёРјРѕ'.\n"
         except Exception as e:
-            logger.warning(f"Не удалось загрузить базу знаний: {e}")
-            knowledge_context = "\n\n⚠️ Ошибка загрузки базы знаний. Используй только РЕАЛЬНЫЕ пункты ФНП 461/ГОСТ.\n"
+            logger.warning(f"РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ Р±Р°Р·Сѓ Р·РЅР°РЅРёР№: {e}")
+            knowledge_context = "\n\nвљ пёЏ РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё Р±Р°Р·С‹ Р·РЅР°РЅРёР№. РСЃРїРѕР»СЊР·СѓР№ С‚РѕР»СЊРєРѕ Р Р•РђР›Р¬РќР«Р• РїСѓРЅРєС‚С‹ Р¤РќРџ 461/Р“РћРЎРў.\n"
         
-        prompt = f"""Оформи официальное нарушение для подъемного сооружения на основе типа нарушения.
+        prompt = f"""РћС„РѕСЂРјРё РѕС„РёС†РёР°Р»СЊРЅРѕРµ РЅР°СЂСѓС€РµРЅРёРµ РґР»СЏ РїРѕРґСЉРµРјРЅРѕРіРѕ СЃРѕРѕСЂСѓР¶РµРЅРёСЏ РЅР° РѕСЃРЅРѕРІРµ С‚РёРїР° РЅР°СЂСѓС€РµРЅРёСЏ.
 
-ТИП НАРУШЕНИЯ (от инспектора): {request.violation_type}
+РўРРџ РќРђР РЈРЁР•РќРРЇ (РѕС‚ РёРЅСЃРїРµРєС‚РѕСЂР°): {request.violation_type}
 
-ДАННЫЕ ОБОРУДОВАНИЯ:
-- Тип ПС: {equipment.equipment_type}
-- Паспорт: {equipment.passport_number}
-- Место установки: {equipment.installation_location or 'Не указано'}
-- Контекст: {request.context or 'Не указано'}
+Р”РђРќРќР«Р• РћР‘РћР РЈР”РћР’РђРќРРЇ:
+- РўРёРї РџРЎ: {equipment.equipment_type}
+- РџР°СЃРїРѕСЂС‚: {equipment.passport_number}
+- РњРµСЃС‚Рѕ СѓСЃС‚Р°РЅРѕРІРєРё: {equipment.installation_location or 'РќРµ СѓРєР°Р·Р°РЅРѕ'}
+- РљРѕРЅС‚РµРєСЃС‚: {request.context or 'РќРµ СѓРєР°Р·Р°РЅРѕ'}
 
 {knowledge_context}
 
-ЗАДАЧА:
-1. Создай ОФИЦИАЛЬНОЕ, ДОКУМЕНТАЛЬНОЕ описание нарушения в официальном стиле инспекции (2-4 предложения)
-2. Определи и укажи конкретный пункт ФНП 461, который нарушен (формат: "п. 123 ФНП 461" или "п.п. 123-125 ФНП 461")
-3. Определи и укажи ГОСТ, если применимо (формат: "ГОСТ 12345-2020" или "ГОСТ 12345")
-4. Определи срок устранения на основе критичности (формат: количество дней, например "30" для средних нарушений)
+Р—РђР”РђР§Рђ:
+1. РЎРѕР·РґР°Р№ РћР¤РР¦РРђР›Р¬РќРћР•, Р”РћРљРЈРњР•РќРўРђР›Р¬РќРћР• РѕРїРёСЃР°РЅРёРµ РЅР°СЂСѓС€РµРЅРёСЏ РІ РѕС„РёС†РёР°Р»СЊРЅРѕРј СЃС‚РёР»Рµ РёРЅСЃРїРµРєС†РёРё (2-4 РїСЂРµРґР»РѕР¶РµРЅРёСЏ)
+2. РћРїСЂРµРґРµР»Рё Рё СѓРєР°Р¶Рё РєРѕРЅРєСЂРµС‚РЅС‹Р№ РїСѓРЅРєС‚ Р¤РќРџ 461, РєРѕС‚РѕСЂС‹Р№ РЅР°СЂСѓС€РµРЅ (С„РѕСЂРјР°С‚: "Рї. 123 Р¤РќРџ 461" РёР»Рё "Рї.Рї. 123-125 Р¤РќРџ 461")
+3. РћРїСЂРµРґРµР»Рё Рё СѓРєР°Р¶Рё Р“РћРЎРў, РµСЃР»Рё РїСЂРёРјРµРЅРёРјРѕ (С„РѕСЂРјР°С‚: "Р“РћРЎРў 12345-2020" РёР»Рё "Р“РћРЎРў 12345")
+4. РћРїСЂРµРґРµР»Рё СЃСЂРѕРє СѓСЃС‚СЂР°РЅРµРЅРёСЏ РЅР° РѕСЃРЅРѕРІРµ РєСЂРёС‚РёС‡РЅРѕСЃС‚Рё (С„РѕСЂРјР°С‚: РєРѕР»РёС‡РµСЃС‚РІРѕ РґРЅРµР№, РЅР°РїСЂРёРјРµСЂ "30" РґР»СЏ СЃСЂРµРґРЅРёС… РЅР°СЂСѓС€РµРЅРёР№)
 
-ФОРМАТ ОТВЕТА (строго соблюдай структуру):
-ОПИСАНИЕ: [официальное описание нарушения 2-4 предложения]
-ФНП: [пункт ФНП 461, например "п. 123 ФНП 461" или "не применимо"]
-ГОСТ: [номер ГОСТ, например "ГОСТ 12345-2020" или "не применимо"]
-СРОК_ДНЕЙ: [количество дней для устранения, например "30"]
+Р¤РћР РњРђРў РћРўР’Р•РўРђ (СЃС‚СЂРѕРіРѕ СЃРѕР±Р»СЋРґР°Р№ СЃС‚СЂСѓРєС‚СѓСЂСѓ):
+РћРџРРЎРђРќРР•: [РѕС„РёС†РёР°Р»СЊРЅРѕРµ РѕРїРёСЃР°РЅРёРµ РЅР°СЂСѓС€РµРЅРёСЏ 2-4 РїСЂРµРґР»РѕР¶РµРЅРёСЏ]
+Р¤РќРџ: [РїСѓРЅРєС‚ Р¤РќРџ 461, РЅР°РїСЂРёРјРµСЂ "Рї. 123 Р¤РќРџ 461" РёР»Рё "РЅРµ РїСЂРёРјРµРЅРёРјРѕ"]
+Р“РћРЎРў: [РЅРѕРјРµСЂ Р“РћРЎРў, РЅР°РїСЂРёРјРµСЂ "Р“РћРЎРў 12345-2020" РёР»Рё "РЅРµ РїСЂРёРјРµРЅРёРјРѕ"]
+РЎР РћРљ_Р”РќР•Р™: [РєРѕР»РёС‡РµСЃС‚РІРѕ РґРЅРµР№ РґР»СЏ СѓСЃС‚СЂР°РЅРµРЅРёСЏ, РЅР°РїСЂРёРјРµСЂ "30"]
 
-Требования:
-- Описание должно быть ОФИЦИАЛЬНЫМ и ДОКУМЕНТАЛЬНЫМ
-- Используй официальную терминологию инспекции
-- Пункты ФНП/ГОСТ должны быть РЕАЛЬНЫМИ и РЕЛЕВАНТНЫМИ
-- Срок устранения: критичные - 7 дней, высокие - 15 дней, средние - 30 дней, низкие - 60 дней"""
+РўСЂРµР±РѕРІР°РЅРёСЏ:
+- РћРїРёСЃР°РЅРёРµ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ РћР¤РР¦РРђР›Р¬РќР«Рњ Рё Р”РћРљРЈРњР•РќРўРђР›Р¬РќР«Рњ
+- РСЃРїРѕР»СЊР·СѓР№ РѕС„РёС†РёР°Р»СЊРЅСѓСЋ С‚РµСЂРјРёРЅРѕР»РѕРіРёСЋ РёРЅСЃРїРµРєС†РёРё
+- РџСѓРЅРєС‚С‹ Р¤РќРџ/Р“РћРЎРў РґРѕР»Р¶РЅС‹ Р±С‹С‚СЊ Р Р•РђР›Р¬РќР«РњР Рё Р Р•Р›Р•Р’РђРќРўРќР«РњР
+- РЎСЂРѕРє СѓСЃС‚СЂР°РЅРµРЅРёСЏ: РєСЂРёС‚РёС‡РЅС‹Рµ - 7 РґРЅРµР№, РІС‹СЃРѕРєРёРµ - 15 РґРЅРµР№, СЃСЂРµРґРЅРёРµ - 30 РґРЅРµР№, РЅРёР·РєРёРµ - 60 РґРЅРµР№"""
         
-        system_prompt = "Ты помощник для создания официальных нарушений в системе инспекции. Ответ только на русском. Твоя задача - оформить тип нарушения в официальный документ с указанием пунктов ФНП 461, ГОСТ и срока устранения. Отвечай строго в указанном формате."
+        system_prompt = "РўС‹ РїРѕРјРѕС‰РЅРёРє РґР»СЏ СЃРѕР·РґР°РЅРёСЏ РѕС„РёС†РёР°Р»СЊРЅС‹С… РЅР°СЂСѓС€РµРЅРёР№ РІ СЃРёСЃС‚РµРјРµ РёРЅСЃРїРµРєС†РёРё. РћС‚РІРµС‚ С‚РѕР»СЊРєРѕ РЅР° СЂСѓСЃСЃРєРѕРј. РўРІРѕСЏ Р·Р°РґР°С‡Р° - РѕС„РѕСЂРјРёС‚СЊ С‚РёРї РЅР°СЂСѓС€РµРЅРёСЏ РІ РѕС„РёС†РёР°Р»СЊРЅС‹Р№ РґРѕРєСѓРјРµРЅС‚ СЃ СѓРєР°Р·Р°РЅРёРµРј РїСѓРЅРєС‚РѕРІ Р¤РќРџ 461, Р“РћРЎРў Рё СЃСЂРѕРєР° СѓСЃС‚СЂР°РЅРµРЅРёСЏ. РћС‚РІРµС‡Р°Р№ СЃС‚СЂРѕРіРѕ РІ СѓРєР°Р·Р°РЅРЅРѕРј С„РѕСЂРјР°С‚Рµ."
+        if not has_knowledge_sources:
+            prompt += """
+
+ОГРАНИЧЕНИЕ ПО ИСТОЧНИКАМ:
+- В базе знаний не найдено релевантных нормативов.
+- Не придумывай пункты ФНП/ГОСТ и номера документов.
+- Для полей ФНП и ГОСТ верни строго: "не применимо".
+- В описании явно укажи: "В базе знаний не найдено релевантных нормативов. Уточните запрос."
+"""
         
-        # Логируем контекст, который был передан ИИ
+        # Р›РѕРіРёСЂСѓРµРј РєРѕРЅС‚РµРєСЃС‚, РєРѕС‚РѕСЂС‹Р№ Р±С‹Р» РїРµСЂРµРґР°РЅ РР
         logger.info("=" * 80)
-        logger.info("=== КОНТЕКСТ ДЛЯ ИИ ===")
-        logger.info(f"Тип нарушения: {request.violation_type}")
-        logger.info(f"Оборудование: {equipment.equipment_type} (ID: {equipment.id})")
-        logger.info(f"Найдено документов в базе знаний: {len(used_documents)}")
+        logger.info("=== РљРћРќРўР•РљРЎРў Р”Р›РЇ РР ===")
+        logger.info(f"РўРёРї РЅР°СЂСѓС€РµРЅРёСЏ: {request.violation_type}")
+        logger.info(f"РћР±РѕСЂСѓРґРѕРІР°РЅРёРµ: {equipment.equipment_type} (ID: {equipment.id})")
+        logger.info(f"РќР°Р№РґРµРЅРѕ РґРѕРєСѓРјРµРЅС‚РѕРІ РІ Р±Р°Р·Рµ Р·РЅР°РЅРёР№: {len(used_documents)}")
         if used_documents:
-            logger.info("Использованные документы:")
+            logger.info("РСЃРїРѕР»СЊР·РѕРІР°РЅРЅС‹Рµ РґРѕРєСѓРјРµРЅС‚С‹:")
             for doc in used_documents:
-                logger.info(f"  - {doc['document_type']}: {doc['title']} (пункт: {doc.get('clause_number', 'н/д')})")
+                logger.info(f"  - {doc['document_type']}: {doc['title']} (РїСѓРЅРєС‚: {doc.get('clause_number', 'РЅ/Рґ')})")
         else:
-            logger.warning("⚠️ Документы в базе знаний НЕ НАЙДЕНЫ!")
-        logger.info(f"Длина контекста базы знаний: {len(knowledge_context)} символов")
+            logger.warning("вљ пёЏ Р”РѕРєСѓРјРµРЅС‚С‹ РІ Р±Р°Р·Рµ Р·РЅР°РЅРёР№ РќР• РќРђР™Р”Р•РќР«!")
+        logger.info(f"Р”Р»РёРЅР° РєРѕРЅС‚РµРєСЃС‚Р° Р±Р°Р·С‹ Р·РЅР°РЅРёР№: {len(knowledge_context)} СЃРёРјРІРѕР»РѕРІ")
         logger.info("=" * 80)
         
-        logger.info("Отправка запроса к AI для генерации нарушения")
+        logger.info("РћС‚РїСЂР°РІРєР° Р·Р°РїСЂРѕСЃР° Рє AI РґР»СЏ РіРµРЅРµСЂР°С†РёРё РЅР°СЂСѓС€РµРЅРёСЏ")
         try:
-            # Для Timeweb Cloud не передаем temperature (некоторые модели не поддерживают)
-            # Для других провайдеров используем стандартное значение
+            # Р”Р»СЏ Timeweb Cloud РЅРµ РїРµСЂРµРґР°РµРј temperature (РЅРµРєРѕС‚РѕСЂС‹Рµ РјРѕРґРµР»Рё РЅРµ РїРѕРґРґРµСЂР¶РёРІР°СЋС‚)
+            # Р”Р»СЏ РґСЂСѓРіРёС… РїСЂРѕРІР°Р№РґРµСЂРѕРІ РёСЃРїРѕР»СЊР·СѓРµРј СЃС‚Р°РЅРґР°СЂС‚РЅРѕРµ Р·РЅР°С‡РµРЅРёРµ
             temperature = None if ai_client.provider == "timeweb" else 0.7
             
             ai_description = ai_client.generate_text(
                 prompt=prompt,
                 system_prompt=system_prompt,
-                max_tokens=4000,  # Увеличенный лимит для генерации нарушений с расширенным контекстом базы знаний
+                max_tokens=4000,  # РЈРІРµР»РёС‡РµРЅРЅС‹Р№ Р»РёРјРёС‚ РґР»СЏ РіРµРЅРµСЂР°С†РёРё РЅР°СЂСѓС€РµРЅРёР№ СЃ СЂР°СЃС€РёСЂРµРЅРЅС‹Рј РєРѕРЅС‚РµРєСЃС‚РѕРј Р±Р°Р·С‹ Р·РЅР°РЅРёР№
                 temperature=temperature
             )
-            logger.info(f"AI вернул ответ длиной {len(ai_description) if ai_description else 0} символов")
+            logger.info(f"AI РІРµСЂРЅСѓР» РѕС‚РІРµС‚ РґР»РёРЅРѕР№ {len(ai_description) if ai_description else 0} СЃРёРјРІРѕР»РѕРІ")
         except Exception as ai_error:
-            logger.error(f"Ошибка при генерации через AI: {str(ai_error)}", exc_info=True)
+            logger.error(f"РћС€РёР±РєР° РїСЂРё РіРµРЅРµСЂР°С†РёРё С‡РµСЂРµР· AI: {str(ai_error)}", exc_info=True)
+            if isinstance(ai_error, AITemporarilyUnavailableError) or "AI temporarily unavailable" in str(ai_error):
+                raise HTTPException(
+                    status_code=503,
+                    detail="AI временно недоступен. Создайте нарушение вручную и повторите позже.",
+                )
             raise HTTPException(
                 status_code=500,
-                detail=f"Ошибка генерации через AI: {str(ai_error)}"
+                detail=f"РћС€РёР±РєР° РіРµРЅРµСЂР°С†РёРё С‡РµСЂРµР· AI: {str(ai_error)}"
             )
         
-        # Проверяем, что AI вернул описание
+        # РџСЂРѕРІРµСЂСЏРµРј, С‡С‚Рѕ AI РІРµСЂРЅСѓР» РѕРїРёСЃР°РЅРёРµ
         if not ai_description or not ai_description.strip():
-            logger.error("AI вернул пустое описание")
+            logger.error("AI РІРµСЂРЅСѓР» РїСѓСЃС‚РѕРµ РѕРїРёСЃР°РЅРёРµ")
             raise HTTPException(
                 status_code=500,
-                detail="AI вернул пустое описание нарушения. Попробуйте еще раз или увеличьте лимит токенов."
+                detail="AI РІРµСЂРЅСѓР» РїСѓСЃС‚РѕРµ РѕРїРёСЃР°РЅРёРµ РЅР°СЂСѓС€РµРЅРёСЏ. РџРѕРїСЂРѕР±СѓР№С‚Рµ РµС‰Рµ СЂР°Р· РёР»Рё СѓРІРµР»РёС‡СЊС‚Рµ Р»РёРјРёС‚ С‚РѕРєРµРЅРѕРІ."
             )
         
-        # Логируем контекст, который был передан ИИ
-        logger.info(f"=== КОНТЕКСТ ДЛЯ ИИ ===")
-        logger.info(f"Тип нарушения: {request.violation_type}")
-        logger.info(f"Оборудование: {equipment.equipment_type} (ID: {equipment.id})")
-        logger.info(f"Найдено документов в базе знаний: {len(used_documents)}")
+        # Р›РѕРіРёСЂСѓРµРј РєРѕРЅС‚РµРєСЃС‚, РєРѕС‚РѕСЂС‹Р№ Р±С‹Р» РїРµСЂРµРґР°РЅ РР
+        logger.info(f"=== РљРћРќРўР•РљРЎРў Р”Р›РЇ РР ===")
+        logger.info(f"РўРёРї РЅР°СЂСѓС€РµРЅРёСЏ: {request.violation_type}")
+        logger.info(f"РћР±РѕСЂСѓРґРѕРІР°РЅРёРµ: {equipment.equipment_type} (ID: {equipment.id})")
+        logger.info(f"РќР°Р№РґРµРЅРѕ РґРѕРєСѓРјРµРЅС‚РѕРІ РІ Р±Р°Р·Рµ Р·РЅР°РЅРёР№: {len(used_documents)}")
         if used_documents:
-            logger.info("Использованные документы:")
+            logger.info("РСЃРїРѕР»СЊР·РѕРІР°РЅРЅС‹Рµ РґРѕРєСѓРјРµРЅС‚С‹:")
             for doc in used_documents:
-                logger.info(f"  - {doc['document_type']}: {doc['title']} (пункт: {doc.get('clause_number', 'н/д')})")
+                logger.info(f"  - {doc['document_type']}: {doc['title']} (РїСѓРЅРєС‚: {doc.get('clause_number', 'РЅ/Рґ')})")
         else:
-            logger.warning("⚠️ Документы в базе знаний НЕ НАЙДЕНЫ!")
-        logger.info(f"Длина контекста базы знаний: {len(knowledge_context)} символов")
-        logger.info("=== КОНЕЦ КОНТЕКСТА ===")
+            logger.warning("вљ пёЏ Р”РѕРєСѓРјРµРЅС‚С‹ РІ Р±Р°Р·Рµ Р·РЅР°РЅРёР№ РќР• РќРђР™Р”Р•РќР«!")
+        logger.info(f"Р”Р»РёРЅР° РєРѕРЅС‚РµРєСЃС‚Р° Р±Р°Р·С‹ Р·РЅР°РЅРёР№: {len(knowledge_context)} СЃРёРјРІРѕР»РѕРІ")
+        logger.info("=== РљРћРќР•Р¦ РљРћРќРўР•РљРЎРўРђ ===")
         
-        logger.info("Парсинг ответа AI")
+        logger.info("РџР°СЂСЃРёРЅРі РѕС‚РІРµС‚Р° AI")
         
-        # Парсим ответ AI для извлечения описания, пунктов ФНП/ГОСТ и срока
+        # РџР°СЂСЃРёРј РѕС‚РІРµС‚ AI РґР»СЏ РёР·РІР»РµС‡РµРЅРёСЏ РѕРїРёСЃР°РЅРёСЏ, РїСѓРЅРєС‚РѕРІ Р¤РќРџ/Р“РћРЎРў Рё СЃСЂРѕРєР°
         description = ai_description.strip()
         fnp_clause = None
         gost_clause = None
-        deadline_days = 30  # По умолчанию 30 дней
-        severity = "medium"  # По умолчанию средняя критичность
+        deadline_days = 30  # РџРѕ СѓРјРѕР»С‡Р°РЅРёСЋ 30 РґРЅРµР№
+        severity = "medium"  # РџРѕ СѓРјРѕР»С‡Р°РЅРёСЋ СЃСЂРµРґРЅСЏСЏ РєСЂРёС‚РёС‡РЅРѕСЃС‚СЊ
         
-        # Пытаемся извлечь структурированные данные из ответа
+        # РџС‹С‚Р°РµРјСЃСЏ РёР·РІР»РµС‡СЊ СЃС‚СЂСѓРєС‚СѓСЂРёСЂРѕРІР°РЅРЅС‹Рµ РґР°РЅРЅС‹Рµ РёР· РѕС‚РІРµС‚Р°
         try:
             lines = ai_description.split('\n')
             for i, line in enumerate(lines):
                 line = line.strip()
-                if line.startswith('ОПИСАНИЕ:') or line.startswith('ОПИСАНИЕ'):
-                    # Берем описание до следующего заголовка
+                if line.startswith('РћРџРРЎРђРќРР•:') or line.startswith('РћРџРРЎРђРќРР•'):
+                    # Р‘РµСЂРµРј РѕРїРёСЃР°РЅРёРµ РґРѕ СЃР»РµРґСѓСЋС‰РµРіРѕ Р·Р°РіРѕР»РѕРІРєР°
                     desc_lines = []
                     for j in range(i + 1, len(lines)):
-                        if lines[j].strip().startswith(('ФНП:', 'ГОСТ:', 'СРОК_ДНЕЙ:', 'ФНП', 'ГОСТ', 'СРОК_ДНЕЙ')):
+                        if lines[j].strip().startswith(('Р¤РќРџ:', 'Р“РћРЎРў:', 'РЎР РћРљ_Р”РќР•Р™:', 'Р¤РќРџ', 'Р“РћРЎРў', 'РЎР РћРљ_Р”РќР•Р™')):
                             break
                         if lines[j].strip():
                             desc_lines.append(lines[j].strip())
                     if desc_lines:
                         description = ' '.join(desc_lines)
-                elif line.startswith('ФНП:') or line.startswith('ФНП'):
-                    fnp_text = line.split(':', 1)[-1].strip() if ':' in line else line.replace('ФНП', '').strip()
-                    if fnp_text and fnp_text.lower() not in ['не применимо', 'не применим', 'н/д', 'н/а']:
+                elif line.startswith('Р¤РќРџ:') or line.startswith('Р¤РќРџ'):
+                    fnp_text = line.split(':', 1)[-1].strip() if ':' in line else line.replace('Р¤РќРџ', '').strip()
+                    if fnp_text and fnp_text.lower() not in ['РЅРµ РїСЂРёРјРµРЅРёРјРѕ', 'РЅРµ РїСЂРёРјРµРЅРёРј', 'РЅ/Рґ', 'РЅ/Р°']:
                         fnp_clause = fnp_text
-                elif line.startswith('ГОСТ:') or line.startswith('ГОСТ'):
-                    gost_text = line.split(':', 1)[-1].strip() if ':' in line else line.replace('ГОСТ', '').strip()
-                    if gost_text and gost_text.lower() not in ['не применимо', 'не применим', 'н/д', 'н/а']:
+                elif line.startswith('Р“РћРЎРў:') or line.startswith('Р“РћРЎРў'):
+                    gost_text = line.split(':', 1)[-1].strip() if ':' in line else line.replace('Р“РћРЎРў', '').strip()
+                    if gost_text and gost_text.lower() not in ['РЅРµ РїСЂРёРјРµРЅРёРјРѕ', 'РЅРµ РїСЂРёРјРµРЅРёРј', 'РЅ/Рґ', 'РЅ/Р°']:
                         gost_clause = gost_text
-                elif line.startswith('СРОК_ДНЕЙ:') or line.startswith('СРОК_ДНЕЙ') or 'СРОК' in line.upper():
+                elif line.startswith('РЎР РћРљ_Р”РќР•Р™:') or line.startswith('РЎР РћРљ_Р”РќР•Р™') or 'РЎР РћРљ' in line.upper():
                     days_text = line.split(':', 1)[-1].strip() if ':' in line else line
-                    # Извлекаем число из строки
+                    # РР·РІР»РµРєР°РµРј С‡РёСЃР»Рѕ РёР· СЃС‚СЂРѕРєРё
                     days_match = re.search(r'\d+', days_text)
                     if days_match:
                         deadline_days = int(days_match.group())
-                        # Определяем критичность на основе срока
+                        # РћРїСЂРµРґРµР»СЏРµРј РєСЂРёС‚РёС‡РЅРѕСЃС‚СЊ РЅР° РѕСЃРЅРѕРІРµ СЃСЂРѕРєР°
                         if deadline_days <= 7:
                             severity = "critical"
                         elif deadline_days <= 15:
@@ -1142,19 +1331,29 @@ async def generate_violation_ai(
                         else:
                             severity = "low"
         except Exception as parse_error:
-            logger.warning(f"Ошибка парсинга ответа AI: {parse_error}. Используем весь ответ как описание.")
-            # Если не удалось распарсить, используем весь ответ как описание
+            logger.warning(f"РћС€РёР±РєР° РїР°СЂСЃРёРЅРіР° РѕС‚РІРµС‚Р° AI: {parse_error}. РСЃРїРѕР»СЊР·СѓРµРј РІРµСЃСЊ РѕС‚РІРµС‚ РєР°Рє РѕРїРёСЃР°РЅРёРµ.")
+            # Р•СЃР»Рё РЅРµ СѓРґР°Р»РѕСЃСЊ СЂР°СЃРїР°СЂСЃРёС‚СЊ, РёСЃРїРѕР»СЊР·СѓРµРј РІРµСЃСЊ РѕС‚РІРµС‚ РєР°Рє РѕРїРёСЃР°РЅРёРµ
         
-        # Вычисляем дату дедлайна
+        # Р’С‹С‡РёСЃР»СЏРµРј РґР°С‚Сѓ РґРµРґР»Р°Р№РЅР°
         deadline = datetime.utcnow() + timedelta(days=deadline_days) if deadline_days > 0 else None
         
-        logger.info(f"Извлечено: описание={len(description)} символов, ФНП={fnp_clause}, ГОСТ={gost_clause}, срок={deadline_days} дней, критичность={severity}")
-        logger.info("Создание нарушения в базе данных")
+        if not has_knowledge_sources:
+            fnp_clause = None
+            gost_clause = None
+            if "В базе знаний не найдено релевантных нормативов" not in description:
+                description = (
+                    "В базе знаний не найдено релевантных нормативов. "
+                    "Уточните запрос. " + description
+                )
+
+        logger.info(f"РР·РІР»РµС‡РµРЅРѕ: РѕРїРёСЃР°РЅРёРµ={len(description)} СЃРёРјРІРѕР»РѕРІ, Р¤РќРџ={fnp_clause}, Р“РћРЎРў={gost_clause}, СЃСЂРѕРє={deadline_days} РґРЅРµР№, РєСЂРёС‚РёС‡РЅРѕСЃС‚СЊ={severity}")
+        logger.info("РЎРѕР·РґР°РЅРёРµ РЅР°СЂСѓС€РµРЅРёСЏ РІ Р±Р°Р·Рµ РґР°РЅРЅС‹С…")
         
-        # Создание нарушения
+        # РЎРѕР·РґР°РЅРёРµ РЅР°СЂСѓС€РµРЅРёСЏ
         new_violation = Violation(
             inspection_id=request.inspection_id,
             equipment_id=request.equipment_id,
+            source="ai",
             description=description,
             fnp_clause=fnp_clause,
             gost_clause=gost_clause,
@@ -1168,9 +1367,9 @@ async def generate_violation_ai(
         db.add(new_violation)
         await db.flush()
         
-        logger.info(f"Нарушение создано с ID {new_violation.id}")
+        logger.info(f"РќР°СЂСѓС€РµРЅРёРµ СЃРѕР·РґР°РЅРѕ СЃ ID {new_violation.id}")
         
-        # Логирование
+        # Р›РѕРіРёСЂРѕРІР°РЅРёРµ
         activity = UserActivity(
             user_id=current_user.id,
             action_type="create",
@@ -1179,12 +1378,29 @@ async def generate_violation_ai(
             description=f"AI-generated violation for equipment {request.equipment_id}"
         )
         db.add(activity)
-        
+
+        await log_audit_event(
+            db,
+            entity_type="violation",
+            entity_id=new_violation.id,
+            action="CREATE",
+            field_changes={
+                "status": {"old": None, "new": new_violation.status},
+                "severity": {"old": None, "new": new_violation.severity},
+                "deadline": {"old": None, "new": new_violation.deadline.isoformat() if new_violation.deadline else None},
+                "description": {"old": None, "new": new_violation.description},
+                "source": {"old": None, "new": "ai"},
+            },
+            performed_by=current_user.id,
+            source="ai",
+            trace_id=getattr(http_request.state, "trace_id", None),
+        )
+
         await db.commit()
         await db.refresh(new_violation)
         new_violation.equipment = equipment
         
-        logger.info(f"Нарушение успешно сохранено, возвращаем ответ")
+        logger.info(f"РќР°СЂСѓС€РµРЅРёРµ СѓСЃРїРµС€РЅРѕ СЃРѕС…СЂР°РЅРµРЅРѕ, РІРѕР·РІСЂР°С‰Р°РµРј РѕС‚РІРµС‚")
         
         violation_response = _violation_to_response(new_violation)
         
@@ -1193,22 +1409,23 @@ async def generate_violation_ai(
             used_documents=used_documents
         )
         
-        logger.info(f"Возвращаем ответ с нарушением ID {new_violation.id}, использовано документов: {len(used_documents)}")
+        logger.info(f"Р’РѕР·РІСЂР°С‰Р°РµРј РѕС‚РІРµС‚ СЃ РЅР°СЂСѓС€РµРЅРёРµРј ID {new_violation.id}, РёСЃРїРѕР»СЊР·РѕРІР°РЅРѕ РґРѕРєСѓРјРµРЅС‚РѕРІ: {len(used_documents)}")
         return response
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Неожиданная ошибка при генерации нарушения: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Ошибка генерации нарушения: {str(e)}")
+        logger.error(f"РќРµРѕР¶РёРґР°РЅРЅР°СЏ РѕС€РёР±РєР° РїСЂРё РіРµРЅРµСЂР°С†РёРё РЅР°СЂСѓС€РµРЅРёСЏ: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"РћС€РёР±РєР° РіРµРЅРµСЂР°С†РёРё РЅР°СЂСѓС€РµРЅРёСЏ: {str(e)}")
 
 @router.put("/{violation_id}", response_model=ViolationResponse)
 async def update_violation(
     violation_id: int,
     violation_data: ViolationUpdate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Обновить нарушение"""
+    """РћР±РЅРѕРІРёС‚СЊ РЅР°СЂСѓС€РµРЅРёРµ"""
     await require_permission(current_user, "violations:update", db)
     
     result = await db.execute(select(Violation).where(Violation.id == violation_id))
@@ -1217,6 +1434,16 @@ async def update_violation(
     if not violation:
         raise HTTPException(status_code=404, detail="Violation not found")
     
+    before_state = {
+        "status": violation.status,
+        "deadline": violation.deadline.isoformat() if violation.deadline else None,
+        "severity": violation.severity,
+        "description": violation.description,
+        "criticality_level": violation.criticality_level,
+        "fnp_clause": violation.fnp_clause,
+        "gost_clause": violation.gost_clause,
+    }
+
     update_data = violation_data.dict(exclude_unset=True)
     recalc_sla = False
     for field, value in update_data.items():
@@ -1251,8 +1478,20 @@ async def update_violation(
 
     if violation.status != "resolved" and not violation.deadline:
         await _apply_sla_deadline(db, violation)
+
+    after_state = {
+        "status": violation.status,
+        "deadline": violation.deadline.isoformat() if violation.deadline else None,
+        "severity": violation.severity,
+        "description": violation.description,
+        "criticality_level": violation.criticality_level,
+        "fnp_clause": violation.fnp_clause,
+        "gost_clause": violation.gost_clause,
+    }
+    field_changes = build_field_changes(before_state, after_state)
+    audit_action = "STATUS_CHANGE" if "status" in field_changes else "UPDATE"
     
-    # Логирование
+    # Р›РѕРіРёСЂРѕРІР°РЅРёРµ
     activity = UserActivity(
         user_id=current_user.id,
         action_type="update",
@@ -1261,7 +1500,19 @@ async def update_violation(
         description=f"Updated violation {violation.id}"
     )
     db.add(activity)
-    
+
+    if field_changes:
+        await log_audit_event(
+            db,
+            entity_type="violation",
+            entity_id=violation.id,
+            action=audit_action,
+            field_changes=field_changes,
+            performed_by=current_user.id,
+            source="ui",
+            trace_id=getattr(request.state, "trace_id", None),
+        )
+
     await db.commit()
     result = await db.execute(
         select(Violation)
@@ -1278,7 +1529,7 @@ async def delete_violation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Удалить нарушение"""
+    """РЈРґР°Р»РёС‚СЊ РЅР°СЂСѓС€РµРЅРёРµ"""
     await require_permission(current_user, "violations:delete", db)
     
     result = await db.execute(select(Violation).where(Violation.id == violation_id))
@@ -1287,7 +1538,7 @@ async def delete_violation(
     if not violation:
         raise HTTPException(status_code=404, detail="Violation not found")
     
-    # Логирование
+    # Р›РѕРіРёСЂРѕРІР°РЅРёРµ
     activity = UserActivity(
         user_id=current_user.id,
         action_type="delete",
@@ -1300,3 +1551,4 @@ async def delete_violation(
     await db.delete(violation)
     await db.commit()
     return None
+

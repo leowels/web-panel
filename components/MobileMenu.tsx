@@ -72,6 +72,12 @@ export default function MobileMenu() {
       roles: ['admin', 'inspector', 'operator', 'auditor', 'viewer', 'manager'],
     },
     {
+      name: 'SLA-уведомления',
+      href: '/alerts',
+      icon: ViolationIcon,
+      roles: ['admin', 'inspector', 'operator', 'auditor', 'manager'],
+    },
+    {
       name: 'Задачи',
       href: '/tasks',
       icon: InspectionIcon,

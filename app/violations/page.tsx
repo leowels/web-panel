@@ -72,17 +72,22 @@ function ViolationsPageContent() {
                   }
                   try {
                     const response = await axios.get(`${API_URL}/api/violations/export`, {
+                      params: { format: 'xlsx' },
                       headers: { Authorization: `Bearer ${token}` },
                       responseType: 'blob',
                     })
-                    const url = window.URL.createObjectURL(new Blob([response.data]))
+                    const url = window.URL.createObjectURL(
+                      new Blob([response.data], {
+                        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                      })
+                    )
                     const link = document.createElement('a')
                     link.href = url
-                    link.download = `violations_${new Date().toISOString().slice(0, 10)}.csv`
+                    link.download = `violations_${new Date().toISOString().slice(0, 10)}.xlsx`
                     document.body.appendChild(link)
                     link.click()
                     link.remove()
-                    addNotification('Экспорт нарушений подготовлен', 'success')
+                    addNotification('Excel-экспорт нарушений готов', 'success')
                   } catch (error: any) {
                     const detail = error.response?.data?.detail || error.message || 'Ошибка экспорта'
                     addNotification(typeof detail === 'string' ? detail : JSON.stringify(detail), 'error')
@@ -93,7 +98,7 @@ function ViolationsPageContent() {
                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h8m-8 4h8m-8 4h5" />
                 </svg>
-                Экспорт CSV
+                Экспорт Excel
               </button>
               {canMutate && (
                 <button

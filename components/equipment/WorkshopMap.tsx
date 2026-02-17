@@ -1,40 +1,495 @@
-﻿'use client'
+'use client'
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 import EquipmentCard from './EquipmentCard'
 import { getEquipmentTypeIcon } from '@/utils/equipmentMapIcons'
 import { CraneBeamIcon, CraneIcon, ColumnIcon, WallIcon, isCraneBeamType, isCraneType } from './WorkshopMapIcons'
-const API_URL = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '') : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
-const FID='floor_1',LID='layer_default'
-type Eq={id:number;equipment_type:string;passport_number:string;inventory_number:string|null;position:string|null;status:string;map_x?:number|null;map_y?:number|null}
-type El={id:string;type:string;layerId:string;x:number;y:number;width?:number;height?:number;radius?:number;color?:string;label?:string;fontSize?:number;x2?:number;y2?:number}
-type Layer={id:string;name:string;visible:boolean;locked:boolean}
-type Floor={id:string;name:string;elements:El[];layers:Layer[];backgroundPath?:string|null}
-type Placement={floorId:string;x:number;y:number}
-type Data={settings:{gridSize:number;showGrid:boolean;gridOpacity:number};floors:Floor[];activeFloorId:string;equipmentPlacements:Record<string,Placement>}
-const norm=(raw:any,bg?:string|null):Data=>{if(!raw||!Array.isArray(raw.floors)){return{settings:{gridSize:Number(raw?.settings?.gridSize??50),showGrid:Boolean(raw?.settings?.showGrid??true),gridOpacity:Number(raw?.settings?.gridOpacity??0.35)},floors:[{id:FID,name:'Этаж 1',elements:Array.isArray(raw?.elements)?raw.elements.map((e:any)=>({...e,layerId:e?.layerId||LID})):[],layers:[{id:LID,name:'Основной слой',visible:true,locked:false}],backgroundPath:bg||null}],activeFloorId:FID,equipmentPlacements:{}}}const floors=raw.floors.map((f:any,i:number)=>{const layers=(Array.isArray(f?.layers)&&f.layers.length?f.layers:[{id:LID,name:'Основной слой',visible:true,locked:false}]).map((l:any,j:number)=>({id:String(l?.id||`layer_${j+1}`),name:String(l?.name||`Слой ${j+1}`),visible:Boolean(l?.visible??true),locked:Boolean(l?.locked??false)}));const ids=new Set(layers.map((l:Layer)=>l.id));return{id:String(f?.id||`floor_${i+1}`),name:String(f?.name||`Этаж ${i+1}`),elements:(Array.isArray(f?.elements)?f.elements:[]).map((e:any)=>({...e,layerId:ids.has(e?.layerId)?e.layerId:layers[0].id})),layers,backgroundPath:f?.backgroundPath??(i===0?bg:null)}});return{settings:{gridSize:Number(raw?.settings?.gridSize??50),showGrid:Boolean(raw?.settings?.showGrid??true),gridOpacity:Number(raw?.settings?.gridOpacity??0.35)},floors:floors.length?floors:[{id:FID,name:'Этаж 1',elements:[],layers:[{id:LID,name:'Основной слой',visible:true,locked:false}],backgroundPath:bg||null}],activeFloorId:floors.some((f:Floor)=>f.id===raw?.activeFloorId)?raw.activeFloorId:floors[0]?.id||FID,equipmentPlacements:raw?.equipmentPlacements&&typeof raw.equipmentPlacements==='object'?raw.equipmentPlacements:{}}}
-export default function WorkshopMap({workshop,onEquipmentClick,focusEquipmentId}:{workshop?:string;onEquipmentClick?:(e:Eq)=>void;focusEquipmentId?:number|null}){
-  const {token}=useAuthStore();const svgRef=useRef<SVGSVGElement>(null)
-  const [eq,setEq]=useState<Eq[]>([]);const [loading,setLoading]=useState(true);const [hover,setHover]=useState<Eq|null>(null);const [sel,setSel]=useState<Eq|null>(null);const [tip,setTip]=useState({x:0,y:0});const [q,setQ]=useState('');const [status,setStatus]=useState<'all'|'active'|'inactive'|'archived'>('all');const [data,setData]=useState<Data>(norm(undefined))
-  const floor=useMemo(()=>data.floors.find(f=>f.id===data.activeFloorId)||data.floors[0],[data]);const visible=useMemo(()=>new Set((floor?.layers||[]).filter(l=>l.visible).map(l=>l.id)),[floor]);const elements=(floor?.elements||[]).filter(e=>visible.has(e.layerId))
-  useEffect(()=>{(async()=>{try{setLoading(true);const params:any={limit:1000};if(workshop)params.workshop=workshop;const [er,mr]=await Promise.all([axios.get(`${API_URL}/api/equipment`,{params,headers:token?{Authorization:`Bearer ${token}`}:{}}),axios.get(`${API_URL}/api/workshop-map`,{params:{workshop:workshop||'default'},headers:token?{Authorization:`Bearer ${token}`}:{}})]);setEq(er.data);setData(norm(mr.data?.data,mr.data?.background_path))}catch{}finally{setLoading(false)}})()},[workshop,token])
-  const eqOnFloor=eq.map(e=>{const p=data.equipmentPlacements[String(e.id)];if(p&&p.floorId===floor?.id)return({...e,map_x:p.x,map_y:p.y});if(floor?.id===FID&&typeof e.map_x==='number'&&typeof e.map_y==='number')return e;return({...e,map_x:null,map_y:null})}).filter(e=>typeof e.map_x==='number'&&typeof e.map_y==='number')
-  useEffect(()=>{if(!focusEquipmentId)return;const placement=data.equipmentPlacements[String(focusEquipmentId)];if(placement&&placement.floorId&&data.activeFloorId!==placement.floorId){setData(p=>({...p,activeFloorId:placement.floorId}))}},[focusEquipmentId,data])
-  useEffect(()=>{if(!focusEquipmentId)return;const target=eqOnFloor.find(e=>e.id===focusEquipmentId);if(target){setSel(target)}},[focusEquipmentId,eqOnFloor])
-  const filtered=eqOnFloor.filter(e=>{if(status!=='all'&&e.status!==status)return false;if(!q)return true;const s=q.toLowerCase();return e.equipment_type.toLowerCase().includes(s)||e.passport_number.toLowerCase().includes(s)||(e.inventory_number||'').toLowerCase().includes(s)||(e.position||'').toLowerCase().includes(s)})
-  const color=(s:string)=>s==='active'?'#10b981':s==='inactive'?'#ef4444':s==='archived'?'#6b7280':'#3b82f6'
-  if(loading)return <div className='flex items-center justify-center h-96 bg-gray-50 rounded-lg border'><div className='animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600'/></div>
-  return <div className='relative'>
-    <div className='mb-3 flex flex-col sm:flex-row gap-3 sm:items-center'>
-      <input value={q} onChange={e=>setQ(e.target.value)} placeholder='Поиск по оборудованию' className='w-full sm:max-w-sm px-3 py-2 border rounded-lg text-sm'/>
-      <div className='flex gap-2 items-center text-sm'>{(['all','active','inactive','archived'] as const).map(s=><button key={s} onClick={()=>setStatus(s)} className={`px-2.5 py-1 rounded border ${status===s?'bg-primary-600 text-white border-primary-600':'bg-white border-gray-300 text-gray-700'}`}>{s==='all'?'Все':s==='active'?'Актив':s==='inactive'?'Неактив':'Архив'}</button>)}</div>
-      <select value={data.activeFloorId} onChange={e=>setData(p=>({...p,activeFloorId:e.target.value}))} className='sm:ml-auto px-3 py-2 border rounded-lg text-sm'>{data.floors.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select>
+
+const API_URL =
+  typeof window !== 'undefined'
+    ? (process.env.NEXT_PUBLIC_API_URL || '')
+    : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
+
+const FID = 'floor_1'
+const LID = 'layer_default'
+
+type Eq = {
+  id: number
+  equipment_type: string
+  passport_number: string
+  inventory_number: string | null
+  position: string | null
+  workshop?: string | null
+  installation_location?: string | null
+  manufacturer?: string | null
+  load_capacity?: number | null
+  rostekhnadzor_registered?: boolean | null
+  pto_date?: string | null
+  cto_date?: string | null
+  operation_permit_until?: string | null
+  operation_banned?: boolean | null
+  status: string
+  map_x?: number | null
+  map_y?: number | null
+}
+
+type El = {
+  id: string
+  type: string
+  layerId: string
+  x: number
+  y: number
+  width?: number
+  height?: number
+  radius?: number
+  color?: string
+  label?: string
+  fontSize?: number
+  x2?: number
+  y2?: number
+  equipmentId?: number | null
+}
+
+type Layer = { id: string; name: string; visible: boolean; locked: boolean }
+type Floor = { id: string; name: string; elements: El[]; layers: Layer[]; backgroundPath?: string | null }
+type Placement = { floorId: string; x: number; y: number }
+type Data = {
+  settings: { gridSize: number; showGrid: boolean; gridOpacity: number }
+  floors: Floor[]
+  activeFloorId: string
+  equipmentPlacements: Record<string, Placement>
+}
+
+const norm = (raw: any, bg?: string | null): Data => {
+  if (!raw || !Array.isArray(raw.floors)) {
+    return {
+      settings: {
+        gridSize: Number(raw?.settings?.gridSize ?? 50),
+        showGrid: Boolean(raw?.settings?.showGrid ?? true),
+        gridOpacity: Number(raw?.settings?.gridOpacity ?? 0.35),
+      },
+      floors: [
+        {
+          id: FID,
+          name: 'Этаж 1',
+          elements: Array.isArray(raw?.elements) ? raw.elements.map((e: any) => ({ ...e, layerId: e?.layerId || LID })) : [],
+          layers: [{ id: LID, name: 'Основной слой', visible: true, locked: false }],
+          backgroundPath: bg || null,
+        },
+      ],
+      activeFloorId: FID,
+      equipmentPlacements: {},
+    }
+  }
+
+  const floors = raw.floors.map((f: any, i: number) => {
+    const layers = (Array.isArray(f?.layers) && f.layers.length ? f.layers : [{ id: LID, name: 'Основной слой', visible: true, locked: false }]).map(
+      (l: any, j: number) => ({
+        id: String(l?.id || `layer_${j + 1}`),
+        name: String(l?.name || `Слой ${j + 1}`),
+        visible: Boolean(l?.visible ?? true),
+        locked: Boolean(l?.locked ?? false),
+      }),
+    )
+    const ids = new Set(layers.map((l: Layer) => l.id))
+    return {
+      id: String(f?.id || `floor_${i + 1}`),
+      name: String(f?.name || `Этаж ${i + 1}`),
+      elements: (Array.isArray(f?.elements) ? f.elements : []).map((e: any) => ({ ...e, layerId: ids.has(e?.layerId) ? e.layerId : layers[0].id })),
+      layers,
+      backgroundPath: f?.backgroundPath ?? (i === 0 ? bg : null),
+    }
+  })
+
+  return {
+    settings: {
+      gridSize: Number(raw?.settings?.gridSize ?? 50),
+      showGrid: Boolean(raw?.settings?.showGrid ?? true),
+      gridOpacity: Number(raw?.settings?.gridOpacity ?? 0.35),
+    },
+    floors: floors.length ? floors : [{ id: FID, name: 'Этаж 1', elements: [], layers: [{ id: LID, name: 'Основной слой', visible: true, locked: false }], backgroundPath: bg || null }],
+    activeFloorId: floors.some((f: Floor) => f.id === raw?.activeFloorId) ? raw.activeFloorId : floors[0]?.id || FID,
+    equipmentPlacements: raw?.equipmentPlacements && typeof raw.equipmentPlacements === 'object' ? raw.equipmentPlacements : {},
+  }
+}
+
+export default function WorkshopMap({
+  workshop,
+  onEquipmentClick,
+  focusEquipmentId,
+}: {
+  workshop?: string
+  onEquipmentClick?: (e: Eq) => void
+  focusEquipmentId?: number | null
+}) {
+  const { token } = useAuthStore()
+  const svgRef = useRef<SVGSVGElement>(null)
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const panRef = useRef<{ dragging: boolean; startX: number; startY: number; scrollLeft: number; scrollTop: number }>({
+    dragging: false,
+    startX: 0,
+    startY: 0,
+    scrollLeft: 0,
+    scrollTop: 0,
+  })
+
+  const [eq, setEq] = useState<Eq[]>([])
+  const [loading, setLoading] = useState(true)
+  const [hover, setHover] = useState<Eq | null>(null)
+  const [sel, setSel] = useState<Eq | null>(null)
+  const [tip, setTip] = useState({ x: 0, y: 0 })
+  const [zoom, setZoom] = useState(1)
+  const [q, setQ] = useState('')
+  const [status, setStatus] = useState<'all' | 'active' | 'inactive' | 'archived'>('all')
+  const [data, setData] = useState<Data>(norm(undefined))
+
+  const detailsCache = useRef<Map<number, Eq>>(new Map())
+  const loadingIds = useRef<Set<number>>(new Set())
+  const [, setDetailTick] = useState(0)
+
+  const floor = useMemo(() => data.floors.find((f) => f.id === data.activeFloorId) || data.floors[0], [data])
+  const visible = useMemo(() => new Set((floor?.layers || []).filter((l) => l.visible).map((l) => l.id)), [floor])
+  const elements = (floor?.elements || []).filter((e) => visible.has(e.layerId))
+  const eqById = useMemo(() => new Map(eq.map((item) => [item.id, item])), [eq])
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        setLoading(true)
+        const params: any = { limit: 1000 }
+        if (workshop) params.workshop = workshop
+        const [er, mr] = await Promise.all([
+          axios.get(`${API_URL}/api/equipment`, { params, headers: token ? { Authorization: `Bearer ${token}` } : {} }),
+          axios.get(`${API_URL}/api/workshop-map`, { params: { workshop: workshop || 'default' }, headers: token ? { Authorization: `Bearer ${token}` } : {} }),
+        ])
+        setEq(er.data)
+        setData(norm(mr.data?.data, mr.data?.background_path))
+      } catch {
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [workshop, token])
+
+  const eqOnFloor = eq
+    .map((e) => {
+      const p = data.equipmentPlacements[String(e.id)]
+      if (p && p.floorId === floor?.id) return { ...e, map_x: p.x, map_y: p.y }
+      if (floor?.id === FID && typeof e.map_x === 'number' && typeof e.map_y === 'number') return e
+      return { ...e, map_x: null, map_y: null }
+    })
+    .filter((e) => typeof e.map_x === 'number' && typeof e.map_y === 'number')
+
+  const getDetails = (id: number) => detailsCache.current.get(id)
+
+  const fetchDetails = async (id: number) => {
+    if (detailsCache.current.has(id) || loadingIds.current.has(id)) return
+    loadingIds.current.add(id)
+    try {
+      const r = await axios.get(`${API_URL}/api/equipment/${id}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      if (r?.data) {
+        detailsCache.current.set(id, r.data)
+        setDetailTick((v) => v + 1)
+      }
+    } catch {
+    } finally {
+      loadingIds.current.delete(id)
+    }
+  }
+
+  useEffect(() => {
+    if (!focusEquipmentId) return
+    const placement = data.equipmentPlacements[String(focusEquipmentId)]
+    if (placement && placement.floorId && data.activeFloorId !== placement.floorId) {
+      setData((p) => ({ ...p, activeFloorId: placement.floorId }))
+    }
+  }, [focusEquipmentId, data])
+
+  useEffect(() => {
+    if (!focusEquipmentId) return
+    const target = eqOnFloor.find((e) => e.id === focusEquipmentId)
+    if (target) setSel(target)
+  }, [focusEquipmentId, eqOnFloor])
+
+  const filtered = eqOnFloor.filter((e) => {
+    if (status !== 'all' && e.status !== status) return false
+    if (!q) return true
+    const s = q.toLowerCase()
+    return (
+      e.equipment_type.toLowerCase().includes(s) ||
+      e.passport_number.toLowerCase().includes(s) ||
+      (e.inventory_number || '').toLowerCase().includes(s) ||
+      (e.position || '').toLowerCase().includes(s)
+    )
+  })
+
+  const color = (s: string) => (s === 'active' ? '#10b981' : s === 'inactive' ? '#ef4444' : s === 'archived' ? '#6b7280' : '#3b82f6')
+  const zoomIn = () => setZoom((z) => Math.min(3, Number((z + 0.1).toFixed(2))))
+  const zoomOut = () => setZoom((z) => Math.max(0.5, Number((z - 0.1).toFixed(2))))
+
+  const setTooltipPos = (ev: React.MouseEvent) => {
+    if (!svgRef.current) return
+    const r = svgRef.current.getBoundingClientRect()
+    setTip({ x: ev.clientX - r.left, y: ev.clientY - r.top - 10 })
+  }
+
+  const hoverEquipment = (item: Eq, ev: React.MouseEvent) => {
+    setHover(item)
+    setTooltipPos(ev)
+    fetchDetails(item.id)
+  }
+
+  if (loading) {
+    return (
+      <div className='flex items-center justify-center h-96 bg-gray-50 rounded-lg border'>
+        <div className='animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600' />
+      </div>
+    )
+  }
+
+  const onPanStart = (ev: React.MouseEvent<HTMLDivElement>) => {
+    if (ev.button !== 0 || zoom <= 1 || !viewportRef.current) return
+    panRef.current = {
+      dragging: true,
+      startX: ev.clientX,
+      startY: ev.clientY,
+      scrollLeft: viewportRef.current.scrollLeft,
+      scrollTop: viewportRef.current.scrollTop,
+    }
+  }
+
+  const onPanMove = (ev: React.MouseEvent<HTMLDivElement>) => {
+    if (!panRef.current.dragging || !viewportRef.current) return
+    const dx = ev.clientX - panRef.current.startX
+    const dy = ev.clientY - panRef.current.startY
+    viewportRef.current.scrollLeft = panRef.current.scrollLeft - dx
+    viewportRef.current.scrollTop = panRef.current.scrollTop - dy
+  }
+
+  const onPanEnd = () => {
+    panRef.current.dragging = false
+  }
+
+  return (
+    <div className='relative'>
+      <div className='mb-3 flex flex-col sm:flex-row gap-3 sm:items-center'>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder='Поиск по оборудованию' className='w-full sm:max-w-sm px-3 py-2 border rounded-lg text-sm' />
+        <div className='flex gap-2 items-center text-sm'>
+          {(['all', 'active', 'inactive', 'archived'] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatus(s)}
+              className={`px-2.5 py-1 rounded border ${status === s ? 'bg-primary-600 text-white border-primary-600' : 'bg-white border-gray-300 text-gray-700'}`}
+            >
+              {s === 'all' ? 'Все' : s === 'active' ? 'Актив' : s === 'inactive' ? 'Неактив' : 'Архив'}
+            </button>
+          ))}
+        </div>
+        <select value={data.activeFloorId} onChange={(e) => setData((p) => ({ ...p, activeFloorId: e.target.value }))} className='sm:ml-auto px-3 py-2 border rounded-lg text-sm'>
+          {data.floors.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.name}
+            </option>
+          ))}
+        </select>
+        <div className='flex items-center gap-2'>
+          <button onClick={zoomOut} className='px-2 py-1 border rounded text-sm bg-white'>-</button>
+          <span className='text-xs text-gray-600 min-w-[52px] text-center'>{Math.round(zoom * 100)}%</span>
+          <button onClick={zoomIn} className='px-2 py-1 border rounded text-sm bg-white'>+</button>
+        </div>
+      </div>
+
+      <div
+        ref={viewportRef}
+        className={`relative bg-white rounded-lg border shadow-sm overflow-auto ${zoom > 1 ? 'cursor-grab active:cursor-grabbing' : ''}`}
+        onMouseDown={onPanStart}
+        onMouseMove={onPanMove}
+        onMouseUp={onPanEnd}
+        onMouseLeave={onPanEnd}
+      >
+        <svg ref={svgRef} viewBox='0 0 1000 600' className='min-h-[600px]' style={{ width: `${zoom * 100}%`, minWidth: '1000px' }}>
+          <rect width='1000' height='600' fill='#f9fafb' />
+          {floor?.backgroundPath && <image href={floor.backgroundPath} x='0' y='0' width='1000' height='600' preserveAspectRatio='xMidYMid meet' />}
+          <defs>
+            <pattern id='grid-workshop' width={data.settings.gridSize} height={data.settings.gridSize} patternUnits='userSpaceOnUse'>
+              <path d={`M ${data.settings.gridSize} 0 L 0 0 0 ${data.settings.gridSize}`} fill='none' stroke={`rgba(148,163,184,${data.settings.gridOpacity})`} strokeWidth='0.5' />
+            </pattern>
+          </defs>
+          {data.settings.showGrid && <rect width='1000' height='600' fill='url(#grid-workshop)' />}
+
+          {elements.map((el) => {
+            const x = (el.x / 100) * 1000
+            const y = (el.y / 100) * 600
+            if (el.type === 'wall') {
+              const w = ((el.width || 5) / 100) * 1000
+              const h = ((el.height || 20) / 100) * 600
+              return <WallIcon key={el.id} id={el.id} x={x} y={y} width={w} height={h} fill={el.color || '#78716c'} stroke='#57534e' />
+            }
+            if (el.type === 'column') {
+              const r = Math.max(18, ((el.radius || 2) / 100) * 200)
+              return <ColumnIcon key={el.id} id={el.id} x={x} y={y} size={r * 2} fill={el.color || '#94a3b8'} stroke='#64748b' />
+            }
+            if (el.type === 'zone') {
+              return (
+                <g key={el.id}>
+                  <rect x={x} y={y} width={((el.width || 15) / 100) * 1000} height={((el.height || 15) / 100) * 600} fill={el.color || '#dbeafe'} stroke='#3b82f6' strokeWidth='2' strokeDasharray='5,5' />
+                  {el.label && (
+                    <text x={x + ((el.width || 15) / 100) * 500} y={y + ((el.height || 15) / 100) * 300} textAnchor='middle' fontSize='14' fill='#1e40af'>
+                      {el.label}
+                    </text>
+                  )}
+                </g>
+              )
+            }
+            if (el.type === 'craneSpan') {
+              return (
+                <g key={el.id}>
+                  <rect
+                    x={x}
+                    y={y}
+                    width={((el.width || 10) / 100) * 1000}
+                    height={((el.height || 10) / 100) * 600}
+                    fill={el.color || 'rgba(14,165,233,0.15)'}
+                    stroke='#0284c7'
+                    strokeWidth='2'
+                    strokeDasharray='6,4'
+                  />
+                  <text x={x + ((el.width || 10) / 100) * 500} y={y + ((el.height || 10) / 100) * 300} textAnchor='middle' fontSize='12' fill='#075985'>
+                    {el.label || 'Пролет'}
+                  </text>
+                </g>
+              )
+            }
+            if (el.type === 'craneTrack') {
+              const x2 = ((el.x2 ?? el.x) / 100) * 1000
+              const y2 = ((el.y2 ?? el.y) / 100) * 600
+              return (
+                <g key={el.id}>
+                  <line x1={x} y1={y} x2={x2} y2={y2} stroke={el.color || '#0f766e'} strokeWidth='4' strokeDasharray='8,6' />
+                </g>
+              )
+            }
+            if (el.type === 'hotspot') {
+              const target = typeof el.equipmentId === 'number' ? eqById.get(el.equipmentId) : undefined
+              const w = ((el.width || 12) / 100) * 1000
+              const h = ((el.height || 12) / 100) * 600
+              return (
+                <rect
+                  key={el.id}
+                  x={x}
+                  y={y}
+                  width={w}
+                  height={h}
+                  fill='rgba(15,23,42,0.001)'
+                  stroke='transparent'
+                  className='cursor-help'
+                  onMouseEnter={(ev) => target && hoverEquipment(target, ev)}
+                  onMouseMove={(ev) => target && setTooltipPos(ev)}
+                  onMouseLeave={() => setHover(null)}
+                  onClick={() => {
+                    if (!target) return
+                    setSel(target)
+                    onEquipmentClick?.(target)
+                  }}
+                />
+              )
+            }
+            if (el.type === 'text') {
+              return (
+                <text key={el.id} x={x} y={y} textAnchor='middle' fontSize={el.fontSize || 14} fill={el.color || '#1f2937'}>
+                  {el.label || 'Текст'}
+                </text>
+              )
+            }
+            return null
+          })}
+
+          {filtered.map((e) => {
+            const x = ((e.map_x || 0) / 100) * 1000
+            const y = ((e.map_y || 0) / 100) * 600
+            const isFocused = focusEquipmentId === e.id
+            return (
+              <g key={e.id}>
+                {isFocused && <circle cx={x} cy={y} r='28' fill='none' stroke='#f59e0b' strokeWidth='3' />}
+                {hover?.id === e.id && <circle cx={x} cy={y} r='25' fill='rgba(0,0,0,0.1)' />}
+                <circle
+                  cx={x}
+                  cy={y}
+                  r='20'
+                  fill={color(e.status)}
+                  stroke={isFocused ? '#f59e0b' : 'white'}
+                  strokeWidth={hover?.id === e.id || isFocused ? '4' : '2'}
+                  onMouseEnter={(ev) => hoverEquipment(e, ev)}
+                  onMouseMove={setTooltipPos}
+                  onMouseLeave={() => setHover(null)}
+                  onClick={() => {
+                    setSel(e)
+                    onEquipmentClick?.(e)
+                  }}
+                  className='cursor-pointer'
+                />
+                {isCraneBeamType(e.equipment_type) ? (
+                  <CraneBeamIcon x={x} y={y} size={24} fill='white' />
+                ) : isCraneType(e.equipment_type) ? (
+                  <CraneIcon x={x} y={y} size={24} fill='white' />
+                ) : (
+                  <g transform={`translate(${x}, ${y})`}>{getEquipmentTypeIcon(e.equipment_type, 18, 'white')}</g>
+                )}
+                {e.position && (
+                  <text x={x} y={y + 45} textAnchor='middle' fontSize='10' fill='#6b7280'>
+                    {e.position}
+                  </text>
+                )}
+              </g>
+            )
+          })}
+        </svg>
+
+        {hover && (
+          <div
+            className='absolute z-10 bg-white rounded-lg shadow-lg border p-3 min-w-[280px] pointer-events-none'
+            style={{ left: `${tip.x}px`, top: `${tip.y}px`, transform: 'translate(-50%,-100%)' }}
+          >
+            {(() => {
+              const d = getDetails(hover.id) || hover
+              return (
+                <div className='space-y-1'>
+                  <div className='text-sm font-semibold text-gray-900'>{d.equipment_type}</div>
+                  <div className='text-xs text-gray-600'>Паспорт: {d.passport_number}</div>
+                  {d.inventory_number && <div className='text-xs text-gray-600'>Инв. №: {d.inventory_number}</div>}
+                  {d.workshop && <div className='text-xs text-gray-600'>Цех: {d.workshop}</div>}
+                  {d.position && <div className='text-xs text-gray-600'>Позиция: {d.position}</div>}
+                  {d.load_capacity != null && <div className='text-xs text-gray-600'>Г/п: {d.load_capacity} т</div>}
+                  {typeof d.rostekhnadzor_registered === 'boolean' && <div className='text-xs text-gray-600'>Ростехнадзор: {d.rostekhnadzor_registered ? 'да' : 'нет'}</div>}
+                  {d.pto_date && <div className='text-xs text-gray-600'>ПТО: {new Date(d.pto_date).toLocaleDateString('ru-RU')}</div>}
+                  {d.cto_date && <div className='text-xs text-gray-600'>ЧТО: {new Date(d.cto_date).toLocaleDateString('ru-RU')}</div>}
+                  {d.operation_permit_until && <div className='text-xs text-gray-600'>Разрешение до: {new Date(d.operation_permit_until).toLocaleDateString('ru-RU')}</div>}
+                  {d.operation_banned && <div className='text-xs text-rose-700 font-semibold'>Запрет на эксплуатацию</div>}
+                  {d.installation_location && <div className='text-xs text-gray-600'>Место: {d.installation_location}</div>}
+                </div>
+              )
+            })()}
+          </div>
+        )}
+      </div>
+
+      {sel && (
+        <div className='fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4'>
+          <div className='bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto'>
+            <div className='sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between'>
+              <h2 className='text-xl font-bold'>Оборудование: {sel.equipment_type}</h2>
+              <button onClick={() => setSel(null)} className='text-gray-500 hover:text-gray-700'>
+                X
+              </button>
+            </div>
+            <div className='p-6'>
+              <EquipmentCard equipmentId={sel.id} onClose={() => setSel(null)} onEdit={() => setSel(null)} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
-    <div className='relative bg-white rounded-lg border shadow-sm overflow-hidden'>
-      <svg ref={svgRef} viewBox='0 0 1000 600' className='w-full min-h-[600px]'><rect width='1000' height='600' fill='#f9fafb'/>{floor?.backgroundPath&&<image href={floor.backgroundPath} x='0' y='0' width='1000' height='600' preserveAspectRatio='xMidYMid meet'/>}<defs><pattern id='grid-workshop' width={data.settings.gridSize} height={data.settings.gridSize} patternUnits='userSpaceOnUse'><path d={`M ${data.settings.gridSize} 0 L 0 0 0 ${data.settings.gridSize}`} fill='none' stroke={`rgba(148,163,184,${data.settings.gridOpacity})`} strokeWidth='0.5'/></pattern></defs>{data.settings.showGrid&&<rect width='1000' height='600' fill='url(#grid-workshop)'/>}{elements.map(el=>{const x=(el.x/100)*1000,y=(el.y/100)*600;if(el.type==='wall'){const w=((el.width||5)/100)*1000,h=((el.height||20)/100)*600;return <WallIcon key={el.id} id={el.id} x={x} y={y} width={w} height={h} fill={el.color||'#78716c'} stroke='#57534e'/>}if(el.type==='column'){const r=Math.max(18,((el.radius||2)/100)*200);return <ColumnIcon key={el.id} id={el.id} x={x} y={y} size={r*2} fill={el.color||'#94a3b8'} stroke='#64748b'/>}if(el.type==='zone')return <g key={el.id}><rect x={x} y={y} width={((el.width||15)/100)*1000} height={((el.height||15)/100)*600} fill={el.color||'#dbeafe'} stroke='#3b82f6' strokeWidth='2' strokeDasharray='5,5'/>{el.label&&<text x={x+((el.width||15)/100)*500} y={y+((el.height||15)/100)*300} textAnchor='middle' fontSize='14' fill='#1e40af'>{el.label}</text>}</g>;if(el.type==='craneSpan')return <g key={el.id}><rect x={x} y={y} width={((el.width||10)/100)*1000} height={((el.height||10)/100)*600} fill={el.color||'rgba(14,165,233,0.15)'} stroke='#0284c7' strokeWidth='2' strokeDasharray='6,4'/><text x={x+((el.width||10)/100)*500} y={y+((el.height||10)/100)*300} textAnchor='middle' fontSize='12' fill='#075985'>{el.label||'Пролет'}</text></g>;if(el.type==='craneTrack'){const x2=((el.x2??el.x)/100)*1000,y2=((el.y2??el.y)/100)*600;return <g key={el.id}><line x1={x} y1={y} x2={x2} y2={y2} stroke={el.color||'#0f766e'} strokeWidth='4' strokeDasharray='8,6'/></g>}if(el.type==='text')return <text key={el.id} x={x} y={y} textAnchor='middle' fontSize={el.fontSize||14} fill={el.color||'#1f2937'}>{el.label||'Текст'}</text>;return null})}{filtered.map(e=>{const x=((e.map_x||0)/100)*1000,y=((e.map_y||0)/100)*600;const isFocused=focusEquipmentId===e.id;return <g key={e.id}>{isFocused&&<circle cx={x} cy={y} r='28' fill='none' stroke='#f59e0b' strokeWidth='3'/>}{hover?.id===e.id&&<circle cx={x} cy={y} r='25' fill='rgba(0,0,0,0.1)'/>}<circle cx={x} cy={y} r='20' fill={color(e.status)} stroke={isFocused?'#f59e0b':'white'} strokeWidth={hover?.id===e.id||isFocused?'4':'2'} onMouseEnter={ev=>{setHover(e);if(svgRef.current){const r=svgRef.current.getBoundingClientRect();setTip({x:ev.clientX-r.left,y:ev.clientY-r.top-10})}}} onMouseLeave={()=>setHover(null)} onClick={()=>{setSel(e);onEquipmentClick?.(e)}} className='cursor-pointer'/>{isCraneBeamType(e.equipment_type)?<CraneBeamIcon x={x} y={y} size={24} fill='white'/>:isCraneType(e.equipment_type)?<CraneIcon x={x} y={y} size={24} fill='white'/>:<g transform={`translate(${x}, ${y})`}>{getEquipmentTypeIcon(e.equipment_type,18,'white')}</g>}{e.position&&<text x={x} y={y+45} textAnchor='middle' fontSize='10' fill='#6b7280'>{e.position}</text>}</g>})}</svg>
-      {hover&&<div className='absolute z-10 bg-white rounded-lg shadow-lg border p-3 min-w-[200px] pointer-events-none' style={{left:`${tip.x}px`,top:`${tip.y}px`,transform:'translate(-50%,-100%)'}}><div className='text-sm font-semibold'>{hover.equipment_type}</div><div className='text-xs text-gray-600 mt-1'>Паспорт: {hover.passport_number}</div>{hover.inventory_number&&<div className='text-xs text-gray-600'>Инв. №: {hover.inventory_number}</div>}</div>}
-    </div>
-    {sel&&<div className='fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4'><div className='bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto'><div className='sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between'><h2 className='text-xl font-bold'>Оборудование: {sel.equipment_type}</h2><button onClick={()=>setSel(null)} className='text-gray-400 hover:text-gray-600'>×</button></div><div className='p-6'><EquipmentCard equipmentId={sel.id} onClose={()=>setSel(null)} onEdit={()=>setSel(null)}/></div></div></div>}
-  </div>
+  )
 }

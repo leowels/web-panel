@@ -1,7 +1,8 @@
-﻿from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Float, JSON
+﻿from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Float, JSON, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
+from uuid import uuid4
 
 Base = declarative_base()
 
@@ -63,6 +64,22 @@ class UserActivity(Base):
     
     # Relationships
     user = relationship("User", back_populates="activities")
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    entity_type = Column(String(64), nullable=False, index=True)
+    entity_id = Column(String(64), nullable=False, index=True)
+    action = Column(String(32), nullable=False, index=True)
+    field_changes = Column(JSON, nullable=True)
+    performed_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    performed_at = Column(DateTime, default=datetime.utcnow, index=True)
+    source = Column(String(32), nullable=False, default="ui", index=True)
+    trace_id = Column(String(36), nullable=True, index=True)
+
+    user = relationship("User", foreign_keys=[performed_by])
 
 # Р вЂР вЂєР С›Р С™ 3: Р РЋР С—РЎР‚Р В°Р Р†Р С•РЎвЂЎР Р…Р С‘Р С” Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ (Р СџР РЋ)
 class Equipment(Base):
@@ -440,6 +457,39 @@ class Notification(Base):
     
     user = relationship("User")
 
+
+class Alert(Base):
+    __tablename__ = "alerts"
+    __table_args__ = (
+        UniqueConstraint("entity_type", "entity_id", "type", name="uq_alert_entity_type"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    entity_type = Column(String, nullable=False, index=True)
+    entity_id = Column(Integer, nullable=False, index=True)
+    type = Column(String, nullable=False, index=True)  # SLA_OVERDUE, SLA_WARNING
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    acknowledged_at = Column(DateTime, nullable=True, index=True)
+
+
+class ErrorEvent(Base):
+    __tablename__ = "error_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(64), nullable=False, index=True)
+    message = Column(Text, nullable=False)
+    trace_id = Column(String(36), nullable=False, index=True)
+    path = Column(String(255), nullable=True, index=True)
+    method = Column(String(16), nullable=True, index=True)
+    status_code = Column(Integer, nullable=False, index=True)
+    retryable = Column(Boolean, default=False, index=True)
+    details = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    resolved_at = Column(DateTime, nullable=True, index=True)
+    resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    resolver = relationship("User", foreign_keys=[resolved_by])
+
 # Р вЂР вЂєР С›Р С™ 16: Р С™РЎРЊРЎв‚¬ Р В°Р Р…Р В°Р В»Р С‘РЎвЂљР С‘Р С”Р С‘
 class AnalyticsCache(Base):
     __tablename__ = "analytics_cache"
@@ -467,5 +517,7 @@ class Report(Base):
     completed_at = Column(DateTime, nullable=True)
     
     generator = relationship("User")
+
+
 
 
