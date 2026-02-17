@@ -45,7 +45,7 @@ export default function MobileMenu() {
       name: 'Карта цеха',
       href: '/workshop-map',
       icon: EquipmentIcon,
-      roles: ['admin', 'inspector', 'operator'],
+      roles: ['admin', 'inspector', 'operator', 'viewer'],
     },
     {
       name: 'Чек-листы',
