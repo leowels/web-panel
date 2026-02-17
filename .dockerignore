@@ -1,6 +1,7 @@
 **/.classpath
 **/.dockerignore
 **/.env
+**/ENV_BACKEND.txt
 **/.git
 **/.gitignore
 **/.project
@@ -15,7 +16,6 @@
 **/charts
 **/docker-compose*
 **/compose*
-**/Dockerfile*
 **/node_modules
 **/npm-debug.log
 **/obj
