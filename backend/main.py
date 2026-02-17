@@ -88,6 +88,7 @@ async def lifespan(app: FastAPI):
     # Startup
     await init_db()
     sla_task = None
+    logger = logging.getLogger(__name__)
     
     # РЎРѕР·РґР°РЅРёРµ СЂРѕР»РµР№ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -166,6 +167,8 @@ async def lifespan(app: FastAPI):
                     "inspections:read",
                     "violations:read",
                     "acts:read",
+                    "tasks:read",
+                    "files:read",
                     "checklists:read",
                     "knowledge:read"
                 ]},
@@ -176,13 +179,34 @@ async def lifespan(app: FastAPI):
                 session.add(role)
             
             await session.commit()
+
+        # Для уже существующей БД синхронизируем минимальные read-права viewer.
+        viewer_result = await session.execute(select(Role).where(Role.name == "viewer"))
+        viewer_role = viewer_result.scalar_one_or_none()
+        if viewer_role:
+            required_viewer_permissions = {
+                "equipment:read",
+                "inspections:read",
+                "violations:read",
+                "acts:read",
+                "tasks:read",
+                "files:read",
+                "checklists:read",
+                "knowledge:read",
+            }
+            current_permissions = set(viewer_role.permissions or [])
+            missing_permissions = sorted(required_viewer_permissions - current_permissions)
+            if missing_permissions:
+                viewer_role.permissions = sorted(current_permissions | required_viewer_permissions)
+                session.add(viewer_role)
+                await session.commit()
+                logger.info("Viewer role permissions synced, added: %s", ", ".join(missing_permissions))
         
         # РЎРѕР·РґР°РЅРёРµ Р°РґРјРёРЅР° РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ
         result = await session.execute(select(User).where(User.username == "admin"))
         admin = result.scalar_one_or_none()
         
         admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
-        logger = logging.getLogger(__name__)
         
         if not admin:
             logger.info("РЎРѕР·РґР°РЅРёРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ admin...")

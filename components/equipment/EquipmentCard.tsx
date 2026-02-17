@@ -106,20 +106,38 @@ export default function EquipmentCard({ equipmentId, onClose, onEdit, onOpenRela
     try {
       const params = { equipment_id: equipmentId, limit: 5 }
       const fileParams = { equipment_id: equipmentId }
-      const [violations, inspections, acts, tasks, files] = await Promise.all([
+      const [violations, inspections, acts, tasks, files] = await Promise.allSettled([
         axios.get(`${API_URL}/api/violations`, { params, headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`${API_URL}/api/inspections`, { params, headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`${API_URL}/api/acts`, { params, headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`${API_URL}/api/tasks`, { params, headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`${API_URL}/api/files`, { params: fileParams, headers: { Authorization: `Bearer ${token}` } }),
       ])
+
+      let hasUnexpectedError = false
+      const getPayload = <T,>(result: PromiseSettledResult<{ data: T }>, fallback: T): T => {
+        if (result.status === 'fulfilled') {
+          return result.value?.data ?? fallback
+        }
+        const error = result.reason
+        const status = axios.isAxiosError(error) ? error.response?.status : undefined
+        // 401/403 are expected for some read-limited roles (e.g. viewer).
+        if (status !== 401 && status !== 403) {
+          hasUnexpectedError = true
+        }
+        return fallback
+      }
+
       setRelated({
-        violations: violations.data || [],
-        inspections: inspections.data || [],
-        acts: acts.data || [],
-        tasks: tasks.data || [],
-        files: files.data || [],
+        violations: getPayload(violations, [] as any[]),
+        inspections: getPayload(inspections, [] as any[]),
+        acts: getPayload(acts, [] as any[]),
+        tasks: getPayload(tasks, [] as any[]),
+        files: getPayload(files, [] as RelatedFile[]),
       })
+      if (hasUnexpectedError) {
+        addNotification('Ошибка загрузки части связанных данных', 'error')
+      }
     } catch {
       addNotification('Ошибка загрузки связанных данных', 'error')
     } finally {
