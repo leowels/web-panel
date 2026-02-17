@@ -383,3 +383,30 @@ def _apply_custom_migrations(sync_conn):
 
 
 
+    # Cleanup legacy/broken act links to avoid API serialization failures.
+    if "act_violations" in table_names:
+        try:
+            sync_conn.execute(text("DELETE FROM act_violations WHERE violation_id IS NULL"))
+            sync_conn.execute(text("DELETE FROM act_violations WHERE act_id IS NULL"))
+
+            if "violations" in table_names:
+                sync_conn.execute(
+                    text(
+                        "DELETE FROM act_violations "
+                        "WHERE violation_id IS NOT NULL "
+                        "AND violation_id NOT IN (SELECT id FROM violations)"
+                    )
+                )
+
+            if "acts" in table_names:
+                sync_conn.execute(
+                    text(
+                        "DELETE FROM act_violations "
+                        "WHERE act_id IS NOT NULL "
+                        "AND act_id NOT IN (SELECT id FROM acts)"
+                    )
+                )
+
+            logger.info("Applied cleanup for broken act_violations links")
+        except Exception as exc:
+            logger.warning(f"Failed to cleanup act_violations links: {exc}")

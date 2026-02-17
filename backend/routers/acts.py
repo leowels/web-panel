@@ -60,6 +60,20 @@ class ActResponse(BaseModel):
 class ActDraftResponse(BaseModel):
     content: str
 
+
+def _extract_violation_ids(act: Act) -> List[int]:
+    """
+    Defensive extractor for legacy/dirty links in act_violations.
+    Some old rows may contain NULL violation_id and must not break API serialization.
+    """
+    result: List[int] = []
+    for act_violation in (act.violations or []):
+        violation_id = getattr(act_violation, "violation_id", None)
+        if isinstance(violation_id, int):
+            result.append(violation_id)
+    return result
+
+
 async def _generate_act_ai_content(act: Act, db: AsyncSession) -> str:
     """Generate act content via AI without persisting."""
     try:
@@ -224,7 +238,7 @@ async def get_acts(
             content=a.content,
             created_at=a.created_at,
             updated_at=a.updated_at,
-            violation_ids=[av.violation_id for av in a.violations]
+            violation_ids=_extract_violation_ids(a),
         )
         for a in acts
     ]
@@ -261,7 +275,7 @@ async def get_act(
         content=act.content,
         created_at=act.created_at,
         updated_at=act.updated_at,
-        violation_ids=[av.violation_id for av in act.violations]
+        violation_ids=_extract_violation_ids(act),
     )
 
 @router.post("", response_model=ActResponse, status_code=status.HTTP_201_CREATED)
@@ -346,7 +360,7 @@ async def create_act(
         content=act.content,
         created_at=act.created_at,
         updated_at=act.updated_at,
-        violation_ids=[av.violation_id for av in act.violations]
+        violation_ids=_extract_violation_ids(act),
     )
 
 @router.post("/{act_id}/generate", response_model=ActResponse)
@@ -561,7 +575,7 @@ async def generate_act_content(
             content=updated_act.content,
             created_at=updated_act.created_at,
             updated_at=updated_act.updated_at,
-            violation_ids=[av.violation_id for av in updated_act.violations]
+            violation_ids=_extract_violation_ids(updated_act),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation error: {str(e)}")
@@ -650,7 +664,7 @@ async def update_act(
         content=updated_act.content,
         created_at=updated_act.created_at,
         updated_at=updated_act.updated_at,
-        violation_ids=[av.violation_id for av in updated_act.violations]
+        violation_ids=_extract_violation_ids(updated_act),
     )
 
 @router.get("/{act_id}/export/table")
