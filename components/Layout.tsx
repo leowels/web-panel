@@ -1,6 +1,6 @@
 'use client'
 
-import { ReactNode, useState } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import Sidebar from '@/components/Sidebar'
 import Header from '@/components/Header'
@@ -13,9 +13,15 @@ interface LayoutProps {
 }
 
 export default function Layout({ children, fullWidth = false }: LayoutProps) {
-  const { user } = useAuthStore()
+  const { user, isAuthenticated, fetchUser } = useAuthStore()
   const [showAIPanel, setShowAIPanel] = useState(false)
   const containerClass = fullWidth ? 'max-w-none' : 'max-w-7xl'
+
+  useEffect(() => {
+    if (isAuthenticated && !user) {
+      fetchUser()
+    }
+  }, [isAuthenticated, user, fetchUser])
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
