@@ -1237,11 +1237,12 @@ async def generate_violation_ai(
         logger.info("=" * 80)
         
         logger.info("РћС‚РїСЂР°РІРєР° Р·Р°РїСЂРѕСЃР° Рє AI РґР»СЏ РіРµРЅРµСЂР°С†РёРё РЅР°СЂСѓС€РµРЅРёСЏ")
+        ai_generation_warning: Optional[str] = None
         try:
             # Р”Р»СЏ Timeweb Cloud РЅРµ РїРµСЂРµРґР°РµРј temperature (РЅРµРєРѕС‚РѕСЂС‹Рµ РјРѕРґРµР»Рё РЅРµ РїРѕРґРґРµСЂР¶РёРІР°СЋС‚)
             # Р”Р»СЏ РґСЂСѓРіРёС… РїСЂРѕРІР°Р№РґРµСЂРѕРІ РёСЃРїРѕР»СЊР·СѓРµРј СЃС‚Р°РЅРґР°СЂС‚РЅРѕРµ Р·РЅР°С‡РµРЅРёРµ
             temperature = None if ai_client.provider == "timeweb" else 0.7
-            
+
             ai_description = ai_client.generate_text(
                 prompt=prompt,
                 system_prompt=system_prompt,
@@ -1251,15 +1252,15 @@ async def generate_violation_ai(
             logger.info(f"AI РІРµСЂРЅСѓР» РѕС‚РІРµС‚ РґР»РёРЅРѕР№ {len(ai_description) if ai_description else 0} СЃРёРјРІРѕР»РѕРІ")
         except Exception as ai_error:
             logger.error(f"РћС€РёР±РєР° РїСЂРё РіРµРЅРµСЂР°С†РёРё С‡РµСЂРµР· AI: {str(ai_error)}", exc_info=True)
-            if isinstance(ai_error, AITemporarilyUnavailableError) or "AI temporarily unavailable" in str(ai_error):
-                raise HTTPException(
-                    status_code=503,
-                    detail="AI временно недоступен. Создайте нарушение вручную и повторите позже.",
-                )
-            raise HTTPException(
-                status_code=500,
-                detail=f"РћС€РёР±РєР° РіРµРЅРµСЂР°С†РёРё С‡РµСЂРµР· AI: {str(ai_error)}"
+            ai_generation_warning = str(ai_error)
+            fallback_context = request.context.strip() if request.context else ""
+            ai_description = (
+                "ИИ временно недоступен, использован шаблон оформления нарушения. "
+                f"Заявленный тип нарушения: {request.violation_type}. "
+                f"Оборудование: {equipment.equipment_type} (паспорт: {equipment.passport_number})."
             )
+            if fallback_context:
+                ai_description += f" Контекст: {fallback_context}."
         
         # РџСЂРѕРІРµСЂСЏРµРј, С‡С‚Рѕ AI РІРµСЂРЅСѓР» РѕРїРёСЃР°РЅРёРµ
         if not ai_description or not ai_description.strip():
@@ -1346,6 +1347,9 @@ async def generate_violation_ai(
                     "Уточните запрос. " + description
                 )
 
+        if ai_generation_warning and "ИИ временно недоступен" not in description:
+            description = "ИИ временно недоступен. Нарушение создано по шаблону. " + description
+
         logger.info(f"РР·РІР»РµС‡РµРЅРѕ: РѕРїРёСЃР°РЅРёРµ={len(description)} СЃРёРјРІРѕР»РѕРІ, Р¤РќРџ={fnp_clause}, Р“РћРЎРў={gost_clause}, СЃСЂРѕРє={deadline_days} РґРЅРµР№, РєСЂРёС‚РёС‡РЅРѕСЃС‚СЊ={severity}")
         logger.info("РЎРѕР·РґР°РЅРёРµ РЅР°СЂСѓС€РµРЅРёСЏ РІ Р±Р°Р·Рµ РґР°РЅРЅС‹С…")
         
@@ -1353,7 +1357,7 @@ async def generate_violation_ai(
         new_violation = Violation(
             inspection_id=request.inspection_id,
             equipment_id=request.equipment_id,
-            source="ai",
+            source="ai_fallback" if ai_generation_warning else "ai",
             description=description,
             fnp_clause=fnp_clause,
             gost_clause=gost_clause,

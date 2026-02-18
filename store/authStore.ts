@@ -78,12 +78,18 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         const { refreshToken } = get()
-        if (refreshToken) {
-          axios.post(`${API_URL}/api/auth/logout`, { refresh_token: refreshToken }, { withCredentials: true }).catch(() => {})
-        } else {
-          axios.post(`${API_URL}/api/auth/logout`, {}, { withCredentials: true }).catch(() => {})
-        }
+        // Сначала чистим состояние, чтобы избежать гонок с интерсепторами и редирект-циклов
         set({ user: null, token: null, refreshToken: null, isAuthenticated: false })
+
+        // Выходим на сервере через fetch (без axios-интерсепторов с refresh-логикой)
+        if (typeof window !== 'undefined') {
+          fetch(`${API_URL}/api/auth/logout`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(refreshToken ? { refresh_token: refreshToken } : {}),
+          }).catch(() => {})
+        }
       },
 
       refreshAccessToken: async () => {
@@ -133,6 +139,15 @@ export const useAuthStore = create<AuthState>()(
       name: 'auth-storage',
       storage: storage as any,
       partialize: (state) => ({ token: state.token, refreshToken: state.refreshToken, isAuthenticated: state.isAuthenticated }),
+      onRehydrateStorage: () => (state) => {
+        if (!state) return
+        if (!state.token && !state.refreshToken) {
+          state.user = null
+          state.isAuthenticated = false
+          return
+        }
+        state.isAuthenticated = Boolean(state.token || state.refreshToken)
+      },
     }
   )
 )
@@ -149,7 +164,7 @@ if (typeof window !== 'undefined' && !interceptorsInstalled) {
       const status = error?.response?.status
       const original = error?.config || {}
       const url: string = original?.url || ''
-      const isAuthRoute = url.includes('/api/auth/login') || url.includes('/api/auth/refresh')
+      const isAuthRoute = url.includes('/api/auth/login') || url.includes('/api/auth/refresh') || url.includes('/api/auth/logout')
 
       if (status !== 401 || original._retry || isAuthRoute) {
         throw error
