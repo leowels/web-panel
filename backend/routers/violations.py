@@ -15,12 +15,12 @@ import io
 
 # РџРѕРґРґРµСЂР¶РєР° Р·Р°РїСѓСЃРєР° РєР°Рє СЃРєСЂРёРїС‚Р° Рё РєР°Рє РјРѕРґСѓР»СЏ
 try:
-    from backend.models import Violation, Inspection, Equipment, UserActivity, User, ViolationSLARule, AuditLog
+    from backend.models import Violation, Inspection, Equipment, UserActivity, User, ViolationSLARule, AuditLog, SystemSettings
     from backend.database import get_db
     from backend.auth import get_current_user, require_permission
     from backend.audit import log_audit_event, build_field_changes
 except ImportError:
-    from ..models import Violation, Inspection, Equipment, UserActivity, User, ViolationSLARule, AuditLog
+    from ..models import Violation, Inspection, Equipment, UserActivity, User, ViolationSLARule, AuditLog, SystemSettings
     from ..database import get_db
     from ..auth import get_current_user, require_permission
     from ..audit import log_audit_event, build_field_changes
@@ -1128,7 +1128,7 @@ async def generate_violation_ai(
                         return content[:max_length] + ("..." if len(content) > max_length else "")
                 
                 # РћР±СЂР°Р±Р°С‚С‹РІР°РµРј РґРѕРєСѓРјРµРЅС‚С‹
-                for item in knowledge_items[:15]:  # РЈРІРµР»РёС‡РёРІР°РµРј РґРѕ 15 РґРѕРєСѓРјРµРЅС‚РѕРІ
+                for item in knowledge_items[:6]:  # Ограничиваем количество документов для стабильной генерации
                     doc_type_name = {
                         "fnp461": "Р¤РќРџ 461",
                         "gost": "Р“РћРЎРў",
@@ -1150,14 +1150,14 @@ async def generate_violation_ai(
                         content_preview = extract_relevant_content(
                             item.content, 
                             search_terms, 
-                            max_length=10000  # РЈРІРµР»РёС‡РёРІР°РµРј РґРѕ 10000 СЃРёРјРІРѕР»РѕРІ
+                            max_length=3000  # Ограничиваем размер контекста на документ
                         )
                     else:
                         # Р”Р»СЏ РјРµС‚РѕРґРёС‡РµРє С‚РѕР¶Рµ РёСЃРїРѕР»СЊР·СѓРµРј СѓРјРЅРѕРµ РёР·РІР»РµС‡РµРЅРёРµ, РЅРѕ РјРµРЅСЊС€Рµ
                         content_preview = extract_relevant_content(
                             item.content,
                             search_terms,
-                            max_length=5000
+                            max_length=1800
                         )
                     
                     knowledge_context += f"{content_preview}\n\n"
@@ -1173,6 +1173,11 @@ async def generate_violation_ai(
                     })
                     
                     logger.info(f"Р”РѕР±Р°РІР»РµРЅ РґРѕРєСѓРјРµРЅС‚ РІ РєРѕРЅС‚РµРєСЃС‚: {doc_type_name} - {item.title} (ID: {item.id})")
+
+                max_context_chars = 18000
+                if len(knowledge_context) > max_context_chars:
+                    logger.info(f"Ограничиваем knowledge_context: {len(knowledge_context)} -> {max_context_chars} символов")
+                    knowledge_context = knowledge_context[:max_context_chars] + "\n\n[Контекст обрезан для стабильности запроса к AI]"
             else:
                 logger.warning("Р‘Р°Р·Р° Р·РЅР°РЅРёР№ РїСѓСЃС‚Р° РёР»Рё РЅРµ СЃРѕРґРµСЂР¶РёС‚ СЂРµР»РµРІР°РЅС‚РЅС‹С… РґРѕРєСѓРјРµРЅС‚РѕРІ. РР Р±СѓРґРµС‚ РіРµРЅРµСЂРёСЂРѕРІР°С‚СЊ РїСѓРЅРєС‚С‹ Р¤РќРџ Р±РµР· РєРѕРЅС‚РµРєСЃС‚Р°.")
                 knowledge_context = "\n\nвљ пёЏ Р’РќРРњРђРќРР•: Р‘Р°Р·Р° Р·РЅР°РЅРёР№ РЅРµ СЃРѕРґРµСЂР¶РёС‚ РґРѕРєСѓРјРµРЅС‚РѕРІ Р¤РќРџ 461 РёР»Рё Р“РћРЎРў. РСЃРїРѕР»СЊР·СѓР№ С‚РѕР»СЊРєРѕ Р Р•РђР›Р¬РќР«Р• РїСѓРЅРєС‚С‹, РєРѕС‚РѕСЂС‹Рµ С‚С‹ Р·РЅР°РµС€СЊ. Р•СЃР»Рё РЅРµ СѓРІРµСЂРµРЅ - СѓРєР°Р¶Рё 'РЅРµ РїСЂРёРјРµРЅРёРјРѕ'.\n"
@@ -1237,29 +1242,67 @@ async def generate_violation_ai(
         logger.info("=" * 80)
         
         logger.info("РћС‚РїСЂР°РІРєР° Р·Р°РїСЂРѕСЃР° Рє AI РґР»СЏ РіРµРЅРµСЂР°С†РёРё РЅР°СЂСѓС€РµРЅРёСЏ")
+
+        ai_max_tokens = 1200
         try:
-            # Р”Р»СЏ Timeweb Cloud РЅРµ РїРµСЂРµРґР°РµРј temperature (РЅРµРєРѕС‚РѕСЂС‹Рµ РјРѕРґРµР»Рё РЅРµ РїРѕРґРґРµСЂР¶РёРІР°СЋС‚)
-            # Р”Р»СЏ РґСЂСѓРіРёС… РїСЂРѕРІР°Р№РґРµСЂРѕРІ РёСЃРїРѕР»СЊР·СѓРµРј СЃС‚Р°РЅРґР°СЂС‚РЅРѕРµ Р·РЅР°С‡РµРЅРёРµ
+            max_tokens_result = await db.execute(
+                select(SystemSettings.value).where(SystemSettings.key == "ai_max_tokens")
+            )
+            max_tokens_raw = max_tokens_result.scalar_one_or_none()
+            if max_tokens_raw is not None:
+                ai_max_tokens = max(200, min(int(str(max_tokens_raw).strip()), 4000))
+        except Exception as settings_error:
+            logger.warning(f"Не удалось прочитать ai_max_tokens из системных настроек: {settings_error}")
+
+        retry_max_tokens = max(300, min(ai_max_tokens // 2, 1000))
+        ai_generation_warning: Optional[str] = None
+        try:
+            # Для Timeweb Cloud не передаем temperature (некоторые модели не поддерживают)
             temperature = None if ai_client.provider == "timeweb" else 0.7
-            
+
             ai_description = ai_client.generate_text(
                 prompt=prompt,
                 system_prompt=system_prompt,
-                max_tokens=4000,  # РЈРІРµР»РёС‡РµРЅРЅС‹Р№ Р»РёРјРёС‚ РґР»СЏ РіРµРЅРµСЂР°С†РёРё РЅР°СЂСѓС€РµРЅРёР№ СЃ СЂР°СЃС€РёСЂРµРЅРЅС‹Рј РєРѕРЅС‚РµРєСЃС‚РѕРј Р±Р°Р·С‹ Р·РЅР°РЅРёР№
+                max_tokens=ai_max_tokens,
                 temperature=temperature
             )
-            logger.info(f"AI РІРµСЂРЅСѓР» РѕС‚РІРµС‚ РґР»РёРЅРѕР№ {len(ai_description) if ai_description else 0} СЃРёРјРІРѕР»РѕРІ")
+            logger.info(f"AI вернул ответ длиной {len(ai_description) if ai_description else 0} символов")
         except Exception as ai_error:
-            logger.error(f"РћС€РёР±РєР° РїСЂРё РіРµРЅРµСЂР°С†РёРё С‡РµСЂРµР· AI: {str(ai_error)}", exc_info=True)
-            if isinstance(ai_error, AITemporarilyUnavailableError) or "AI temporarily unavailable" in str(ai_error):
-                raise HTTPException(
-                    status_code=503,
-                    detail="AI временно недоступен. Создайте нарушение вручную и повторите позже.",
+            logger.warning(f"Первичная генерация через AI не удалась: {str(ai_error)}")
+            retry_error = None
+            try:
+                retry_prompt = f"""Оформи официальное нарушение в 3-4 предложениях.
+
+ТИП НАРУШЕНИЯ: {request.violation_type}
+ОБОРУДОВАНИЕ: {equipment.equipment_type}, паспорт {equipment.passport_number}
+КОНТЕКСТ: {request.context or 'не указан'}
+
+ФОРМАТ ОТВЕТА:
+ОПИСАНИЕ: ...
+ФНП: не применимо
+ГОСТ: не применимо
+СРОК_ДНЕЙ: 30"""
+                ai_description = ai_client.generate_text(
+                    prompt=retry_prompt,
+                    system_prompt=system_prompt,
+                    max_tokens=retry_max_tokens,
+                    temperature=temperature
                 )
-            raise HTTPException(
-                status_code=500,
-                detail=f"РћС€РёР±РєР° РіРµРЅРµСЂР°С†РёРё С‡РµСЂРµР· AI: {str(ai_error)}"
-            )
+                logger.info("AI генерация прошла со второй попытки (облегченный prompt)")
+            except Exception as second_error:
+                retry_error = second_error
+
+            if retry_error is not None:
+                logger.error(f"Ошибка при генерации через AI: {str(retry_error)}", exc_info=True)
+                ai_generation_warning = str(retry_error)
+                fallback_context = request.context.strip() if request.context else ""
+                ai_description = (
+                    "ИИ временно недоступен, использован шаблон оформления нарушения. "
+                    f"Заявленный тип нарушения: {request.violation_type}. "
+                    f"Оборудование: {equipment.equipment_type} (паспорт: {equipment.passport_number})."
+                )
+                if fallback_context:
+                    ai_description += f" Контекст: {fallback_context}."
         
         # РџСЂРѕРІРµСЂСЏРµРј, С‡С‚Рѕ AI РІРµСЂРЅСѓР» РѕРїРёСЃР°РЅРёРµ
         if not ai_description or not ai_description.strip():
@@ -1346,6 +1389,9 @@ async def generate_violation_ai(
                     "Уточните запрос. " + description
                 )
 
+        if ai_generation_warning and "ИИ временно недоступен" not in description:
+            description = "ИИ временно недоступен. Нарушение создано по шаблону. " + description
+
         logger.info(f"РР·РІР»РµС‡РµРЅРѕ: РѕРїРёСЃР°РЅРёРµ={len(description)} СЃРёРјРІРѕР»РѕРІ, Р¤РќРџ={fnp_clause}, Р“РћРЎРў={gost_clause}, СЃСЂРѕРє={deadline_days} РґРЅРµР№, РєСЂРёС‚РёС‡РЅРѕСЃС‚СЊ={severity}")
         logger.info("РЎРѕР·РґР°РЅРёРµ РЅР°СЂСѓС€РµРЅРёСЏ РІ Р±Р°Р·Рµ РґР°РЅРЅС‹С…")
         
@@ -1353,7 +1399,7 @@ async def generate_violation_ai(
         new_violation = Violation(
             inspection_id=request.inspection_id,
             equipment_id=request.equipment_id,
-            source="ai",
+            source="ai_fallback" if ai_generation_warning else "ai",
             description=description,
             fnp_clause=fnp_clause,
             gost_clause=gost_clause,
