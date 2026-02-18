@@ -171,7 +171,7 @@ export default function ViolationForm({ violationId, onClose, onSuccess, initial
           violation_type: formData.violation_type.trim(),
           context: formData.location || undefined,
         },
-        { headers: { Authorization: `Bearer ${token}` }, timeout: 30000 }
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 120000 }
       )
       const result = response.data
       const violation = result.violation || result  // Поддержка старого формата
@@ -202,7 +202,23 @@ export default function ViolationForm({ violationId, onClose, onSuccess, initial
       }
     } catch (error: any) {
       console.error('AI generation error:', error)
-      const errorMsg = error.response?.data?.detail || error.message || 'Ошибка генерации'
+      const detail = error.response?.data?.detail
+      let errorMsg = 'Ошибка генерации'
+
+      if (error.code === 'ECONNABORTED') {
+        errorMsg = 'ИИ отвечает дольше обычного. Попробуйте снова через несколько секунд.'
+      } else if (Array.isArray(detail)) {
+        errorMsg = detail
+          .map((item: any) => (typeof item === 'string' ? item : item?.msg || JSON.stringify(item)))
+          .join(', ')
+      } else if (typeof detail === 'string' && detail.trim()) {
+        errorMsg = detail
+      } else if (detail && typeof detail === 'object') {
+        errorMsg = JSON.stringify(detail)
+      } else if (typeof error.message === 'string' && error.message.trim()) {
+        errorMsg = error.message
+      }
+
       addNotification(errorMsg, 'error')
     } finally {
       setGenerating(false)
