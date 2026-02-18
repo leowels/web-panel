@@ -171,7 +171,7 @@ export default function ViolationForm({ violationId, onClose, onSuccess, initial
           violation_type: formData.violation_type.trim(),
           context: formData.location || undefined,
         },
-        { headers: { Authorization: `Bearer ${token}` }, timeout: 30000 }
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 70000 }
       )
       const result = response.data
       const violation = result.violation || result  // Поддержка старого формата

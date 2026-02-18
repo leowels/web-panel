@@ -38,3 +38,5 @@ ADMIN_PASSWORD=Р Р†Р В°РЎв‚¬_РЎРѓР С‘Р В»РЎРЉР�
 AI_API_URL=Р Р†Р В°РЎв‚¬_ai_api_url
 AI_API_KEY=Р Р†Р В°РЎв‚¬_ai_api_key
 
+
+AI_HTTP_TIMEOUT_SECONDS=45

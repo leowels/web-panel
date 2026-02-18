@@ -37,6 +37,7 @@ ADMIN_PASSWORD=ваш_сильный_пароль_для_админа
 # AI настройки (опционально, если используете AI)
 AI_API_URL=ваш_ai_api_url
 AI_API_KEY=ваш_ai_api_key
+AI_HTTP_TIMEOUT_SECONDS=45
 
 # ============================================
 # BUILD ARGUMENTS (для сборки Docker образа)

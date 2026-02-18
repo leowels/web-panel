@@ -13,6 +13,7 @@ OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
 # или используйте новую переменную
 AI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
 AI_MODEL=gpt-3.5-turbo
+AI_HTTP_TIMEOUT_SECONDS=45
 
 # Для Timeweb Cloud AI (раскомментируйте и заполните)
 # AI_PROVIDER=timeweb

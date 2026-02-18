@@ -69,7 +69,7 @@ class AIClient:
             self.use_agent_api = False
         
         # Р В Р Р‹Р В РЎвЂўР В Р’В·Р В РўвЂР В Р’В°Р В Р’ВµР В РЎВ OpenAI-Р РЋР С“Р В РЎвЂўР В Р вЂ Р В РЎВР В Р’ВµР РЋР С“Р РЋРІР‚С™Р В РЎвЂР В РЎВР РЋРІР‚в„–Р В РІвЂћвЂ“ Р В РЎвЂќР В Р’В»Р В РЎвЂР В Р’ВµР В Р вЂ¦Р РЋРІР‚С™
-        self.request_timeout = float(os.getenv("AI_HTTP_TIMEOUT_SECONDS", "20"))
+        self.request_timeout = float(os.getenv("AI_HTTP_TIMEOUT_SECONDS", "45"))
         client_kwargs = {
             "api_key": self.api_key,
             "timeout": self.request_timeout,
