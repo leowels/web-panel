@@ -136,6 +136,12 @@ export default function SystemSettings() {
       type: 'text', 
       description: 'Название модели для OpenAI-совместимого API (например: gpt-3.5-turbo, gpt-4). Для агентов не используется.' 
     },
+    {
+      key: 'ai_max_tokens',
+      label: 'AI Max Tokens',
+      type: 'number',
+      description: 'Максимальное число токенов в ответе ИИ (используется в генерации нарушений). Рекомендуем 800-1500.'
+    },
     { key: 'pto_reminder_days', label: 'Напоминание о ПТО (дней)', type: 'number', description: 'За сколько дней напоминать о ПТО' },
     { key: 'cto_reminder_days', label: 'Напоминание о ЧТО (дней)', type: 'number', description: 'За сколько дней напоминать о ЧТО' },
   ]
