@@ -20,6 +20,7 @@ export default function ViolationForm({ violationId, onClose, onSuccess, initial
   const [loading, setLoading] = useState(false)
   const submitLockRef = useRef(false)
   const [generating, setGenerating] = useState(false)
+  const [aiGeneratedViolationId, setAiGeneratedViolationId] = useState<number | null>(null)
   const isEditing = !!violationId
   const [violationDetails, setViolationDetails] = useState<any | null>(null)
   const [formData, setFormData] = useState({
@@ -103,6 +104,7 @@ export default function ViolationForm({ violationId, onClose, onSuccess, initial
     if (!violationId) {
       setViolationDetails(null)
       setSelectedEquipmentIds([])
+      setAiGeneratedViolationId(null)
     }
   }, [violationId])
 
@@ -175,6 +177,9 @@ export default function ViolationForm({ violationId, onClose, onSuccess, initial
       )
       const result = response.data
       const violation = result.violation || result  // Поддержка старого формата
+      if (violation?.id) {
+        setAiGeneratedViolationId(Number(violation.id))
+      }
       const usedDocuments = result.used_documents || []
       
       setFormData({
@@ -306,6 +311,16 @@ export default function ViolationForm({ violationId, onClose, onSuccess, initial
           }
         )
         addNotification('Нарушение успешно обновлено', 'success')
+      } else if (aiGeneratedViolationId) {
+        await axios.put(
+          `${API_URL}/api/violations/${aiGeneratedViolationId}`,
+          submitData,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            timeout: 10000,
+          }
+        )
+        addNotification('Нарушение, созданное через ИИ, успешно обновлено', 'success')
       } else if (targetEquipmentIds.length === 1) {
         await axios.post(
           `${API_URL}/api/violations`,
@@ -914,7 +929,7 @@ export default function ViolationForm({ violationId, onClose, onSuccess, initial
               disabled={loading}
               className="flex-1 bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 disabled:opacity-50"
             >
-              {loading ? 'Сохранение...' : 'Сохранить'}
+              {loading ? 'Сохранение...' : (violationId || aiGeneratedViolationId ? 'Сохранить изменения' : 'Сохранить')}
             </button>
             <button
               type="button"
