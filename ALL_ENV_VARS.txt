@@ -61,3 +61,7 @@ BACKEND_URL=http://localhost:8000
 
 
 
+
+ENABLE_TELEGRAM_INGEST=false
+
+TELEGRAM_INGEST_TOKEN=replace_with_strong_random_token

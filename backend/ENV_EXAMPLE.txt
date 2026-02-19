@@ -30,3 +30,7 @@ AI_SEMANTIC_BACKFILL_LIMIT=50
 
 AI_EMBEDDINGS_ENABLED=true
 
+# Telegram ingest (for external TG bot service)
+ENABLE_TELEGRAM_INGEST=false
+TELEGRAM_INGEST_TOKEN=replace_with_strong_random_token
+

@@ -496,7 +496,7 @@ try:
     from backend.routers import (
         equipment, checklists, inspections, violations, acts, knowledge, 
         files, settings, audit, documents, tasks, permits, analytics, 
-        notifications, reports, alerts, workshop_map, workflow
+        notifications, reports, alerts, workshop_map, workflow, telegram
     )
     try:
         from backend.routers import ai
@@ -508,7 +508,7 @@ except ImportError:
         from .routers import (
             equipment, checklists, inspections, violations, acts, knowledge,
             files, settings, audit, documents, tasks, permits, analytics,
-            notifications, reports, alerts, workshop_map, workflow
+            notifications, reports, alerts, workshop_map, workflow, telegram
         )
         try:
             from .routers import ai
@@ -520,7 +520,7 @@ except ImportError:
             from routers import (
                 equipment, checklists, inspections, violations, acts, knowledge,
                 files, settings, audit, documents, tasks, permits, analytics,
-                notifications, reports, alerts, workshop_map, workflow
+                notifications, reports, alerts, workshop_map, workflow, telegram
             )
             try:
                 from routers import ai
@@ -532,7 +532,7 @@ except ImportError:
             import traceback
             traceback.print_exc()
             equipment = checklists = inspections = violations = acts = knowledge = files = settings = audit = documents = None
-            tasks = permits = analytics = notifications = reports = alerts = workshop_map = workflow = None
+            tasks = permits = analytics = notifications = reports = alerts = workshop_map = workflow = telegram = None
             ai = None
 
 if equipment:
@@ -563,6 +563,8 @@ if alerts:
     app.include_router(alerts.router)
 if workflow:
     app.include_router(workflow.router)
+if telegram:
+    app.include_router(telegram.router)
 
 # Р РµРіРёСЃС‚СЂР°С†РёСЏ AI СЂРѕСѓС‚РµСЂР° (РѕРїС†РёРѕРЅР°Р»СЊРЅРѕ)
 try:
@@ -601,7 +603,8 @@ async def api_root():
             "alerts": "/api/alerts",
             "reports": "/api/reports",
             "ai": "/api/ai",
-            "workflow": "/api/workflow"
+            "workflow": "/api/workflow",
+            "telegram": "/api/telegram"
         }
     }
 

@@ -191,6 +191,13 @@ def _apply_custom_migrations(sync_conn):
                 "ALTER TABLE files ADD COLUMN description TEXT"
             )
 
+    if "users" in table_names:
+        user_columns = {col["name"] for col in inspector.get_columns("users")}
+        if "telegram_user_id" not in user_columns:
+            alter_statements.append(
+                "ALTER TABLE users ADD COLUMN telegram_user_id VARCHAR(64)"
+            )
+
     
     if "violations" in table_names:
         violation_columns = {col["name"] for col in inspector.get_columns("violations")}
@@ -274,6 +281,27 @@ def _apply_custom_migrations(sync_conn):
         except Exception as exc:
             logger.warning(f"? Failed to create table alerts: {exc}")
 
+    if "telegram_ingest_events" not in table_names:
+        try:
+            id_sql = "SERIAL PRIMARY KEY" if sync_conn.dialect.name != "sqlite" else "INTEGER PRIMARY KEY AUTOINCREMENT"
+            sync_conn.execute(text(
+                f"""
+                CREATE TABLE IF NOT EXISTS telegram_ingest_events (
+                    id {id_sql},
+                    event_key VARCHAR(255) NOT NULL UNIQUE,
+                    violation_id INTEGER NOT NULL,
+                    telegram_chat_id VARCHAR(64),
+                    telegram_message_id VARCHAR(64),
+                    telegram_user_id VARCHAR(64),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(violation_id) REFERENCES violations(id) ON DELETE CASCADE
+                )
+                """
+            ))
+            logger.info("? Applied migration: create table telegram_ingest_events")
+        except Exception as exc:
+            logger.warning(f"? Failed to create table telegram_ingest_events: {exc}")
+
     if "error_events" in table_names:
         error_event_columns = {col["name"] for col in inspector.get_columns("error_events")}
         if "code" not in error_event_columns:
@@ -350,6 +378,19 @@ def _apply_custom_migrations(sync_conn):
 
     try:
         sync_conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_telegram_ingest_events_event_key ON telegram_ingest_events(event_key)"
+        ))
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_telegram_ingest_events_violation_id ON telegram_ingest_events(violation_id)"
+        ))
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_telegram_ingest_events_created_at ON telegram_ingest_events(created_at)"
+        ))
+    except Exception as exc:
+        logger.warning(f"? Failed to create telegram_ingest_events indexes: {exc}")
+
+    try:
+        sync_conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_error_events_created_at ON error_events(created_at)"
         ))
         sync_conn.execute(text(
@@ -382,6 +423,14 @@ def _apply_custom_migrations(sync_conn):
 
 
 
+
+    if "users" in table_names:
+        try:
+            sync_conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_telegram_user_id ON users(telegram_user_id)"
+            ))
+        except Exception as exc:
+            logger.warning(f"? Failed to create users telegram index: {exc}")
 
     # Cleanup legacy/broken act links to avoid API serialization failures.
     if "act_violations" in table_names:

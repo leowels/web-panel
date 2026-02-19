@@ -21,11 +21,35 @@ MIGRATIONS = [
         "statements": [
             """
             ALTER TABLE IF EXISTS users
-            ADD COLUMN IF NOT EXISTS telegram_user_id VARCHAR UNIQUE
+            ADD COLUMN IF NOT EXISTS telegram_user_id VARCHAR(64)
             """,
             """
-            CREATE INDEX IF NOT EXISTS idx_users_telegram_user_id
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_telegram_user_id
             ON users(telegram_user_id)
+            """,
+        ],
+    },
+    {
+        "name": "telegram ingest events table",
+        "statements": [
+            """
+            CREATE TABLE IF NOT EXISTS telegram_ingest_events (
+                id SERIAL PRIMARY KEY,
+                event_key VARCHAR(255) UNIQUE NOT NULL,
+                violation_id INTEGER REFERENCES violations(id) ON DELETE CASCADE,
+                telegram_chat_id VARCHAR(64),
+                telegram_message_id VARCHAR(64),
+                telegram_user_id VARCHAR(64),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_tg_ingest_violation_id
+            ON telegram_ingest_events(violation_id)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_tg_ingest_created_at
+            ON telegram_ingest_events(created_at)
             """,
         ],
     },

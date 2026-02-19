@@ -20,6 +20,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
+    telegram_user_id = Column(String, unique=True, index=True, nullable=True)
     
     # Relationships
     roles = relationship("UserRole", back_populates="user", cascade="all, delete-orphan", foreign_keys="UserRole.user_id")
@@ -262,6 +263,18 @@ class Violation(Base):
     files = relationship("File", back_populates="violation", foreign_keys="File.violation_id")
     acts = relationship("ActViolation", back_populates="violation")
     reporter = relationship("User", foreign_keys=[reported_by], lazy="joined")
+
+
+class TelegramIngestEvent(Base):
+    __tablename__ = "telegram_ingest_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_key = Column(String, unique=True, nullable=False, index=True)
+    violation_id = Column(Integer, ForeignKey("violations.id", ondelete="CASCADE"), nullable=False, index=True)
+    telegram_chat_id = Column(String, nullable=True, index=True)
+    telegram_message_id = Column(String, nullable=True, index=True)
+    telegram_user_id = Column(String, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 # Р вЂР вЂєР С›Р С™ 7: Р СџРЎР‚Р ВµР Т‘Р С—Р С‘РЎРѓР В°Р Р…Р С‘РЎРЏ Р С‘ Р В°Р С”РЎвЂљРЎвЂ№
 class Act(Base):
