@@ -9,7 +9,7 @@ import aiofiles
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, Response, UploadFile, status
 from PIL import Image
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -115,6 +115,20 @@ class TelegramFileUploadResponse(BaseModel):
     thumbnail_path: Optional[str] = None
 
 
+class TelegramWorkshopItem(BaseModel):
+    name: str
+
+
+class TelegramEquipmentItem(BaseModel):
+    id: int
+    equipment_type: Optional[str] = None
+    passport_number: Optional[str] = None
+    inventory_number: Optional[str] = None
+    workshop: Optional[str] = None
+    position: Optional[str] = None
+    label: str
+
+
 def _is_telegram_ingest_enabled() -> bool:
     return os.getenv("ENABLE_TELEGRAM_INGEST", "false").strip().lower() == "true"
 
@@ -164,6 +178,21 @@ async def _create_thumbnail(file_path: str, output_path: str, size: tuple[int, i
         return True
     except Exception:
         return False
+
+
+def _equipment_label(equipment: Equipment) -> str:
+    parts: List[str] = []
+    if equipment.equipment_type:
+        parts.append(str(equipment.equipment_type))
+    if equipment.passport_number:
+        parts.append(f"паспорт: {equipment.passport_number}")
+    if equipment.inventory_number:
+        parts.append(f"инв: {equipment.inventory_number}")
+    if equipment.position:
+        parts.append(f"позиция: {equipment.position}")
+    if not parts:
+        return f"Оборудование #{equipment.id}"
+    return " | ".join(parts)
 
 
 async def _resolve_equipment(payload: TelegramDefectIngestRequest, db: AsyncSession) -> Equipment:
@@ -229,6 +258,69 @@ async def telegram_ingest_health():
         "enabled": _is_telegram_ingest_enabled(),
         "configured": configured,
     }
+
+
+@router.get("/workshops", response_model=List[TelegramWorkshopItem])
+async def list_workshops_for_telegram(
+    x_telegram_ingest_token: Optional[str] = Header(default=None, alias="X-Telegram-Ingest-Token"),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_telegram_ingest_token(x_telegram_ingest_token)
+
+    result = await db.execute(
+        select(Equipment.workshop)
+        .where(Equipment.workshop.is_not(None))
+        .where(Equipment.workshop != "")
+        .distinct()
+        .order_by(Equipment.workshop.asc())
+    )
+    workshops = [row[0] for row in result.all() if row and row[0]]
+    return [TelegramWorkshopItem(name=name) for name in workshops]
+
+
+@router.get("/equipment", response_model=List[TelegramEquipmentItem])
+async def list_equipment_for_telegram(
+    workshop: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 200,
+    x_telegram_ingest_token: Optional[str] = Header(default=None, alias="X-Telegram-Ingest-Token"),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_telegram_ingest_token(x_telegram_ingest_token)
+
+    safe_limit = max(1, min(limit, 1000))
+    query = select(Equipment)
+
+    if workshop:
+        query = query.where(Equipment.workshop == workshop.strip())
+
+    if search and search.strip():
+        pattern = f"%{search.strip()}%"
+        query = query.where(
+            or_(
+                Equipment.passport_number.ilike(pattern),
+                Equipment.inventory_number.ilike(pattern),
+                Equipment.equipment_type.ilike(pattern),
+                Equipment.position.ilike(pattern),
+            )
+        )
+
+    query = query.order_by(Equipment.id.desc()).limit(safe_limit)
+    result = await db.execute(query)
+    equipment_rows = result.scalars().all()
+
+    return [
+        TelegramEquipmentItem(
+            id=item.id,
+            equipment_type=item.equipment_type,
+            passport_number=item.passport_number,
+            inventory_number=item.inventory_number,
+            workshop=item.workshop,
+            position=item.position,
+            label=_equipment_label(item),
+        )
+        for item in equipment_rows
+    ]
 
 
 @router.post(

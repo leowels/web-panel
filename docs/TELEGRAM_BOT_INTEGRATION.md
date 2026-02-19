@@ -16,10 +16,28 @@ The bot service must send this token in header:
 ## 2) New API Endpoints
 
 - `GET /api/telegram/health`
+- `GET /api/telegram/workshops`
+- `GET /api/telegram/equipment?workshop=<name>&search=<text>&limit=200`
 - `POST /api/telegram/files`
 - `POST /api/telegram/defects`
 
-## 3) File Upload (Photo From Bot)
+## 3) Reference Data For Bot
+
+Get workshops:
+
+```http
+GET /api/telegram/workshops
+X-Telegram-Ingest-Token: <strong_random_token>
+```
+
+Get equipment (optionally by workshop/search):
+
+```http
+GET /api/telegram/equipment?workshop=ЛЦ-2&search=ЭМК&limit=200
+X-Telegram-Ingest-Token: <strong_random_token>
+```
+
+## 4) File Upload (Photo From Bot)
 
 `POST /api/telegram/files` as `multipart/form-data`
 
@@ -50,7 +68,7 @@ Response example:
 }
 ```
 
-## 4) Defect Intake Request
+## 5) Defect Intake Request
 
 `POST /api/telegram/defects`
 
@@ -86,7 +104,7 @@ Notes:
 - `event_key` is used for idempotency (duplicate protection).
 - `file_ids` are linked to created violation.
 
-## 5) Response
+## 6) Response
 
 ```json
 {
@@ -110,7 +128,7 @@ If already processed:
 }
 ```
 
-## 6) Data/Audit
+## 7) Data/Audit
 
 - Violation is created with `source="telegram"`.
 - Telegram metadata is saved to `violations.attachment_meta`.
