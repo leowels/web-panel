@@ -12,10 +12,10 @@ SECRET_KEY=8E7ExQa6dqn-yERIMMHbA_IzLdvTJ6Vw1mLSslMoBp0
 POSTGRESQL_HOST=192.168.0.4
 POSTGRESQL_PORT=5432
 POSTGRESQL_USER=gen_user
-POSTGRESQL_PASSWORD='n+qIlo?#l<v5Zh'
+POSTGRESQL_PASSWORD=n+qIlo?#l<v5Zh
 POSTGRESQL_DBNAME=default_db
 # Р вЂќР В»РЎРЏ Р С—РЎР‚Р С‘Р Р†Р В°РЎвЂљР Р…Р С•Р в„– РЎРѓР ВµРЎвЂљР С‘ SSL Р С•Р В±РЎвЂ№РЎвЂЎР Р…Р С• Р Р…Р Вµ Р Р…РЎС“Р В¶Р ВµР Р…
-POSTGRESQL_SSL=false
+POSTGRESQL_SSL=true
 
 # ============================================
 # Р С›Р СџР В¦Р ВР С›Р СњР С’Р вЂєР В¬Р СњР В«Р вЂў Р СџР вЂўР В Р вЂўР СљР вЂўР СњР СњР В«Р вЂў
