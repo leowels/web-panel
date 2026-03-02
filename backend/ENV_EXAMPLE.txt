@@ -3,6 +3,8 @@ DATABASE_URL=sqlite+aiosqlite:///./inspectorhub.db
 
 # JWT Secret Key
 SECRET_KEY=your-secret-key-change-in-production
+ADMIN_PASSWORD=change_me
+ADMIN_FORCE_RESET_PASSWORD=false
 
 # AI Configuration
 # Выберите провайдера: openai или timeweb

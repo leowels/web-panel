@@ -32,8 +32,8 @@ ENVIRONMENT=production
 CORS_ORIGINS=http://localhost:3000,https://leowels-panel.ru
 
 # Р С’Р Т‘Р СР С‘Р Р… Р С—Р В°РЎР‚Р С•Р В»РЎРЉ
-ADMIN_PASSWORD=Р Р†Р В°РЎв‚¬_РЎРѓР С‘Р В»РЎРЉР Р…РЎвЂ№Р в„–_Р С—Р В°РЎР‚Р С•Р В»РЎРЉ_Р Т‘Р В»РЎРЏ_Р В°Р Т‘Р СР С‘Р Р…Р В°
-
+ADMIN_PASSWORD=admin123
+ADMIN_FORCE_RESET_PASSWORD=true
 # AI (Р ВµРЎРѓР В»Р С‘ Р С‘РЎРѓР С—Р С•Р В»РЎРЉР В·РЎС“Р ВµРЎвЂљРЎРѓРЎРЏ)
 AI_API_URL=Р Р†Р В°РЎв‚¬_ai_api_url
 AI_API_KEY=Р Р†Р В°РЎв‚¬_ai_api_key

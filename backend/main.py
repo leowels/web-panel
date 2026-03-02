@@ -51,20 +51,20 @@ try:
     # РџСЂРѕР±СѓРµРј Р°Р±СЃРѕР»СЋС‚РЅС‹Рµ РёРјРїРѕСЂС‚С‹ (РґР»СЏ uvicorn С‡РµСЂРµР· run.py)
     from backend.database import init_db, engine, async_session
     from backend.models import Base, User, Role, UserRole
-    from backend.utils import get_password_hash
+    from backend.utils import get_password_hash, verify_password
     from backend.routers import users, auth
 except ImportError:
     try:
         # РџСЂРѕР±СѓРµРј РѕС‚РЅРѕСЃРёС‚РµР»СЊРЅС‹Рµ РёРјРїРѕСЂС‚С‹ (РґР»СЏ uvicorn РЅР°РїСЂСЏРјСѓСЋ)
         from .database import init_db, engine, async_session
         from .models import Base, User, Role, UserRole
-        from .utils import get_password_hash
+        from .utils import get_password_hash, verify_password
         from .routers import users, auth
     except ImportError:
         # Р•СЃР»Рё РЅРµ РїРѕР»СѓС‡РёР»РѕСЃСЊ, РїСЂРѕР±СѓРµРј Р°Р±СЃРѕР»СЋС‚РЅС‹Рµ (РґР»СЏ РїСЂСЏРјРѕРіРѕ Р·Р°РїСѓСЃРєР°)
         from database import init_db, engine, async_session
         from models import Base, User, Role, UserRole
-        from utils import get_password_hash
+        from utils import get_password_hash, verify_password
         from routers import users, auth
 
 try:
@@ -206,7 +206,9 @@ async def lifespan(app: FastAPI):
         result = await session.execute(select(User).where(User.username == "admin"))
         admin = result.scalar_one_or_none()
         
-        admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
+        admin_password_from_env = os.getenv("ADMIN_PASSWORD")
+        admin_password = admin_password_from_env or "admin123"
+        admin_force_reset = os.getenv("ADMIN_FORCE_RESET_PASSWORD", "false").strip().lower() == "true"
         
         if not admin:
             logger.info("РЎРѕР·РґР°РЅРёРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ admin...")
@@ -229,6 +231,14 @@ async def lifespan(app: FastAPI):
             await session.commit()
             logger.info(f"вњ“ РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ admin СЃРѕР·РґР°РЅ. РџР°СЂРѕР»СЊ: {'СѓСЃС‚Р°РЅРѕРІР»РµРЅ РёР· ADMIN_PASSWORD' if os.getenv('ADMIN_PASSWORD') else 'admin123 (РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ)'}")
         else:
+            if admin_password_from_env and admin_force_reset:
+                if not verify_password(admin_password, admin.hashed_password):
+                    admin.hashed_password = get_password_hash(admin_password)
+                    session.add(admin)
+                    await session.commit()
+                    logger.info("Admin password updated from ADMIN_PASSWORD (forced by ADMIN_FORCE_RESET_PASSWORD=true)")
+                else:
+                    logger.info("Admin password reset requested, but current password is already up to date")
             logger.info("РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ admin СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚")
     
     if run_sla_alert_cycle and os.getenv("ENABLE_SLA_ALERT_ENGINE", "true").lower() == "true":

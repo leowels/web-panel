@@ -13,9 +13,9 @@ SECRET_KEY=8E7ExQa6dqn-yERIMMHbA_IzLdvTJ6Vw1mLSslMoBp0
 POSTGRESQL_HOST=192.168.0.4
 POSTGRESQL_PORT=5432
 POSTGRESQL_USER=gen_user
-POSTGRESQL_PASSWORD=4W;W%2M~kFb@:X
+POSTGRESQL_PASSWORD=n+qIlo?#l<v5Zh
 POSTGRESQL_DBNAME=default_db
-POSTGRESQL_SSL=false
+POSTGRESQL_SSL=true
 
 # ============================================
 # ОПЦИОНАЛЬНЫЕ ПЕРЕМЕННЫЕ (с значениями по умолчанию)
@@ -32,8 +32,8 @@ ENVIRONMENT=production
 CORS_ORIGINS=https://leowels-web-panel-e5fe.twc1.net,http://localhost:3000
 
 # Админ пароль (если не указан, используется "admin123")
-ADMIN_PASSWORD=ваш_сильный_пароль_для_админа
-
+ADMIN_PASSWORD=admin123
+ADMIN_FORCE_RESET_PASSWORD=true
 # AI настройки (опционально, если используете AI)
 AI_API_URL=ваш_ai_api_url
 AI_API_KEY=ваш_ai_api_key
