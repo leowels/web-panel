@@ -54,6 +54,27 @@ MIGRATIONS = [
         ],
     },
     {
+        "name": "workshop map assets table",
+        "statements": [
+            """
+            CREATE TABLE IF NOT EXISTS workshop_map_assets (
+                id SERIAL PRIMARY KEY,
+                storage_key VARCHAR(255) UNIQUE NOT NULL,
+                original_filename VARCHAR(255),
+                content_type VARCHAR(255) NOT NULL,
+                data BYTEA NOT NULL,
+                byte_size INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_workshop_map_assets_created_at
+            ON workshop_map_assets(created_at)
+            """,
+        ],
+    },
+    {
         "name": "refresh tokens table",
         "statements": [
             """

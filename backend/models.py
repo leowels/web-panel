@@ -1,4 +1,4 @@
-﻿from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Float, JSON, UniqueConstraint
+﻿from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Float, JSON, UniqueConstraint, LargeBinary
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -382,6 +382,19 @@ class WorkshopMap(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
+
+class WorkshopMapAsset(Base):
+    __tablename__ = "workshop_map_assets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    storage_key = Column(String, unique=True, index=True, nullable=False)
+    original_filename = Column(String, nullable=True)
+    content_type = Column(String, nullable=False)
+    data = Column(LargeBinary, nullable=False)
+    byte_size = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
 # Р вЂР вЂєР С›Р С™ 12: Refresh РЎвЂљР С•Р С”Р ВµР Р…РЎвЂ№
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
@@ -530,6 +543,7 @@ class Report(Base):
     completed_at = Column(DateTime, nullable=True)
     
     generator = relationship("User")
+
 
 
 

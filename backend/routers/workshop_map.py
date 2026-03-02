@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional, Dict, Any, List, Tuple
@@ -10,18 +10,18 @@ import re
 import xml.etree.ElementTree as ET
 
 try:
-    from backend.models import WorkshopMap, UserActivity, User
+    from backend.models import WorkshopMap, WorkshopMapAsset, UserActivity, User
     from backend.database import get_db
     from backend.auth import get_current_user, require_permission
 except ImportError:
-    from ..models import WorkshopMap, UserActivity, User
+    from ..models import WorkshopMap, WorkshopMapAsset, UserActivity, User
     from ..database import get_db
     from ..auth import get_current_user, require_permission
 
 router = APIRouter(prefix="/api/workshop-map", tags=["workshop-map"])
 
-# Persist workshop map backgrounds outside container layer.
-# You can override with WORKSHOP_MAP_UPLOAD_DIR.
+# Legacy fallback for old map backgrounds saved as files.
+# New uploads are stored in DB (workshop_map_assets).
 UPLOAD_DIR = os.getenv("WORKSHOP_MAP_UPLOAD_DIR", "/app/persistent/workshop_maps")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -192,6 +192,29 @@ def _extract_active_background_path(data: Dict[str, Any]) -> Optional[str]:
     if floors and isinstance(floors[0], dict):
         return floors[0].get("backgroundPath")
     return None
+
+
+async def _store_map_asset(
+    db: AsyncSession,
+    *,
+    content: bytes,
+    original_filename: Optional[str],
+    content_type: Optional[str],
+    uploaded_by: Optional[int],
+) -> str:
+    ext = os.path.splitext(original_filename or "")[1].lower()
+    storage_key = f"{uuid.uuid4().hex}{ext}" if ext else uuid.uuid4().hex
+    asset = WorkshopMapAsset(
+        storage_key=storage_key,
+        original_filename=original_filename,
+        content_type=(content_type or "application/octet-stream"),
+        data=content,
+        byte_size=len(content),
+        uploaded_by=uploaded_by,
+    )
+    db.add(asset)
+    await db.flush()
+    return f"/api/workshop-map/background/{storage_key}"
 
 
 def _float_attr(value: Any, default: float = 0.0) -> float:
@@ -468,10 +491,13 @@ async def import_kompas_file(
     if not content:
         raise HTTPException(status_code=400, detail="Файл пустой")
 
-    filename = f"kompas_{uuid.uuid4().hex}{ext}"
-    path = os.path.join(UPLOAD_DIR, filename)
-    with open(path, "wb") as out:
-        out.write(content)
+    stored_path = await _store_map_asset(
+        db,
+        content=content,
+        original_filename=file.filename or f"kompas{ext}",
+        content_type=file.content_type or "application/octet-stream",
+        uploaded_by=current_user.id,
+    )
 
     workshop_key = (workshop or "default").strip()
     existing = await db.execute(select(WorkshopMap).where(WorkshopMap.workshop == workshop_key))
@@ -511,7 +537,7 @@ async def import_kompas_file(
     applied_elements = 0
 
     if mode in ("background", "both") and ext == ".svg":
-        target_floor["backgroundPath"] = f"/api/workshop-map/background/{filename}"
+        target_floor["backgroundPath"] = stored_path
         applied_background = True
 
     if mode in ("elements", "both") and parsed_elements:
@@ -528,7 +554,7 @@ async def import_kompas_file(
             "id": f"imp_{uuid.uuid4().hex[:10]}",
             "source": "kompas",
             "filename": file.filename,
-            "stored_filename": filename,
+            "stored_path": stored_path,
             "ext": ext,
             "mode": mode,
             "floorId": target_floor.get("id"),
@@ -582,7 +608,7 @@ async def import_kompas_file(
         "workshop": record.workshop,
         "mode": mode,
         "floor_id": target_floor.get("id"),
-        "stored_path": f"/api/workshop-map/background/{filename}",
+        "stored_path": stored_path,
         "applied_background": applied_background,
         "applied_elements": applied_elements,
         "parsed_counts": parsed_counts,
@@ -605,21 +631,34 @@ async def upload_workshop_map_background(
     if ext not in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"]:
         raise HTTPException(status_code=400, detail="Unsupported image format")
     
-    filename = f"{uuid.uuid4().hex}{ext}"
-    path = os.path.join(UPLOAD_DIR, filename)
-    
     content = await file.read()
-    with open(path, "wb") as f:
-        f.write(content)
-    
-    return {"path": f"/api/workshop-map/background/{filename}"}
+    stored_path = await _store_map_asset(
+        db,
+        content=content,
+        original_filename=file.filename or f"background{ext}",
+        content_type=file.content_type or "application/octet-stream",
+        uploaded_by=current_user.id,
+    )
+
+    await db.commit()
+
+    return {"path": stored_path}
 
 
 @router.get("/background/{filename}")
 async def get_workshop_map_background(
     filename: str,
+    db: AsyncSession = Depends(get_db),
 ):
     safe_name = os.path.basename(filename)
+    asset_result = await db.execute(
+        select(WorkshopMapAsset).where(WorkshopMapAsset.storage_key == safe_name)
+    )
+    asset = asset_result.scalar_one_or_none()
+    if asset:
+        return Response(content=asset.data, media_type=asset.content_type)
+
+    # Legacy file-based fallback for old records.
     path = os.path.join(UPLOAD_DIR, safe_name)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Background not found")
