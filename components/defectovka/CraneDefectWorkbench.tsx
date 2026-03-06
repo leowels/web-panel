@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import Script from 'next/script'
 import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
@@ -13,7 +13,7 @@ const API_URL =
     : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 const MODEL_SRC = '/models/mostovye_dvuhbalochnye_krany.glb'
-const CRANE_KEYWORDS = ['кран', 'мостов', 'козлов', 'подъёмн', 'подъемн']
+const EMK_KEYWORDS = ['эмк', 'электро мостовой кран', 'электромостовой кран']
 
 type Severity = 'low' | 'medium' | 'high' | 'critical'
 
@@ -50,9 +50,16 @@ type NodeFormState = {
   is_active: boolean
 }
 
+type ViolationDraftForm = {
+  description: string
+  photos: File[]
+}
+
+type ModelVectorValue = string | { x: number; y: number; z: number }
+
 type ModelViewerPickResult = {
-  position?: { x: number; y: number; z: number }
-  normal?: { x: number; y: number; z: number }
+  position?: ModelVectorValue
+  normal?: ModelVectorValue
 }
 
 type ModelViewerElement = HTMLElement & {
@@ -86,9 +93,9 @@ const emptyNodeForm = (): NodeFormState => ({
   is_active: true,
 })
 
-const isCraneEquipment = (item: EquipmentItem) => {
+const isEmkEquipment = (item: EquipmentItem) => {
   const source = `${item.equipment_type} ${item.passport_number}`.toLowerCase()
-  return CRANE_KEYWORDS.some((keyword) => source.includes(keyword))
+  return EMK_KEYWORDS.some((keyword) => source.includes(keyword))
 }
 
 const toNumberOrNull = (value: string): number | null => {
@@ -98,6 +105,15 @@ const toNumberOrNull = (value: string): number | null => {
 
 const formatVector = (value: { x: number; y: number; z: number }) =>
   `${value.x.toFixed(3)}m ${value.y.toFixed(3)}m ${value.z.toFixed(3)}m`
+
+const vectorToHotspotValue = (value: ModelVectorValue | undefined, fallback = ''): string => {
+  if (!value) return fallback
+  if (typeof value === 'string') return value
+  if (typeof value.x === 'number' && typeof value.y === 'number' && typeof value.z === 'number') {
+    return formatVector(value)
+  }
+  return fallback
+}
 
 export default function CraneDefectWorkbench() {
   const { token, user } = useAuthStore()
@@ -112,12 +128,18 @@ export default function CraneDefectWorkbench() {
   const [loadingEquipment, setLoadingEquipment] = useState(false)
   const [loadingNodes, setLoadingNodes] = useState(false)
   const [creatingViolation, setCreatingViolation] = useState(false)
+  const [uploadingPhotos, setUploadingPhotos] = useState(false)
   const [savingNode, setSavingNode] = useState(false)
   const [deletingNodeId, setDeletingNodeId] = useState<number | null>(null)
 
   const [editingNodeId, setEditingNodeId] = useState<number | null>(null)
   const [nodeForm, setNodeForm] = useState<NodeFormState>(emptyNodeForm())
   const [isPickMode, setIsPickMode] = useState(false)
+  const [showCreateViolationModal, setShowCreateViolationModal] = useState(false)
+  const [violationDraft, setViolationDraft] = useState<ViolationDraftForm>({
+    description: '',
+    photos: [],
+  })
 
   const canCreateViolation = canMutateData(user)
   const isAdmin = user?.roles?.some((r) => r.name === 'admin') || false
@@ -132,6 +154,9 @@ export default function CraneDefectWorkbench() {
     [nodes, selectedNodeId, visibleNodes]
   )
 
+  const draftHotspotPosition = useMemo(() => nodeForm.position.trim(), [nodeForm.position])
+  const draftHotspotNormal = useMemo(() => nodeForm.normal.trim() || '0m 1m 0m', [nodeForm.normal])
+
   const fetchEquipment = async () => {
     if (!token) return
     try {
@@ -141,15 +166,15 @@ export default function CraneDefectWorkbench() {
         headers: { Authorization: `Bearer ${token}` },
       })
       const rows = Array.isArray(response.data) ? response.data : response.data?.items || []
-      const cranes = rows.filter(isCraneEquipment)
-      setEquipment(cranes)
+      const emk = rows.filter(isEmkEquipment)
+      setEquipment(emk)
       setSelectedEquipmentId((prev) => {
-        if (prev && cranes.some((item: EquipmentItem) => item.id === prev)) return prev
-        return cranes[0]?.id ?? null
+        if (prev && emk.some((item: EquipmentItem) => item.id === prev)) return prev
+        return emk[0]?.id ?? null
       })
     } catch (error) {
       console.error('Ошибка загрузки оборудования:', error)
-      addNotification('Не удалось загрузить список кранов', 'error')
+      addNotification('Не удалось загрузить список оборудования ЭМК', 'error')
     } finally {
       setLoadingEquipment(false)
     }
@@ -279,22 +304,50 @@ export default function CraneDefectWorkbench() {
     }
   }
 
-  const createViolationFromNode = async () => {
-    if (!token || !selectedEquipmentId) {
-      addNotification('Сначала выберите кран', 'error')
+  const openCreateViolationModal = () => {
+    if (!selectedEquipmentId) {
+      addNotification('Сначала выберите кран ЭМК', 'error')
       return
     }
     if (!selectedNode) {
       addNotification('Нет выбранного узла дефектовки', 'error')
       return
     }
+    setViolationDraft({
+      description: `3D-дефектовка: ${selectedNode.title}. ${selectedNode.description}`,
+      photos: [],
+    })
+    setShowCreateViolationModal(true)
+  }
+
+  const closeCreateViolationModal = (force = false) => {
+    if (!force && (creatingViolation || uploadingPhotos)) return
+    setShowCreateViolationModal(false)
+    setViolationDraft({ description: '', photos: [] })
+  }
+
+  const onDraftPhotosChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const nextFiles = Array.from(event.target.files || []).slice(0, 10)
+    setViolationDraft((prev) => ({ ...prev, photos: nextFiles }))
+  }
+
+  const createViolationFromNode = async () => {
+    if (!token || !selectedEquipmentId || !selectedNode) {
+      addNotification('Не хватает данных для создания нарушения', 'error')
+      return
+    }
+    if (!violationDraft.description.trim()) {
+      addNotification('Введите описание дефекта', 'error')
+      return
+    }
 
     try {
       setCreatingViolation(true)
-      const payload = {
+
+      const violationPayload = {
         equipment_id: selectedEquipmentId,
         defect_node_id: selectedNode.id,
-        description: `3D-дефектовка: ${selectedNode.title}. ${selectedNode.description}`,
+        description: violationDraft.description.trim(),
         severity: selectedNode.severity,
         violation_type: 'дефектовка',
         location: selectedNode.title,
@@ -307,47 +360,104 @@ export default function CraneDefectWorkbench() {
         },
       }
 
-      const response = await axios.post(`${API_URL}/api/violations`, payload, {
+      const violationResponse = await axios.post(`${API_URL}/api/violations`, violationPayload, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      addNotification(`Нарушение создано (ID: ${response.data?.id ?? '—'})`, 'success')
+      const createdViolation = violationResponse.data
+
+      const uploadedFileIds: number[] = []
+      if (violationDraft.photos.length > 0 && createdViolation?.id) {
+        setUploadingPhotos(true)
+        for (const photo of violationDraft.photos) {
+          const formData = new FormData()
+          formData.append('file', photo)
+          formData.append('description', `Фото дефекта: ${selectedNode.title}`)
+
+          const fileResponse = await axios.post(`${API_URL}/api/files/upload`, formData, {
+            params: { violation_id: createdViolation.id, equipment_id: selectedEquipmentId },
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          if (fileResponse.data?.id) {
+            uploadedFileIds.push(fileResponse.data.id)
+          }
+        }
+      }
+
+      if (uploadedFileIds.length > 0 && createdViolation?.id) {
+        const currentMeta =
+          createdViolation?.attachment_meta && typeof createdViolation.attachment_meta === 'object'
+            ? createdViolation.attachment_meta
+            : {}
+        await axios.put(
+          `${API_URL}/api/violations/${createdViolation.id}`,
+          {
+            attachment_meta: {
+              ...currentMeta,
+              file_ids: uploadedFileIds,
+              file_count: uploadedFileIds.length,
+            },
+          },
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
+      }
+
+      addNotification(
+        uploadedFileIds.length > 0
+          ? `Нарушение создано (ID: ${createdViolation?.id ?? '—'}), фото прикреплены`
+          : `Нарушение создано (ID: ${createdViolation?.id ?? '—'})`,
+        'success'
+      )
+      closeCreateViolationModal(true)
     } catch (error: any) {
-      const message = error?.response?.data?.detail || 'Не удалось создать нарушение'
+      const message = error?.response?.data?.detail || 'Не удалось создать нарушение по узлу'
       addNotification(message, 'error')
     } finally {
       setCreatingViolation(false)
+      setUploadingPhotos(false)
     }
   }
 
-  const onModelClick = (event: any) => {
+  useEffect(() => {
     if (!isAdmin || !isPickMode) return
-    event.preventDefault()
-    event.stopPropagation()
-
     const viewer = modelViewerRef.current
-    if (!viewer || typeof viewer.positionAndNormalFromPoint !== 'function') {
-      addNotification('Выбор точки недоступен: 3D viewer еще не готов', 'error')
-      return
+    if (!viewer) return
+
+    const handleViewerClick = (event: Event) => {
+      const mouseEvent = event as MouseEvent
+      const target = mouseEvent.target as HTMLElement | null
+      if (target?.closest('button')) return
+
+      if (typeof viewer.positionAndNormalFromPoint !== 'function') {
+        addNotification('Выбор точки недоступен: 3D viewer еще не готов', 'error')
+        return
+      }
+
+      const rect = viewer.getBoundingClientRect()
+      const x = mouseEvent.clientX - rect.left
+      const y = mouseEvent.clientY - rect.top
+      const hit = viewer.positionAndNormalFromPoint(x, y)
+      const pickedPosition = vectorToHotspotValue(hit?.position)
+      const pickedNormal = vectorToHotspotValue(hit?.normal, '0m 1m 0m')
+
+      if (!pickedPosition) {
+        addNotification('Не удалось определить точку. Кликните по поверхности модели.', 'error')
+        return
+      }
+
+      setNodeForm((prev) => ({
+        ...prev,
+        position: pickedPosition,
+        normal: pickedNormal,
+      }))
+      setIsPickMode(false)
+      addNotification('Точка узла выбрана на 3D-модели', 'success')
     }
 
-    const rect = viewer.getBoundingClientRect()
-    const x = event.clientX - rect.left
-    const y = event.clientY - rect.top
-    const hit = viewer.positionAndNormalFromPoint(x, y)
-
-    if (!hit?.position || !hit?.normal) {
-      addNotification('Не удалось определить точку. Кликните по поверхности модели.', 'error')
-      return
+    viewer.addEventListener('click', handleViewerClick)
+    return () => {
+      viewer.removeEventListener('click', handleViewerClick)
     }
-
-    setNodeForm((prev) => ({
-      ...prev,
-      position: formatVector(hit.position!),
-      normal: formatVector(hit.normal!),
-    }))
-    setIsPickMode(false)
-    addNotification('Точка и нормаль успешно выбраны на модели', 'success')
-  }
+  }, [isAdmin, isPickMode, addNotification])
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[1.7fr_1fr] gap-6">
@@ -362,7 +472,7 @@ export default function CraneDefectWorkbench() {
             className="min-w-[320px] max-w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
             disabled={loadingEquipment || equipment.length === 0}
           >
-            {equipment.length === 0 && <option value="">Краны не найдены в справочнике</option>}
+            {equipment.length === 0 && <option value="">ЭМК не найдены в справочнике</option>}
             {equipment.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.passport_number} — {item.equipment_type}
@@ -370,7 +480,7 @@ export default function CraneDefectWorkbench() {
             ))}
           </select>
           <span className="text-xs text-gray-500">
-            Кликните по точке на модели или выберите узел в правой панели.
+            Доступны только ЭМК. Выберите узел справа или создайте/отредактируйте его.
           </span>
         </div>
 
@@ -382,7 +492,6 @@ export default function CraneDefectWorkbench() {
           shadow-intensity="1"
           environment-image="neutral"
           exposure="1"
-          onClick={onModelClick}
           style={{
             width: '100%',
             height: '72vh',
@@ -409,6 +518,16 @@ export default function CraneDefectWorkbench() {
                 aria-label={node.title}
               />
             ))}
+          {isAdmin && draftHotspotPosition && (
+            <button
+              slot="hotspot-draft"
+              data-position={draftHotspotPosition}
+              data-normal={draftHotspotNormal}
+              className="w-7 h-7 rounded-full border-2 border-sky-600 bg-sky-200/90 shadow-lg"
+              title="Черновая точка узла"
+              aria-label="Черновая точка узла"
+            />
+          )}
         </model-viewer>
 
         {isPickMode && (
@@ -476,15 +595,20 @@ export default function CraneDefectWorkbench() {
           {canCreateViolation ? (
             <button
               type="button"
-              onClick={createViolationFromNode}
+              onClick={openCreateViolationModal}
               disabled={!selectedEquipmentId || !selectedNode || creatingViolation}
               className="w-full inline-flex items-center justify-center px-4 py-2.5 text-sm font-semibold rounded-lg text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {creatingViolation ? 'Создание...' : 'Создать нарушение по узлу'}
+              {creatingViolation ? 'Создание...' : 'Создать нарушение по узлу (с фото)'}
             </button>
           ) : (
             <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
               У вас режим просмотра. Создание нарушений недоступно.
+            </div>
+          )}
+          {equipment.length === 0 && (
+            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              В справочнике нет ЭМК-оборудования. Добавьте ЭМК в разделе оборудования.
             </div>
           )}
         </div>
@@ -624,6 +748,68 @@ export default function CraneDefectWorkbench() {
           </div>
         )}
       </div>
+
+      {showCreateViolationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/45"
+            onClick={() => closeCreateViolationModal()}
+            aria-hidden="true"
+          />
+          <div className="relative w-full max-w-xl rounded-xl border border-gray-200 bg-white shadow-xl p-5 space-y-4">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Создание нарушения по узлу</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Узел: <span className="font-medium">{selectedNode?.title || '—'}</span>
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Описание дефекта *</label>
+              <textarea
+                value={violationDraft.description}
+                onChange={(e) => setViolationDraft((prev) => ({ ...prev, description: e.target.value }))}
+                rows={5}
+                placeholder="Опишите фактический дефект по узлу..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Фото дефекта (до 10 файлов)</label>
+              <input type="file" accept="image/*" multiple onChange={onDraftPhotosChange} />
+              {violationDraft.photos.length > 0 && (
+                <div className="text-xs text-gray-600">
+                  Выбрано фото: {violationDraft.photos.map((file) => file.name).join(', ')}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => closeCreateViolationModal()}
+                disabled={creatingViolation || uploadingPhotos}
+                className="px-3 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={createViolationFromNode}
+                disabled={creatingViolation || uploadingPhotos}
+                className="px-4 py-2 text-sm font-semibold rounded-lg text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-60"
+              >
+                {creatingViolation
+                  ? uploadingPhotos
+                    ? 'Загрузка фото...'
+                    : 'Создание нарушения...'
+                  : 'Создать нарушение'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
