@@ -221,6 +221,29 @@ class ViolationSLARule(Base):
     is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class DefectNode(Base):
+    __tablename__ = "defect_nodes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, unique=True, nullable=False, index=True)
+    title = Column(String, nullable=False, index=True)
+    description = Column(Text, nullable=False)
+    recommendation = Column(Text, nullable=True)
+    severity = Column(String, default="medium", index=True)  # low, medium, high, critical
+    position = Column(String, nullable=False)  # model-viewer hotspot position
+    normal = Column(String, nullable=True)  # model-viewer hotspot normal
+    hotspot_size = Column(Float, nullable=True)
+    sort_order = Column(Integer, default=100, index=True)
+    is_active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    violations = relationship("Violation", back_populates="defect_node")
+
 # Р вЂР вЂєР С›Р С™ 6: Р СњР В°РЎР‚РЎС“РЎв‚¬Р ВµР Р…Р С‘РЎРЏ
 class Violation(Base):
     __tablename__ = "violations"
@@ -228,6 +251,7 @@ class Violation(Base):
     id = Column(Integer, primary_key=True, index=True)
     inspection_id = Column(Integer, ForeignKey("inspections.id", ondelete="SET NULL"), nullable=True)
     equipment_id = Column(Integer, ForeignKey("equipment.id", ondelete="CASCADE"), index=True)
+    defect_node_id = Column(Integer, ForeignKey("defect_nodes.id", ondelete="SET NULL"), nullable=True, index=True)
     source = Column(String, nullable=True)  # telegram, web, etc.
     reported_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     attachment_meta = Column(JSON, nullable=True)
@@ -260,6 +284,7 @@ class Violation(Base):
     # Relationships
     inspection = relationship("Inspection", back_populates="violations")
     equipment = relationship("Equipment", back_populates="violations")
+    defect_node = relationship("DefectNode", back_populates="violations")
     files = relationship("File", back_populates="violation", foreign_keys="File.violation_id")
     acts = relationship("ActViolation", back_populates="violation")
     reporter = relationship("User", foreign_keys=[reported_by], lazy="joined")

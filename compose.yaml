@@ -4,3 +4,12 @@ services:
     build:
       context: .
       dockerfile: ./Dockerfile.optimized
+    env_file:
+      - ENV_DOCKER.txt
+    environment:
+      POSTGRESQL_SSL: "false"
+      DATABASE_URL: "sqlite+aiosqlite:///./inspectorhub.db"
+    ports:
+      - "3000:3000"
+      - "8000:8000"
+    restart: unless-stopped

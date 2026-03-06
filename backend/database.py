@@ -76,6 +76,7 @@ if DATABASE_URL.startswith("postgresql+asyncpg://") or DATABASE_URL.startswith("
         }
     else:
         connect_args = {
+            "ssl": False,
             "timeout": connect_timeout,
             "command_timeout": command_timeout,
             "server_settings": {"client_encoding": "UTF8"},
@@ -217,6 +218,40 @@ def _apply_custom_migrations(sync_conn):
             alter_statements.append(
                 "ALTER TABLE violations ADD COLUMN overdue_at TIMESTAMP"
             )
+        if "defect_node_id" not in violation_columns:
+            alter_statements.append(
+                "ALTER TABLE violations ADD COLUMN defect_node_id INTEGER"
+            )
+
+    if "defect_nodes" not in table_names:
+        try:
+            id_sql = "SERIAL PRIMARY KEY" if sync_conn.dialect.name != "sqlite" else "INTEGER PRIMARY KEY AUTOINCREMENT"
+            sync_conn.execute(text(
+                f"""
+                CREATE TABLE IF NOT EXISTS defect_nodes (
+                    id {id_sql},
+                    key VARCHAR(255) NOT NULL UNIQUE,
+                    title VARCHAR(255) NOT NULL,
+                    description TEXT NOT NULL,
+                    recommendation TEXT,
+                    severity VARCHAR(32) DEFAULT 'medium',
+                    position VARCHAR(255) NOT NULL,
+                    normal VARCHAR(255),
+                    hotspot_size FLOAT,
+                    sort_order INTEGER DEFAULT 100,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_by INTEGER,
+                    updated_by INTEGER,
+                    FOREIGN KEY(created_by) REFERENCES users(id),
+                    FOREIGN KEY(updated_by) REFERENCES users(id)
+                )
+                """
+            ))
+            logger.info("? Applied migration: create table defect_nodes")
+        except Exception as exc:
+            logger.warning(f"? Failed to create table defect_nodes: {exc}")
 
     if "violation_sla_rules" not in table_names:
         try:
@@ -413,6 +448,19 @@ def _apply_custom_migrations(sync_conn):
         ))
     except Exception as exc:
         logger.warning(f"? Failed to create error_events indexes: {exc}")
+
+    try:
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_defect_nodes_sort_order ON defect_nodes(sort_order)"
+        ))
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_defect_nodes_is_active ON defect_nodes(is_active)"
+        ))
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_violations_defect_node_id ON violations(defect_node_id)"
+        ))
+    except Exception as exc:
+        logger.warning(f"? Failed to create defect nodes indexes: {exc}")
 
     for stmt in alter_statements:
         try:

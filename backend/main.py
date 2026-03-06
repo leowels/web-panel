@@ -506,7 +506,7 @@ try:
     from backend.routers import (
         equipment, checklists, inspections, violations, acts, knowledge, 
         files, settings, audit, documents, tasks, permits, analytics, 
-        notifications, reports, alerts, workshop_map, workflow, telegram
+        notifications, reports, alerts, workshop_map, workflow, telegram, defect_nodes
     )
     try:
         from backend.routers import ai
@@ -518,7 +518,7 @@ except ImportError:
         from .routers import (
             equipment, checklists, inspections, violations, acts, knowledge,
             files, settings, audit, documents, tasks, permits, analytics,
-            notifications, reports, alerts, workshop_map, workflow, telegram
+            notifications, reports, alerts, workshop_map, workflow, telegram, defect_nodes
         )
         try:
             from .routers import ai
@@ -530,7 +530,7 @@ except ImportError:
             from routers import (
                 equipment, checklists, inspections, violations, acts, knowledge,
                 files, settings, audit, documents, tasks, permits, analytics,
-                notifications, reports, alerts, workshop_map, workflow, telegram
+                notifications, reports, alerts, workshop_map, workflow, telegram, defect_nodes
             )
             try:
                 from routers import ai
@@ -542,7 +542,7 @@ except ImportError:
             import traceback
             traceback.print_exc()
             equipment = checklists = inspections = violations = acts = knowledge = files = settings = audit = documents = None
-            tasks = permits = analytics = notifications = reports = alerts = workshop_map = workflow = telegram = None
+            tasks = permits = analytics = notifications = reports = alerts = workshop_map = workflow = telegram = defect_nodes = None
             ai = None
 
 if equipment:
@@ -575,6 +575,8 @@ if workflow:
     app.include_router(workflow.router)
 if telegram:
     app.include_router(telegram.router)
+if defect_nodes:
+    app.include_router(defect_nodes.router)
 
 # Р РµРіРёСЃС‚СЂР°С†РёСЏ AI СЂРѕСѓС‚РµСЂР° (РѕРїС†РёРѕРЅР°Р»СЊРЅРѕ)
 try:
@@ -614,7 +616,8 @@ async def api_root():
             "reports": "/api/reports",
             "ai": "/api/ai",
             "workflow": "/api/workflow",
-            "telegram": "/api/telegram"
+            "telegram": "/api/telegram",
+            "defect_nodes": "/api/defect-nodes"
         }
     }
 

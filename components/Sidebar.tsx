@@ -46,6 +46,12 @@ export default function Sidebar() {
       roles: ['admin', 'inspector', 'operator', 'viewer'],
     },
     {
+      name: 'Дефектовка 3D',
+      href: '/defectovka',
+      icon: EquipmentIcon,
+      roles: ['admin', 'inspector', 'operator', 'viewer', 'manager', 'auditor'],
+    },
+    {
       name: 'Чек-листы',
       href: '/checklists',
       icon: ChecklistIcon,

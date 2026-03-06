@@ -15,12 +15,12 @@ import io
 
 # РџРѕРґРґРµСЂР¶РєР° Р·Р°РїСѓСЃРєР° РєР°Рє СЃРєСЂРёРїС‚Р° Рё РєР°Рє РјРѕРґСѓР»СЏ
 try:
-    from backend.models import Violation, Inspection, Equipment, UserActivity, User, ViolationSLARule, AuditLog, SystemSettings
+    from backend.models import Violation, Inspection, Equipment, UserActivity, User, ViolationSLARule, AuditLog, SystemSettings, DefectNode
     from backend.database import get_db
     from backend.auth import get_current_user, require_permission
     from backend.audit import log_audit_event, build_field_changes
 except ImportError:
-    from ..models import Violation, Inspection, Equipment, UserActivity, User, ViolationSLARule, AuditLog, SystemSettings
+    from ..models import Violation, Inspection, Equipment, UserActivity, User, ViolationSLARule, AuditLog, SystemSettings, DefectNode
     from ..database import get_db
     from ..auth import get_current_user, require_permission
     from ..audit import log_audit_event, build_field_changes
@@ -138,6 +138,7 @@ def _violation_to_response(violation: Violation) -> ViolationResponse:
         ai_classification=violation.ai_classification,
         ai_recommendations=violation.ai_recommendations,
         ai_payload_raw=violation.ai_payload_raw,
+        defect_node_id=violation.defect_node_id,
         location=violation.location,
         deadline=violation.deadline,
         deadline_source=violation.deadline_source,
@@ -170,6 +171,7 @@ class ViolationCreate(BaseModel):
     ai_classification: Optional[Dict[str, Any]] = None
     ai_recommendations: Optional[Dict[str, Any]] = None
     ai_payload_raw: Optional[Dict[str, Any]] = None
+    defect_node_id: Optional[int] = None
     location: Optional[str] = None
     deadline: Optional[datetime] = None
 
@@ -190,6 +192,7 @@ class ViolationUpdate(BaseModel):
     ai_classification: Optional[Dict[str, Any]] = None
     ai_recommendations: Optional[Dict[str, Any]] = None
     ai_payload_raw: Optional[Dict[str, Any]] = None
+    defect_node_id: Optional[int] = None
     location: Optional[str] = None
     deadline: Optional[datetime] = None
     status: Optional[str] = None
@@ -225,6 +228,7 @@ class ViolationResponse(BaseModel):
     ai_classification: Optional[Dict[str, Any]]
     ai_recommendations: Optional[Dict[str, Any]]
     ai_payload_raw: Optional[Dict[str, Any]]
+    defect_node_id: Optional[int]
     location: Optional[str]
     deadline: Optional[datetime]
     deadline_source: Optional[str] = None
@@ -621,10 +625,19 @@ async def create_violation(
     equipment = eq_result.scalar_one_or_none()
     if not equipment:
         raise HTTPException(status_code=404, detail="Equipment not found")
+
+    if violation_data.defect_node_id is not None:
+        node_result = await db.execute(
+            select(DefectNode).where(DefectNode.id == violation_data.defect_node_id)
+        )
+        defect_node = node_result.scalar_one_or_none()
+        if not defect_node:
+            raise HTTPException(status_code=404, detail="Defect node not found")
     
     new_violation = Violation(
         inspection_id=violation_data.inspection_id,
         equipment_id=violation_data.equipment_id,
+        defect_node_id=violation_data.defect_node_id,
         description=violation_data.description,
         fnp_clause=violation_data.fnp_clause,
         gost_clause=violation_data.gost_clause,
@@ -674,6 +687,7 @@ async def create_violation(
             "severity": {"old": None, "new": new_violation.severity},
             "deadline": {"old": None, "new": new_violation.deadline.isoformat() if new_violation.deadline else None},
             "description": {"old": None, "new": new_violation.description},
+            "defect_node_id": {"old": None, "new": new_violation.defect_node_id},
         },
         performed_by=current_user.id,
         source=(new_violation.source or "ui"),
@@ -1488,9 +1502,18 @@ async def update_violation(
         "criticality_level": violation.criticality_level,
         "fnp_clause": violation.fnp_clause,
         "gost_clause": violation.gost_clause,
+        "defect_node_id": violation.defect_node_id,
     }
 
     update_data = violation_data.dict(exclude_unset=True)
+    if "defect_node_id" in update_data and update_data["defect_node_id"] is not None:
+        node_result = await db.execute(
+            select(DefectNode).where(DefectNode.id == update_data["defect_node_id"])
+        )
+        defect_node = node_result.scalar_one_or_none()
+        if not defect_node:
+            raise HTTPException(status_code=404, detail="Defect node not found")
+
     recalc_sla = False
     for field, value in update_data.items():
         setattr(violation, field, value)
@@ -1533,6 +1556,7 @@ async def update_violation(
         "criticality_level": violation.criticality_level,
         "fnp_clause": violation.fnp_clause,
         "gost_clause": violation.gost_clause,
+        "defect_node_id": violation.defect_node_id,
     }
     field_changes = build_field_changes(before_state, after_state)
     audit_action = "STATUS_CHANGE" if "status" in field_changes else "UPDATE"
