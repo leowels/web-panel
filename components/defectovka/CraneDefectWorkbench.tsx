@@ -109,8 +109,31 @@ const formatVector = (value: { x: number; y: number; z: number }) =>
 const vectorToHotspotValue = (value: ModelVectorValue | undefined, fallback = ''): string => {
   if (!value) return fallback
   if (typeof value === 'string') return value
-  if (typeof value.x === 'number' && typeof value.y === 'number' && typeof value.z === 'number') {
-    return formatVector(value)
+
+  const maybeVector = value as unknown as {
+    x?: number | string
+    y?: number | string
+    z?: number | string
+    toString?: () => string
+  }
+
+  const toNumber = (input: number | string | undefined): number => {
+    const parsed = typeof input === 'number' ? input : Number(input)
+    return Number.isFinite(parsed) ? parsed : NaN
+  }
+
+  const vx = toNumber(maybeVector.x)
+  const vy = toNumber(maybeVector.y)
+  const vz = toNumber(maybeVector.z)
+  if (!Number.isNaN(vx) && !Number.isNaN(vy) && !Number.isNaN(vz)) {
+    return formatVector({ x: vx, y: vy, z: vz })
+  }
+
+  if (typeof maybeVector.toString === 'function') {
+    const asString = maybeVector.toString()
+    if (asString && asString !== '[object Object]') {
+      return asString
+    }
   }
   return fallback
 }
@@ -435,7 +458,9 @@ export default function CraneDefectWorkbench() {
       const rect = viewer.getBoundingClientRect()
       const x = mouseEvent.clientX - rect.left
       const y = mouseEvent.clientY - rect.top
-      const hit = viewer.positionAndNormalFromPoint(x, y)
+      const hit =
+        viewer.positionAndNormalFromPoint(x, y) ||
+        viewer.positionAndNormalFromPoint(mouseEvent.clientX, mouseEvent.clientY)
       const pickedPosition = vectorToHotspotValue(hit?.position)
       const pickedNormal = vectorToHotspotValue(hit?.normal, '0m 1m 0m')
 
