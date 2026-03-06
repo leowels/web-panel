@@ -219,9 +219,17 @@ def _apply_custom_migrations(sync_conn):
                 "ALTER TABLE violations ADD COLUMN overdue_at TIMESTAMP"
             )
         if "defect_node_id" not in violation_columns:
-            alter_statements.append(
-                "ALTER TABLE violations ADD COLUMN defect_node_id INTEGER"
-            )
+            try:
+                if sync_conn.dialect.name == "postgresql":
+                    sync_conn.execute(text("ALTER TABLE violations ADD COLUMN IF NOT EXISTS defect_node_id INTEGER"))
+                    logger.info("Applied migration: ensure column violations.defect_node_id")
+                else:
+                    alter_statements.append(
+                        "ALTER TABLE violations ADD COLUMN defect_node_id INTEGER"
+                    )
+            except Exception as exc:
+                logger.error(f"Critical migration failed: cannot add violations.defect_node_id: {exc}")
+                raise
 
     if "defect_nodes" not in table_names:
         try:
@@ -251,7 +259,8 @@ def _apply_custom_migrations(sync_conn):
             ))
             logger.info("? Applied migration: create table defect_nodes")
         except Exception as exc:
-            logger.warning(f"? Failed to create table defect_nodes: {exc}")
+            logger.error(f"Critical migration failed: cannot create table defect_nodes: {exc}")
+            raise
 
     if "violation_sla_rules" not in table_names:
         try:
@@ -465,12 +474,19 @@ def _apply_custom_migrations(sync_conn):
     for stmt in alter_statements:
         try:
             sync_conn.execute(text(stmt))
-            logger.info(f"✓ Applied migration: {stmt}")
+            logger.info(f"Applied migration: {stmt}")
         except Exception as exc:
-            logger.warning(f"⚠️ Failed to apply migration '{stmt}': {exc}")
+            logger.warning(f"Failed to apply migration '{stmt}': {exc}")
 
-
-
+    # Critical schema checks for columns that are already referenced by ORM mappings.
+    refreshed_inspector = inspect(sync_conn)
+    refreshed_tables = set(refreshed_inspector.get_table_names())
+    if "violations" in refreshed_tables:
+        refreshed_violation_columns = {col["name"] for col in refreshed_inspector.get_columns("violations")}
+        if "defect_node_id" not in refreshed_violation_columns:
+            raise RuntimeError("Critical schema mismatch: column violations.defect_node_id is missing")
+    if "defect_nodes" not in refreshed_tables:
+        raise RuntimeError("Critical schema mismatch: table defect_nodes is missing")
 
     if "users" in table_names:
         try:
