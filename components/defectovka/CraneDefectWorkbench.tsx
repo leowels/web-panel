@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Script from 'next/script'
 import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
@@ -50,6 +50,15 @@ type NodeFormState = {
   is_active: boolean
 }
 
+type ModelViewerPickResult = {
+  position?: { x: number; y: number; z: number }
+  normal?: { x: number; y: number; z: number }
+}
+
+type ModelViewerElement = HTMLElement & {
+  positionAndNormalFromPoint?: (x: number, y: number) => ModelViewerPickResult | null
+}
+
 const severityLabel: Record<Severity, string> = {
   low: 'Низкая',
   medium: 'Средняя',
@@ -87,9 +96,13 @@ const toNumberOrNull = (value: string): number | null => {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+const formatVector = (value: { x: number; y: number; z: number }) =>
+  `${value.x.toFixed(3)}m ${value.y.toFixed(3)}m ${value.z.toFixed(3)}m`
+
 export default function CraneDefectWorkbench() {
   const { token, user } = useAuthStore()
   const { addNotification } = useNotificationStore()
+  const modelViewerRef = useRef<ModelViewerElement | null>(null)
 
   const [equipment, setEquipment] = useState<EquipmentItem[]>([])
   const [selectedEquipmentId, setSelectedEquipmentId] = useState<number | null>(null)
@@ -104,6 +117,7 @@ export default function CraneDefectWorkbench() {
 
   const [editingNodeId, setEditingNodeId] = useState<number | null>(null)
   const [nodeForm, setNodeForm] = useState<NodeFormState>(emptyNodeForm())
+  const [isPickMode, setIsPickMode] = useState(false)
 
   const canCreateViolation = canMutateData(user)
   const isAdmin = user?.roles?.some((r) => r.name === 'admin') || false
@@ -178,6 +192,7 @@ export default function CraneDefectWorkbench() {
   const resetNodeForm = () => {
     setEditingNodeId(null)
     setNodeForm(emptyNodeForm())
+    setIsPickMode(false)
   }
 
   const onEditNode = (node: DefectNode) => {
@@ -304,6 +319,36 @@ export default function CraneDefectWorkbench() {
     }
   }
 
+  const onModelClick = (event: any) => {
+    if (!isAdmin || !isPickMode) return
+    event.preventDefault()
+    event.stopPropagation()
+
+    const viewer = modelViewerRef.current
+    if (!viewer || typeof viewer.positionAndNormalFromPoint !== 'function') {
+      addNotification('Выбор точки недоступен: 3D viewer еще не готов', 'error')
+      return
+    }
+
+    const rect = viewer.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
+    const hit = viewer.positionAndNormalFromPoint(x, y)
+
+    if (!hit?.position || !hit?.normal) {
+      addNotification('Не удалось определить точку. Кликните по поверхности модели.', 'error')
+      return
+    }
+
+    setNodeForm((prev) => ({
+      ...prev,
+      position: formatVector(hit.position!),
+      normal: formatVector(hit.normal!),
+    }))
+    setIsPickMode(false)
+    addNotification('Точка и нормаль успешно выбраны на модели', 'success')
+  }
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[1.7fr_1fr] gap-6">
       <Script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js" />
@@ -330,31 +375,47 @@ export default function CraneDefectWorkbench() {
         </div>
 
         <model-viewer
+          ref={modelViewerRef}
           src={MODEL_SRC}
           camera-controls
           touch-action="pan-y"
           shadow-intensity="1"
           environment-image="neutral"
           exposure="1"
-          style={{ width: '100%', height: '72vh', minHeight: '480px', background: '#f8fafc', borderRadius: '12px' }}
+          onClick={onModelClick}
+          style={{
+            width: '100%',
+            height: '72vh',
+            minHeight: '480px',
+            background: '#f8fafc',
+            borderRadius: '12px',
+            cursor: isPickMode ? 'crosshair' : 'grab',
+          }}
         >
-          {visibleNodes.map((node) => (
-            <button
-              key={node.id}
-              slot={`hotspot-node-${node.id}`}
-              data-position={node.position}
-              data-normal={node.normal || '0m 1m 0m'}
-              className={`w-6 h-6 rounded-full border-2 transition-all ${
-                node.id === selectedNode?.id
-                  ? 'bg-primary-600 border-white shadow-lg scale-110'
-                  : 'bg-white/90 border-primary-600 hover:scale-110'
-              }`}
-              onClick={() => setSelectedNodeId(node.id)}
-              title={node.title}
-              aria-label={node.title}
-            />
-          ))}
+          {!isPickMode &&
+            visibleNodes.map((node) => (
+              <button
+                key={node.id}
+                slot={`hotspot-node-${node.id}`}
+                data-position={node.position}
+                data-normal={node.normal || '0m 1m 0m'}
+                className={`w-6 h-6 rounded-full border-2 transition-all ${
+                  node.id === selectedNode?.id
+                    ? 'bg-primary-600 border-white shadow-lg scale-110'
+                    : 'bg-white/90 border-primary-600 hover:scale-110'
+                }`}
+                onClick={() => setSelectedNodeId(node.id)}
+                title={node.title}
+                aria-label={node.title}
+              />
+            ))}
         </model-viewer>
+
+        {isPickMode && (
+          <div className="mt-3 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+            Режим выбора точки: кликните по нужному месту на 3D-модели.
+          </div>
+        )}
 
         {visibleNodes.length === 0 && !loadingNodes && (
           <div className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -488,6 +549,17 @@ export default function CraneDefectWorkbench() {
                 placeholder="Позиция hotspot *"
                 className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
               />
+              <button
+                type="button"
+                onClick={() => setIsPickMode((prev) => !prev)}
+                className={`px-3 py-2 border rounded-lg text-sm font-medium transition-colors ${
+                  isPickMode
+                    ? 'border-blue-400 text-blue-700 bg-blue-50'
+                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {isPickMode ? 'Отменить выбор точки' : 'Выбрать точку на 3D'}
+              </button>
               <input
                 value={nodeForm.normal}
                 onChange={(e) => setNodeForm((prev) => ({ ...prev, normal: e.target.value }))}
