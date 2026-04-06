@@ -26,6 +26,8 @@ interface EquipmentListResponse {
   total: number
 }
 
+type EquipmentListApiResponse = EquipmentItem[] | EquipmentListResponse
+
 interface PassportDocument {
   id: number
   file_id: number | null
@@ -236,11 +238,11 @@ export default function EquipmentPassportWorkspace() {
     const fetchEquipment = async () => {
       setLoadingList(true)
       try {
-        const response = await axios.get<EquipmentListResponse>(`${API_URL}/api/equipment`, {
+        const response = await axios.get<EquipmentListApiResponse>(`${API_URL}/api/equipment`, {
           params: { limit: 1000 },
           headers: { Authorization: `Bearer ${token}` },
         })
-        const items = response.data.items || []
+        const items = Array.isArray(response.data) ? response.data : response.data.items || []
         setEquipmentList(items)
 
         const fromQuery = Number(searchParams.get('equipment_id'))

@@ -132,6 +132,23 @@ def _deep_merge_dicts(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[st
     return result
 
 
+def _is_blank_value(value: Any) -> bool:
+    return value in (None, "", [], {})
+
+
+def _merge_with_equipment_defaults(defaults: Dict[str, Any], saved: Dict[str, Any]) -> Dict[str, Any]:
+    result = dict(defaults)
+    for key, value in (saved or {}).items():
+        default_value = result.get(key)
+        if isinstance(default_value, dict) and isinstance(value, dict):
+            result[key] = _merge_with_equipment_defaults(default_value, value)
+        elif _is_blank_value(value) and not _is_blank_value(default_value):
+            result[key] = default_value
+        else:
+            result[key] = value
+    return result
+
+
 def _normalize_passport_status(raw_status: Optional[str], fallback: str = "draft") -> str:
     value = (raw_status or fallback).strip().lower()
     if value not in PASSPORT_STATUSES:
@@ -378,7 +395,7 @@ async def _build_passport_response(db: AsyncSession, equipment: Equipment) -> Di
     documents = sorted(passport.documents or [], key=lambda item: item.created_at or datetime.min, reverse=True)
     versions = sorted(passport.versions or [], key=lambda item: item.version_number, reverse=True)
     events = sorted(passport.events or [], key=lambda item: item.event_date or datetime.min, reverse=True)
-    draft_data = _deep_merge_dicts(_default_draft_data(equipment), passport.draft_data or {})
+    draft_data = _merge_with_equipment_defaults(_default_draft_data(equipment), passport.draft_data or {})
     completeness_percent = _calculate_completeness(draft_data, len(documents), len(versions))
     passport.draft_data = draft_data
     passport.completeness_percent = completeness_percent
@@ -484,7 +501,7 @@ async def update_equipment_passport_draft(
 
     before_draft = passport.draft_data or _default_draft_data(equipment)
     before_status = passport.passport_status
-    merged = _deep_merge_dicts(_default_draft_data(equipment), before_draft)
+    merged = _merge_with_equipment_defaults(_default_draft_data(equipment), before_draft)
     merged = _deep_merge_dicts(merged, request_body.draft_data or {})
 
     passport.draft_data = merged
@@ -530,7 +547,7 @@ async def publish_equipment_passport(
     documents = sorted(passport.documents or [], key=lambda item: item.created_at or datetime.min, reverse=True)
     events = sorted(passport.events or [], key=lambda item: item.event_date or datetime.min, reverse=True)
     versions = sorted(passport.versions or [], key=lambda item: item.version_number, reverse=True)
-    draft_data = _deep_merge_dicts(_default_draft_data(equipment), passport.draft_data or {})
+    draft_data = _merge_with_equipment_defaults(_default_draft_data(equipment), passport.draft_data or {})
     completeness_percent = _calculate_completeness(draft_data, len(documents), len(versions))
     aggregates = await _collect_aggregates(db, equipment.id)
     next_version_number = (versions[0].version_number + 1) if versions else 1
@@ -614,7 +631,7 @@ async def create_passport_document(
     await db.flush()
 
     passport.completeness_percent = _calculate_completeness(
-        _deep_merge_dicts(_default_draft_data(equipment), passport.draft_data or {}),
+        _merge_with_equipment_defaults(_default_draft_data(equipment), passport.draft_data or {}),
         len(passport.documents or []) + 1,
         len(passport.versions or []),
     )
