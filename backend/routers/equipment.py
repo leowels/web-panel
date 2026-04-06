@@ -63,6 +63,8 @@ DEFAULT_EQUIPMENT_TYPES = [
 class EquipmentCreate(BaseModel):
     equipment_type: str
     passport_number: str
+    registration_number: Optional[str] = None
+    factory_number: Optional[str] = None
     load_capacity: Optional[float] = None
     manufacturer: Optional[str] = None
     installation_date: Optional[datetime] = None
@@ -84,6 +86,8 @@ class EquipmentCreate(BaseModel):
 class EquipmentUpdate(BaseModel):
     equipment_type: Optional[str] = None
     passport_number: Optional[str] = None
+    registration_number: Optional[str] = None
+    factory_number: Optional[str] = None
     load_capacity: Optional[float] = None
     manufacturer: Optional[str] = None
     installation_date: Optional[datetime] = None
@@ -106,6 +110,8 @@ class EquipmentResponse(BaseModel):
     id: int
     equipment_type: str
     passport_number: str
+    registration_number: Optional[str]
+    factory_number: Optional[str]
     inventory_number: Optional[str]
     position: Optional[str]
     workshop: Optional[str]
@@ -137,6 +143,8 @@ class EquipmentListResponse(BaseModel):
 class EquipmentBulkItem(BaseModel):
     equipment_type: str
     passport_number: str
+    registration_number: Optional[str] = None
+    factory_number: Optional[str] = None
     load_capacity: Optional[float] = None
     manufacturer: Optional[str] = None
     installation_date: Optional[datetime] = None
@@ -188,6 +196,8 @@ class EquipmentOCRUpsertRequest(BaseModel):
     name: Optional[str] = None
     capacity: Optional[float] = None
     inventory_number: Optional[str] = None
+    registration_number: Optional[str] = None
+    factory_number: Optional[str] = None
     manufacturer: Optional[str] = None
     installation_date: Optional[datetime] = None
     pto_date: Optional[datetime] = None
@@ -247,6 +257,8 @@ def _equipment_to_response(
         id=equipment.id,
         equipment_type=equipment.equipment_type,
         passport_number=equipment.passport_number,
+        registration_number=equipment.registration_number,
+        factory_number=equipment.factory_number,
         inventory_number=equipment.inventory_number,
         position=equipment.position,
         workshop=equipment.workshop,
@@ -285,6 +297,8 @@ def _build_equipment_filters(
         filters.append(
             or_(
                 Equipment.passport_number.ilike(f"%{search}%"),
+                Equipment.registration_number.ilike(f"%{search}%"),
+                Equipment.factory_number.ilike(f"%{search}%"),
                 Equipment.inventory_number.ilike(f"%{search}%"),
                 Equipment.position.ilike(f"%{search}%"),
                 Equipment.equipment_type.ilike(f"%{search}%"),
@@ -749,6 +763,8 @@ async def export_equipment_csv(
         ("id", "ID"),
         ("equipment_type", "Тип оборудования"),
         ("passport_number", "Паспорт"),
+        ("registration_number", "Регистрационный №"),
+        ("factory_number", "Заводской №"),
         ("inventory_number", "Инвентарный №"),
         ("workshop", "Цех"),
         ("position", "Позиция"),
@@ -777,6 +793,8 @@ async def export_equipment_csv(
                 "id": eq.id,
                 "equipment_type": eq.equipment_type or "",
                 "passport_number": eq.passport_number or "",
+                "registration_number": eq.registration_number or "",
+                "factory_number": eq.factory_number or "",
                 "inventory_number": eq.inventory_number or "",
                 "workshop": eq.workshop or "",
                 "position": eq.position or "",
@@ -851,7 +869,7 @@ async def export_equipment_csv(
         cell.alignment = header_alignment
         cell.border = border
 
-    widths = [8, 30, 16, 18, 14, 14, 14, 18, 20, 24, 14, 14, 14, 20, 16, 16, 16, 40, 18, 16, 14]
+    widths = [8, 30, 16, 18, 18, 18, 14, 14, 14, 18, 20, 24, 14, 14, 14, 20, 16, 16, 16, 40, 18, 16, 14]
     for idx, width in enumerate(widths, start=1):
         sheet.column_dimensions[chr(64 + idx)].width = width
 
@@ -886,7 +904,7 @@ async def export_equipment_csv(
         )
 
     sheet.freeze_panes = "A2"
-    sheet.auto_filter.ref = f"A1:U{max(2, len(rows) + 1)}"
+    sheet.auto_filter.ref = f"A1:W{max(2, len(rows) + 1)}"
 
     output = io.BytesIO()
     workbook.save(output)
@@ -1223,6 +1241,8 @@ def _parse_equipment_csv_text(decoded: str) -> (List[EquipmentBulkItem], List[di
         normalized = {
             "equipment_type": (row.get("equipment_type") or "").strip(),
             "passport_number": (row.get("passport_number") or "").strip(),
+            "registration_number": (row.get("registration_number") or "").strip() or None,
+            "factory_number": (row.get("factory_number") or "").strip() or None,
             "inventory_number": (row.get("inventory_number") or "").strip() or None,
             "position": (row.get("position") or "").strip() or None,
             "workshop": (row.get("workshop") or "").strip() or None,
@@ -1561,6 +1581,10 @@ async def ocr_upsert_equipment(
             
         if equipment_data.inventory_number and not existing_equipment.inventory_number:
             update_fields['inventory_number'] = equipment_data.inventory_number
+        if equipment_data.registration_number and not getattr(existing_equipment, "registration_number", None):
+            update_fields['registration_number'] = equipment_data.registration_number
+        if equipment_data.factory_number and not getattr(existing_equipment, "factory_number", None):
+            update_fields['factory_number'] = equipment_data.factory_number
             
         if equipment_data.manufacturer and not existing_equipment.manufacturer:
             update_fields['manufacturer'] = equipment_data.manufacturer
@@ -1629,6 +1653,8 @@ async def ocr_upsert_equipment(
             equipment_type=equipment_type,
             passport_number=passport_number,
             inventory_number=equipment_data.inventory_number,
+            registration_number=equipment_data.registration_number,
+            factory_number=equipment_data.factory_number,
             load_capacity=equipment_data.capacity,
             manufacturer=equipment_data.manufacturer,
             installation_date=equipment_data.installation_date,

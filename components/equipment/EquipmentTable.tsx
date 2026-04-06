@@ -21,6 +21,8 @@ interface Equipment {
   id: number
   equipment_type: string
   passport_number: string
+  registration_number?: string | null
+  factory_number?: string | null
   inventory_number: string | null
   position: string | null
   workshop: string | null
@@ -736,6 +738,12 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap cursor-pointer" onClick={() => handleViewEquipment(eq)}>
                       <div className="text-sm font-semibold text-slate-900 hover:text-primary-700">{eq.passport_number}</div>
+                      {eq.registration_number && (
+                        <div className="text-[11px] text-slate-500 mt-0.5">Рег: {eq.registration_number}</div>
+                      )}
+                      {eq.factory_number && (
+                        <div className="text-[11px] text-slate-500 mt-0.5">Зав: {eq.factory_number}</div>
+                      )}
                       {eq.inventory_number && (
                         <div className="text-[11px] text-slate-500 mt-0.5">Инв: {eq.inventory_number}</div>
                       )}
@@ -1044,6 +1052,8 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
                         {eq.passport_number}
                       </button>
                       <p className="text-sm text-gray-500">{eq.equipment_type}</p>
+                      {eq.registration_number && <p className="text-xs text-gray-500">Рег: {eq.registration_number}</p>}
+                      {eq.factory_number && <p className="text-xs text-gray-500">Зав: {eq.factory_number}</p>}
                     </div>
                   </div>
                   <StatusBadge label={getStatusText(eq.status)} tone={getStatusTone(eq.status)} />

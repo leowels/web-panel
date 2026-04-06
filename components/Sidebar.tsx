@@ -52,6 +52,12 @@ export default function Sidebar() {
       roles: ['admin', 'inspector', 'operator', 'viewer', 'manager', 'auditor'],
     },
     {
+      name: 'Эл. паспорта',
+      href: '/passports',
+      icon: EquipmentIcon,
+      roles: ['admin', 'inspector', 'operator', 'viewer', 'manager', 'auditor'],
+    },
+    {
       name: 'Чек-листы',
       href: '/checklists',
       icon: ChecklistIcon,

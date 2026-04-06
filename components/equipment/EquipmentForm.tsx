@@ -20,6 +20,8 @@ interface EquipmentFormProps {
 interface EquipmentFormData {
   equipment_type: string
   passport_number: string
+  registration_number: string
+  factory_number: string
   inventory_number: string
   position: string
   workshop: string
@@ -40,6 +42,8 @@ interface EquipmentFormData {
 const emptyForm: EquipmentFormData = {
   equipment_type: '',
   passport_number: '',
+  registration_number: '',
+  factory_number: '',
   inventory_number: '',
   position: '',
   workshop: '',
@@ -105,6 +109,8 @@ export default function EquipmentForm({ equipmentId, onClose, onSuccess }: Equip
       setFormData({
         equipment_type: eq.equipment_type || '',
         passport_number: eq.passport_number || '',
+        registration_number: eq.registration_number || '',
+        factory_number: eq.factory_number || '',
         inventory_number: eq.inventory_number || '',
         position: eq.position || '',
         workshop: eq.workshop || '',
@@ -155,6 +161,8 @@ export default function EquipmentForm({ equipmentId, onClose, onSuccess }: Equip
       const payload: Record<string, unknown> = {
         equipment_type: formData.equipment_type,
         passport_number: formData.passport_number,
+        registration_number: formData.registration_number || null,
+        factory_number: formData.factory_number || null,
         inventory_number: formData.inventory_number || null,
         position: formData.position || null,
         workshop: formData.workshop || null,
@@ -253,6 +261,28 @@ export default function EquipmentForm({ equipmentId, onClose, onSuccess }: Equip
                 value={formData.passport_number}
                 onChange={(e) => setFormData({ ...formData, passport_number: e.target.value })}
                 className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-slate-900 focus:border-primary-600 focus:ring-2 focus:ring-primary-600"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-slate-900">Регистрационный номер</label>
+              <input
+                type="text"
+                value={formData.registration_number}
+                onChange={(e) => setFormData({ ...formData, registration_number: e.target.value })}
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-slate-900 focus:border-primary-600 focus:ring-2 focus:ring-primary-600"
+                placeholder="Например: 77-12345"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-slate-900">Заводской номер</label>
+              <input
+                type="text"
+                value={formData.factory_number}
+                onChange={(e) => setFormData({ ...formData, factory_number: e.target.value })}
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-slate-900 focus:border-primary-600 focus:ring-2 focus:ring-primary-600"
+                placeholder="Номер производителя"
               />
             </div>
 

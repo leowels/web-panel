@@ -508,6 +508,7 @@ try:
         files, settings, audit, documents, tasks, permits, analytics, 
         notifications, reports, alerts, workshop_map, workflow, telegram, defect_nodes
     )
+    from backend.routers import passports
     try:
         from backend.routers import ai
     except ImportError:
@@ -520,6 +521,7 @@ except ImportError:
             files, settings, audit, documents, tasks, permits, analytics,
             notifications, reports, alerts, workshop_map, workflow, telegram, defect_nodes
         )
+        from .routers import passports
         try:
             from .routers import ai
         except ImportError:
@@ -532,6 +534,7 @@ except ImportError:
                 files, settings, audit, documents, tasks, permits, analytics,
                 notifications, reports, alerts, workshop_map, workflow, telegram, defect_nodes
             )
+            from routers import passports
             try:
                 from routers import ai
             except ImportError:
@@ -543,6 +546,7 @@ except ImportError:
             traceback.print_exc()
             equipment = checklists = inspections = violations = acts = knowledge = files = settings = audit = documents = None
             tasks = permits = analytics = notifications = reports = alerts = workshop_map = workflow = telegram = defect_nodes = None
+            passports = None
             ai = None
 
 if equipment:
@@ -577,6 +581,8 @@ if telegram:
     app.include_router(telegram.router)
 if defect_nodes:
     app.include_router(defect_nodes.router)
+if passports:
+    app.include_router(passports.router)
 
 # Р РµРіРёСЃС‚СЂР°С†РёСЏ AI СЂРѕСѓС‚РµСЂР° (РѕРїС†РёРѕРЅР°Р»СЊРЅРѕ)
 try:
@@ -617,7 +623,8 @@ async def api_root():
             "ai": "/api/ai",
             "workflow": "/api/workflow",
             "telegram": "/api/telegram",
-            "defect_nodes": "/api/defect-nodes"
+            "defect_nodes": "/api/defect-nodes",
+            "passports": "/api/passports"
         }
     }
 

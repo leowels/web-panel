@@ -14,6 +14,8 @@ interface Equipment {
   id: number
   equipment_type: string
   passport_number: string
+  registration_number?: string | null
+  factory_number?: string | null
   inventory_number: string | null
   position: string | null
   workshop: string | null
@@ -351,6 +353,8 @@ export default function EquipmentCard({ equipmentId, onClose, onEdit, onOpenRela
             <h3 className="text-sm font-semibold text-slate-900 mb-3">Основные сведения</h3>
             <dl className="space-y-2 text-sm">
               <div className="flex justify-between gap-4"><dt className="text-slate-500">ID оборудования</dt><dd className="font-medium text-slate-900">{equipment.id}</dd></div>
+              <div className="flex justify-between gap-4"><dt className="text-slate-500">Регистрационный номер</dt><dd className="font-medium text-slate-900">{equipment.registration_number || '—'}</dd></div>
+              <div className="flex justify-between gap-4"><dt className="text-slate-500">Заводской номер</dt><dd className="font-medium text-slate-900">{equipment.factory_number || '—'}</dd></div>
               <div className="flex justify-between gap-4"><dt className="text-slate-500">Инвентарный номер</dt><dd className="font-medium text-slate-900">{equipment.inventory_number || '—'}</dd></div>
               <div className="flex justify-between gap-4"><dt className="text-slate-500">Позиция</dt><dd className="font-medium text-slate-900">{equipment.position || '—'}</dd></div>
               <div className="flex justify-between gap-4"><dt className="text-slate-500">Цех</dt><dd className="font-medium text-slate-900">{equipment.workshop || '—'}</dd></div>
@@ -573,16 +577,22 @@ export default function EquipmentCard({ equipmentId, onClose, onEdit, onOpenRela
           </div>
         </section>
 
-        {canMutate && (
-          <div className="pt-1">
+        <div className="pt-1 space-y-3">
+          <button
+            onClick={() => router.push(`/passports?equipment_id=${equipment.id}`)}
+            className="w-full bg-slate-100 text-slate-800 py-2.5 px-4 rounded-lg hover:bg-slate-200 font-semibold border border-slate-200"
+          >
+            Открыть электронный паспорт
+          </button>
+          {canMutate && (
             <button
               onClick={onEdit}
               className="w-full bg-primary-600 text-white py-2.5 px-4 rounded-lg hover:bg-primary-700 font-semibold"
             >
               Редактировать карточку
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   )

@@ -89,6 +89,8 @@ class Equipment(Base):
     id = Column(Integer, primary_key=True, index=True)
     equipment_type = Column(String, index=True)  # Р СћР С‘Р С— Р СџР РЋ
     passport_number = Column(String, unique=True, index=True)  # Р СџР В°РЎРѓР С—Р С•РЎР‚РЎвЂљ
+    registration_number = Column(String, nullable=True, index=True)  # Регистрационный номер
+    factory_number = Column(String, nullable=True, index=True)  # Заводской номер
     inventory_number = Column(String, unique=True, index=True, nullable=True)  # Р ВР Р…Р Р†Р ВµР Р…РЎвЂљР В°РЎР‚Р Р…РЎвЂ№Р в„– Р Р…Р С•Р СР ВµРЎР‚
     position = Column(String, nullable=True, index=True)  # Р СџР С•Р В·Р С‘РЎвЂ Р С‘РЎРЏ
     workshop = Column(String, nullable=True, index=True)  # Р В¦Р ВµРЎвЂ¦
@@ -115,6 +117,7 @@ class Equipment(Base):
     inspections = relationship("Inspection", back_populates="equipment")
     violations = relationship("Violation", back_populates="equipment")
     history = relationship("EquipmentHistory", back_populates="equipment", cascade="all, delete-orphan")
+    passport = relationship("EquipmentPassport", back_populates="equipment", uselist=False, cascade="all, delete-orphan")
 
 class EquipmentHistory(Base):
     __tablename__ = "equipment_history"
@@ -129,6 +132,99 @@ class EquipmentHistory(Base):
     
     # Relationships
     equipment = relationship("Equipment", back_populates="history")
+
+
+class EquipmentPassport(Base):
+    __tablename__ = "equipment_passports"
+    __table_args__ = (
+        UniqueConstraint("equipment_id", name="uq_equipment_passports_equipment"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    equipment_id = Column(Integer, ForeignKey("equipment.id", ondelete="CASCADE"), nullable=False, index=True)
+    passport_status = Column(String, default="draft", index=True)  # draft, review, approved, archived
+    draft_data = Column(JSON, nullable=True)
+    completeness_percent = Column(Float, default=0.0)
+    current_version_id = Column(Integer, nullable=True, index=True)
+    last_published_at = Column(DateTime, nullable=True, index=True)
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    equipment = relationship("Equipment", back_populates="passport")
+    approver = relationship("User", foreign_keys=[approved_by])
+    updater = relationship("User", foreign_keys=[updated_by])
+    versions = relationship("EquipmentPassportVersion", back_populates="passport", cascade="all, delete-orphan")
+    documents = relationship("EquipmentPassportDocument", back_populates="passport", cascade="all, delete-orphan")
+    events = relationship("EquipmentPassportEvent", back_populates="passport", cascade="all, delete-orphan")
+
+
+class EquipmentPassportVersion(Base):
+    __tablename__ = "equipment_passport_versions"
+    __table_args__ = (
+        UniqueConstraint("passport_id", "version_number", name="uq_equipment_passport_versions"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    passport_id = Column(Integer, ForeignKey("equipment_passports.id", ondelete="CASCADE"), nullable=False, index=True)
+    version_number = Column(Integer, nullable=False)
+    status = Column(String, default="approved", index=True)
+    snapshot = Column(JSON, nullable=False)
+    change_summary = Column(Text, nullable=True)
+    pdf_file_id = Column(Integer, ForeignKey("files.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    passport = relationship("EquipmentPassport", back_populates="versions")
+    creator = relationship("User", foreign_keys=[created_by])
+    pdf_file = relationship("File", foreign_keys=[pdf_file_id])
+
+
+class EquipmentPassportDocument(Base):
+    __tablename__ = "equipment_passport_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    passport_id = Column(Integer, ForeignKey("equipment_passports.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_id = Column(Integer, ForeignKey("files.id", ondelete="SET NULL"), nullable=True, index=True)
+    document_type = Column(String, nullable=False, index=True)
+    title = Column(String, nullable=False)
+    document_number = Column(String, nullable=True, index=True)
+    issuer = Column(String, nullable=True)
+    issue_date = Column(DateTime, nullable=True, index=True)
+    expiry_date = Column(DateTime, nullable=True, index=True)
+    status = Column(String, default="active", index=True)
+    is_required = Column(Boolean, default=False, index=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+    uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    passport = relationship("EquipmentPassport", back_populates="documents")
+    file = relationship("File", foreign_keys=[file_id])
+    uploader = relationship("User", foreign_keys=[uploaded_by])
+
+
+class EquipmentPassportEvent(Base):
+    __tablename__ = "equipment_passport_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    passport_id = Column(Integer, ForeignKey("equipment_passports.id", ondelete="CASCADE"), nullable=False, index=True)
+    equipment_id = Column(Integer, ForeignKey("equipment.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_type = Column(String, nullable=False, index=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    event_date = Column(DateTime, default=datetime.utcnow, index=True)
+    source = Column(String, default="manual", index=True)  # manual, system, ai
+    related_entity_type = Column(String, nullable=True, index=True)
+    related_entity_id = Column(Integer, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    passport = relationship("EquipmentPassport", back_populates="events")
+    equipment = relationship("Equipment")
+    creator = relationship("User", foreign_keys=[created_by])
 
 # Р вЂР вЂєР С›Р С™ 4: Р В§Р ВµР С”-Р В»Р С‘РЎРѓРЎвЂљРЎвЂ№
 class ChecklistTemplate(Base):

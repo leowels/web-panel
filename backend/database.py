@@ -141,6 +141,14 @@ def _apply_custom_migrations(sync_conn):
             alter_statements.append(
                 "ALTER TABLE equipment ADD COLUMN inventory_number VARCHAR(255)"
             )
+        if "registration_number" not in existing_columns:
+            alter_statements.append(
+                "ALTER TABLE equipment ADD COLUMN registration_number VARCHAR(255)"
+            )
+        if "factory_number" not in existing_columns:
+            alter_statements.append(
+                "ALTER TABLE equipment ADD COLUMN factory_number VARCHAR(255)"
+            )
         if "position" not in existing_columns:
             alter_statements.append(
                 "ALTER TABLE equipment ADD COLUMN position VARCHAR(255)"

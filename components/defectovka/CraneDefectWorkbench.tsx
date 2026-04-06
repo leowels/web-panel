@@ -55,6 +55,26 @@ type ViolationDraftForm = {
   photos: File[]
 }
 
+type NodeViolation = {
+  id: number
+  defect_node_id?: number | null
+  description: string
+  severity: Severity
+  status: string
+  created_at: string
+  deadline?: string | null
+  is_overdue?: boolean | null
+}
+
+type NodeViolationStats = {
+  total: number
+  open: number
+  resolved: number
+  overdue: number
+  maxOpenSeverity: Severity | null
+  latest: NodeViolation[]
+}
+
 type ModelVectorValue = string | { x: number; y: number; z: number }
 
 type ModelViewerPickResult = {
@@ -78,6 +98,19 @@ const severityClass: Record<Severity, string> = {
   medium: 'bg-amber-100 text-amber-700',
   high: 'bg-orange-100 text-orange-700',
   critical: 'bg-rose-100 text-rose-700',
+}
+
+const severityPriority: Record<Severity, number> = {
+  low: 1,
+  medium: 2,
+  high: 3,
+  critical: 4,
+}
+
+const statusLabel: Record<string, string> = {
+  open: 'Открыто',
+  resolved: 'Устранено',
+  in_progress: 'В работе',
 }
 
 const emptyNodeForm = (): NodeFormState => ({
@@ -147,9 +180,11 @@ export default function CraneDefectWorkbench() {
   const [selectedEquipmentId, setSelectedEquipmentId] = useState<number | null>(null)
   const [nodes, setNodes] = useState<DefectNode[]>([])
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null)
+  const [violations, setViolations] = useState<NodeViolation[]>([])
 
   const [loadingEquipment, setLoadingEquipment] = useState(false)
   const [loadingNodes, setLoadingNodes] = useState(false)
+  const [loadingViolations, setLoadingViolations] = useState(false)
   const [creatingViolation, setCreatingViolation] = useState(false)
   const [uploadingPhotos, setUploadingPhotos] = useState(false)
   const [savingNode, setSavingNode] = useState(false)
@@ -176,6 +211,67 @@ export default function CraneDefectWorkbench() {
     () => nodes.find((node) => node.id === selectedNodeId) || visibleNodes[0] || null,
     [nodes, selectedNodeId, visibleNodes]
   )
+
+  const nodeViolationStats = useMemo(() => {
+    const stats = new Map<number, NodeViolationStats>()
+
+    for (const violation of violations) {
+      if (!violation.defect_node_id) continue
+
+      const existing = stats.get(violation.defect_node_id) || {
+        total: 0,
+        open: 0,
+        resolved: 0,
+        overdue: 0,
+        maxOpenSeverity: null,
+        latest: [],
+      }
+
+      existing.total += 1
+      if (violation.status === 'resolved') {
+        existing.resolved += 1
+      } else {
+        existing.open += 1
+        if (violation.is_overdue) {
+          existing.overdue += 1
+        }
+        if (
+          !existing.maxOpenSeverity ||
+          severityPriority[violation.severity] > severityPriority[existing.maxOpenSeverity]
+        ) {
+          existing.maxOpenSeverity = violation.severity
+        }
+      }
+      existing.latest.push(violation)
+      stats.set(violation.defect_node_id, existing)
+    }
+
+    Array.from(stats.values()).forEach((entry) => {
+      entry.latest.sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )
+      entry.latest = entry.latest.slice(0, 5)
+    })
+
+    return stats
+  }, [violations])
+
+  const selectedNodeStats = selectedNode ? nodeViolationStats.get(selectedNode.id) || null : null
+  const equipmentViolationSummary = useMemo(() => {
+    return violations.reduce(
+      (acc, violation) => {
+        acc.total += 1
+        if (violation.status === 'resolved') {
+          acc.resolved += 1
+        } else {
+          acc.open += 1
+          if (violation.is_overdue) acc.overdue += 1
+        }
+        return acc
+      },
+      { total: 0, open: 0, resolved: 0, overdue: 0 }
+    )
+  }, [violations])
 
   const draftHotspotPosition = useMemo(() => nodeForm.position.trim(), [nodeForm.position])
   const draftHotspotNormal = useMemo(() => nodeForm.normal.trim() || '0m 1m 0m', [nodeForm.normal])
@@ -227,6 +323,39 @@ export default function CraneDefectWorkbench() {
     }
   }
 
+  const fetchViolations = async (equipmentId: number) => {
+    if (!token) return
+
+    try {
+      setLoadingViolations(true)
+      const response = await axios.get(`${API_URL}/api/violations`, {
+        params: { equipment_id: equipmentId, limit: 1000 },
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const rows = Array.isArray(response.data) ? response.data : []
+      const normalized = rows
+        .filter((row: any) => row?.defect_node_id != null)
+        .map((row: any) => ({
+          id: row.id,
+          defect_node_id: row.defect_node_id,
+          description: row.description || '',
+          severity: (row.severity || 'medium') as Severity,
+          status: row.status || 'open',
+          created_at: row.created_at,
+          deadline: row.deadline || null,
+          is_overdue: Boolean(row.is_overdue),
+        }))
+
+      setViolations(normalized)
+    } catch (error) {
+      console.error('Ошибка загрузки нарушений 3D-дефектовки:', error)
+      addNotification('Не удалось загрузить нарушения по выбранному ЭМК', 'error')
+      setViolations([])
+    } finally {
+      setLoadingViolations(false)
+    }
+  }
+
   useEffect(() => {
     if (!token) return
     fetchEquipment()
@@ -236,6 +365,14 @@ export default function CraneDefectWorkbench() {
     if (!token) return
     fetchNodes()
   }, [token, isAdmin])
+
+  useEffect(() => {
+    if (!token || !selectedEquipmentId) {
+      setViolations([])
+      return
+    }
+    fetchViolations(selectedEquipmentId)
+  }, [token, selectedEquipmentId])
 
   const resetNodeForm = () => {
     setEditingNodeId(null)
@@ -354,6 +491,34 @@ export default function CraneDefectWorkbench() {
     setViolationDraft((prev) => ({ ...prev, photos: nextFiles }))
   }
 
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return '—'
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return '—'
+    return parsed.toLocaleString('ru-RU')
+  }
+
+  const getNodeHotspotClass = (nodeId: number, isSelected: boolean) => {
+    const stats = nodeViolationStats.get(nodeId)
+    const selectedClass = isSelected ? 'scale-110 ring-4 ring-offset-2 ring-primary-200' : ''
+
+    if (!stats || stats.total === 0) {
+      return `bg-white/90 border-primary-600 hover:scale-110 ${selectedClass}`.trim()
+    }
+    if (stats.open > 0) {
+      const tone =
+        stats.overdue > 0 || stats.maxOpenSeverity === 'critical'
+          ? 'bg-rose-600 border-white text-white'
+          : stats.maxOpenSeverity === 'high'
+            ? 'bg-orange-500 border-white text-white'
+            : stats.maxOpenSeverity === 'medium'
+              ? 'bg-amber-500 border-white text-white'
+              : 'bg-sky-500 border-white text-white'
+      return `${tone} hover:scale-110 ${selectedClass}`.trim()
+    }
+    return `bg-emerald-500 border-white text-white hover:scale-110 ${selectedClass}`.trim()
+  }
+
   const createViolationFromNode = async () => {
     if (!token || !selectedEquipmentId || !selectedNode) {
       addNotification('Не хватает данных для создания нарушения', 'error')
@@ -430,6 +595,9 @@ export default function CraneDefectWorkbench() {
           : `Нарушение создано (ID: ${createdViolation?.id ?? '—'})`,
         'success'
       )
+      if (selectedEquipmentId) {
+        await fetchViolations(selectedEquipmentId)
+      }
       closeCreateViolationModal(true)
     } catch (error: any) {
       const message = error?.response?.data?.detail || 'Не удалось создать нарушение по узлу'
@@ -533,11 +701,10 @@ export default function CraneDefectWorkbench() {
                 slot={`hotspot-node-${node.id}`}
                 data-position={node.position}
                 data-normal={node.normal || '0m 1m 0m'}
-                className={`w-6 h-6 rounded-full border-2 transition-all ${
+                className={`w-6 h-6 rounded-full border-2 shadow-lg transition-all ${getNodeHotspotClass(
+                  node.id,
                   node.id === selectedNode?.id
-                    ? 'bg-primary-600 border-white shadow-lg scale-110'
-                    : 'bg-white/90 border-primary-600 hover:scale-110'
-                }`}
+                )}`}
                 onClick={() => setSelectedNodeId(node.id)}
                 title={node.title}
                 aria-label={node.title}
@@ -570,6 +737,34 @@ export default function CraneDefectWorkbench() {
 
       <div className="space-y-4">
         <div className="bg-white border border-gray-200 rounded-xl shadow-soft p-4">
+          <h3 className="text-base font-semibold text-gray-900 mb-3">Сводка по выбранному ЭМК</h3>
+          {loadingViolations ? (
+            <div className="text-sm text-gray-500">Загрузка нарушений...</div>
+          ) : selectedEquipmentId ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg border border-gray-200 bg-slate-50 px-3 py-2">
+                <div className="text-xs uppercase tracking-wide text-gray-500">Всего</div>
+                <div className="text-lg font-semibold text-gray-900">{equipmentViolationSummary.total}</div>
+              </div>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                <div className="text-xs uppercase tracking-wide text-amber-700">Открыто</div>
+                <div className="text-lg font-semibold text-amber-900">{equipmentViolationSummary.open}</div>
+              </div>
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
+                <div className="text-xs uppercase tracking-wide text-rose-700">Просрочено</div>
+                <div className="text-lg font-semibold text-rose-900">{equipmentViolationSummary.overdue}</div>
+              </div>
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                <div className="text-xs uppercase tracking-wide text-emerald-700">Устранено</div>
+                <div className="text-lg font-semibold text-emerald-900">{equipmentViolationSummary.resolved}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500">Выберите кран ЭМК, чтобы увидеть сводку.</div>
+          )}
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-xl shadow-soft p-4">
           <h3 className="text-base font-semibold text-gray-900 mb-3">Узлы дефектовки</h3>
           <div className="space-y-2 max-h-[280px] overflow-auto pr-1">
             {loadingNodes && <div className="text-sm text-gray-500">Загрузка узлов...</div>}
@@ -585,13 +780,27 @@ export default function CraneDefectWorkbench() {
                     node.id === selectedNode?.id ? 'border-primary-500 bg-primary-50' : 'border-gray-200 hover:bg-gray-50'
                   }`}
                 >
+                  {(() => {
+                    const stats = nodeViolationStats.get(node.id)
+                    return (
+                      <>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm font-medium text-gray-900">{node.title}</span>
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded ${severityClass[node.severity]}`}>
                       {severityLabel[node.severity]}
                     </span>
                   </div>
+                        {stats && stats.total > 0 && (
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-600">
+                            <span>Связано: {stats.total}</span>
+                            <span>Открыто: {stats.open}</span>
+                            <span>Просрочено: {stats.overdue}</span>
+                          </div>
+                        )}
                   {!node.is_active && <div className="text-xs text-gray-500 mt-1">Неактивный узел</div>}
+                      </>
+                    )
+                  })()}
                 </button>
               ))}
           </div>
@@ -612,6 +821,59 @@ export default function CraneDefectWorkbench() {
               <p className="text-xs text-gray-500">
                 Позиция: <code>{selectedNode.position}</code>
               </p>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-lg border border-gray-200 bg-slate-50 px-3 py-2">
+                  <div className="text-[11px] uppercase tracking-wide text-gray-500">Связано</div>
+                  <div className="text-base font-semibold text-gray-900">{selectedNodeStats?.total ?? 0}</div>
+                </div>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                  <div className="text-[11px] uppercase tracking-wide text-amber-700">Открыто</div>
+                  <div className="text-base font-semibold text-amber-900">{selectedNodeStats?.open ?? 0}</div>
+                </div>
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
+                  <div className="text-[11px] uppercase tracking-wide text-rose-700">Просрочено</div>
+                  <div className="text-base font-semibold text-rose-900">{selectedNodeStats?.overdue ?? 0}</div>
+                </div>
+              </div>
+              {loadingViolations ? (
+                <div className="text-sm text-gray-500">Загрузка истории дефектов...</div>
+              ) : selectedNodeStats?.latest?.length ? (
+                <div className="space-y-2">
+                  <div className="text-sm font-semibold text-gray-900">Последние нарушения по узлу</div>
+                  <div className="space-y-2">
+                    {selectedNodeStats.latest.map((violation) => (
+                      <div key={violation.id} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-semibold text-gray-900">#{violation.id}</span>
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded ${severityClass[violation.severity]}`}>
+                            {severityLabel[violation.severity]}
+                          </span>
+                          <span
+                            className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                              violation.status === 'resolved'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : violation.is_overdue
+                                  ? 'bg-rose-100 text-rose-700'
+                                  : 'bg-amber-100 text-amber-700'
+                            }`}
+                          >
+                            {violation.is_overdue && violation.status !== 'resolved'
+                              ? 'Просрочено'
+                              : statusLabel[violation.status] || violation.status}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-sm text-gray-700 line-clamp-3">{violation.description}</div>
+                        <div className="mt-1 text-[11px] text-gray-500">
+                          Создано: {formatDateTime(violation.created_at)}
+                          {violation.deadline ? ` · Срок: ${formatDateTime(violation.deadline)}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-gray-500">По этому узлу пока нет зарегистрированных нарушений.</div>
+              )}
             </>
           ) : (
             <p className="text-sm text-gray-500">Выберите узел дефектовки из списка.</p>
