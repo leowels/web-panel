@@ -315,8 +315,13 @@ async def _get_equipment_or_404(db: AsyncSession, equipment_id: int) -> Equipmen
 
 
 async def _get_or_create_passport(db: AsyncSession, equipment: Equipment, user_id: Optional[int] = None) -> EquipmentPassport:
-    if equipment.passport:
-        return equipment.passport
+    passport_result = await db.execute(
+        select(EquipmentPassport).where(EquipmentPassport.equipment_id == equipment.id)
+    )
+    passport = passport_result.scalar_one_or_none()
+    if passport:
+        return passport
+
     passport = EquipmentPassport(
         equipment_id=equipment.id,
         passport_status="draft",
@@ -326,8 +331,41 @@ async def _get_or_create_passport(db: AsyncSession, equipment: Equipment, user_i
     )
     db.add(passport)
     await db.flush()
-    equipment.passport = passport
     return passport
+
+
+async def _load_passport_related(
+    db: AsyncSession,
+    passport_id: int,
+) -> tuple[List[EquipmentPassportDocument], List[EquipmentPassportVersion], List[EquipmentPassportEvent]]:
+    documents_result = await db.execute(
+        select(EquipmentPassportDocument)
+        .options(selectinload(EquipmentPassportDocument.file))
+        .where(EquipmentPassportDocument.passport_id == passport_id)
+    )
+    versions_result = await db.execute(
+        select(EquipmentPassportVersion).where(EquipmentPassportVersion.passport_id == passport_id)
+    )
+    events_result = await db.execute(
+        select(EquipmentPassportEvent).where(EquipmentPassportEvent.passport_id == passport_id)
+    )
+
+    documents = sorted(
+        documents_result.scalars().all(),
+        key=lambda item: item.created_at or datetime.min,
+        reverse=True,
+    )
+    versions = sorted(
+        versions_result.scalars().all(),
+        key=lambda item: item.version_number,
+        reverse=True,
+    )
+    events = sorted(
+        events_result.scalars().all(),
+        key=lambda item: item.event_date or datetime.min,
+        reverse=True,
+    )
+    return documents, versions, events
 
 
 async def _collect_aggregates(db: AsyncSession, equipment_id: int) -> Dict[str, Any]:
@@ -392,9 +430,7 @@ def _build_snapshot(
 
 async def _build_passport_response(db: AsyncSession, equipment: Equipment) -> Dict[str, Any]:
     passport = await _get_or_create_passport(db, equipment)
-    documents = sorted(passport.documents or [], key=lambda item: item.created_at or datetime.min, reverse=True)
-    versions = sorted(passport.versions or [], key=lambda item: item.version_number, reverse=True)
-    events = sorted(passport.events or [], key=lambda item: item.event_date or datetime.min, reverse=True)
+    documents, versions, events = await _load_passport_related(db, passport.id)
     draft_data = _merge_with_equipment_defaults(_default_draft_data(equipment), passport.draft_data or {})
     completeness_percent = _calculate_completeness(draft_data, len(documents), len(versions))
     passport.draft_data = draft_data
@@ -508,7 +544,8 @@ async def update_equipment_passport_draft(
     passport.passport_status = _normalize_passport_status(request_body.passport_status, "draft")
     passport.updated_by = current_user.id
     passport.updated_at = datetime.utcnow()
-    passport.completeness_percent = _calculate_completeness(merged, len(passport.documents or []), len(passport.versions or []))
+    documents, versions, _ = await _load_passport_related(db, passport.id)
+    passport.completeness_percent = _calculate_completeness(merged, len(documents), len(versions))
 
     db.add(_activity(current_user.id, "update", f"Обновлен черновик паспорта оборудования #{equipment.id}", passport.id))
     await log_audit_event(
@@ -544,9 +581,7 @@ async def publish_equipment_passport(
     equipment = await _get_equipment_or_404(db, equipment_id)
     passport = await _get_or_create_passport(db, equipment, current_user.id)
 
-    documents = sorted(passport.documents or [], key=lambda item: item.created_at or datetime.min, reverse=True)
-    events = sorted(passport.events or [], key=lambda item: item.event_date or datetime.min, reverse=True)
-    versions = sorted(passport.versions or [], key=lambda item: item.version_number, reverse=True)
+    documents, versions, events = await _load_passport_related(db, passport.id)
     draft_data = _merge_with_equipment_defaults(_default_draft_data(equipment), passport.draft_data or {})
     completeness_percent = _calculate_completeness(draft_data, len(documents), len(versions))
     aggregates = await _collect_aggregates(db, equipment.id)
@@ -629,11 +664,12 @@ async def create_passport_document(
     )
     db.add(document)
     await db.flush()
+    documents, versions, _ = await _load_passport_related(db, passport.id)
 
     passport.completeness_percent = _calculate_completeness(
         _merge_with_equipment_defaults(_default_draft_data(equipment), passport.draft_data or {}),
-        len(passport.documents or []) + 1,
-        len(passport.versions or []),
+        len(documents),
+        len(versions),
     )
     passport.updated_by = current_user.id
     passport.updated_at = datetime.utcnow()
