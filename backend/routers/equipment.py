@@ -11,6 +11,7 @@ import csv
 import io
 import re
 import os
+import tempfile
 from pathlib import Path
 
 from PIL import Image
@@ -1729,67 +1730,75 @@ async def ocr_import_equipment(
         if not file_obj:
             raise HTTPException(status_code=404, detail="File not found")
 
-        if not file_obj.file_path:
-            raise HTTPException(
-                status_code=400,
-                detail="File has no file_path, cannot read from disk",
-            )
-
         # Р С›Р С—РЎР‚Р ВµР Т‘Р ВµР В»РЎРЏР ВµР С, РЎРЏР Р†Р В»РЎРЏР ВµРЎвЂљРЎРѓРЎРЏ Р В»Р С‘ РЎвЂћР В°Р в„–Р В» РЎвЂљР ВµР С”РЎРѓРЎвЂљР С•Р С/CSV Р С‘Р В»Р С‘ Р С”Р В°РЎР‚РЎвЂљР С‘Р Р…Р С”Р С•Р в„–
-        file_path = Path(file_obj.file_path)
+        source_name = file_obj.original_filename or file_obj.file_path or ""
+        file_path = Path(source_name)
         suffix = file_path.suffix.lower()
 
         # Р вЂўРЎРѓР В»Р С‘ РЎРЊРЎвЂљР С• Р С‘Р В·Р С•Р В±РЎР‚Р В°Р В¶Р ВµР Р…Р С‘Р Вµ РІР‚вЂќ Р В·Р В°Р С—РЎС“РЎРѓР С”Р В°Р ВµР С OCR
         if suffix in {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"} or (
             file_obj.mime_type and file_obj.mime_type.startswith("image/")
         ):
-            # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С РЎРѓРЎС“РЎвЂ°Р ВµРЎРѓРЎвЂљР Р†Р С•Р Р†Р В°Р Р…Р С‘Р Вµ РЎвЂћР В°Р в„–Р В»Р В° Р С‘ Р Р…Р С•РЎР‚Р СР В°Р В»Р С‘Р В·РЎС“Р ВµР С Р С—РЎС“РЎвЂљРЎРЉ
-            # Р В¤Р В°Р в„–Р В»РЎвЂ№ РЎРѓР С•РЎвЂ¦РЎР‚Р В°Р Р…РЎРЏРЎР‹РЎвЂљРЎРѓРЎРЏ Р С”Р В°Р С” Р С•РЎвЂљР Р…Р С•РЎРѓР С‘РЎвЂљР ВµР В»РЎРЉР Р…РЎвЂ№Р Вµ Р С—РЎС“РЎвЂљР С‘ РЎвЂљР С‘Р С—Р В° "uploads/filename"
-            file_path_str = file_obj.file_path
-            
-            # Р СџРЎР‚Р С•Р В±РЎС“Р ВµР С РЎР‚Р В°Р В·Р Р…РЎвЂ№Р Вµ Р Р†Р В°РЎР‚Р С‘Р В°Р Р…РЎвЂљРЎвЂ№ Р С—РЎС“РЎвЂљР С‘
-            possible_paths = [
-                file_path_str,  # Р С™Р В°Р С” Р ВµРЎРѓРЎвЂљРЎРЉ (Р ВµРЎРѓР В»Р С‘ Р В°Р В±РЎРѓР С•Р В»РЎР‹РЎвЂљР Р…РЎвЂ№Р в„–)
-                os.path.join("/app/backend", file_path_str),  # Р С›РЎвЂљР Р…Р С•РЎРѓР С‘РЎвЂљР ВµР В»РЎРЉР Р…Р С• backend
-                os.path.join("/app", file_path_str),  # Р С›РЎвЂљР Р…Р С•РЎРѓР С‘РЎвЂљР ВµР В»РЎРЉР Р…Р С• Р С”Р С•РЎР‚Р Р…РЎРЏ
-            ]
-            
-            actual_path = None
-            for path in possible_paths:
-                if os.path.exists(path):
-                    actual_path = path
-                    break
-            
-            if not actual_path:
-                # Р вЂўРЎРѓР В»Р С‘ Р Р…Р С‘ Р С•Р Т‘Р С‘Р Р… Р С—РЎС“РЎвЂљРЎРЉ Р Р…Р Вµ Р Р…Р В°Р в„–Р Т‘Р ВµР Р…, Р С—РЎР‚Р С•Р В±РЎС“Р ВµР С Р Р…Р В°Р в„–РЎвЂљР С‘ РЎвЂћР В°Р в„–Р В» Р С—Р С• Р С‘Р СР ВµР Р…Р С‘ Р Р† uploads
-                filename = os.path.basename(file_path_str)
-                uploads_path = os.path.join("/app/backend", "uploads", filename)
-                if os.path.exists(uploads_path):
-                    actual_path = uploads_path
-                else:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Image file not found on disk. Tried: {possible_paths + [uploads_path]}",
-                    )
-            
-            logger.info(f"Running OCR for equipment import on image file: {actual_path}")
-            decoded = _ocr_image_to_text(actual_path)
+            if file_obj.data:
+                temp_name = None
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix or ".img") as temp_file:
+                        temp_file.write(file_obj.data)
+                        temp_name = temp_file.name
+                    logger.info(f"Running OCR for equipment import on DB-stored image file: {file_obj.id}")
+                    decoded = _ocr_image_to_text(temp_name)
+                finally:
+                    if temp_name and os.path.exists(temp_name):
+                        os.remove(temp_name)
+            else:
+                file_path_str = file_obj.file_path
+                if not file_path_str:
+                    raise HTTPException(status_code=404, detail="Image file content is missing")
+
+                possible_paths = [
+                    file_path_str,
+                    os.path.join("/app/backend", file_path_str),
+                    os.path.join("/app", file_path_str),
+                ]
+
+                actual_path = None
+                for path_item in possible_paths:
+                    if os.path.exists(path_item):
+                        actual_path = path_item
+                        break
+
+                if not actual_path:
+                    filename = os.path.basename(file_path_str)
+                    uploads_path = os.path.join("/app/backend", "uploads", filename)
+                    if os.path.exists(uploads_path):
+                        actual_path = uploads_path
+                    else:
+                        raise HTTPException(
+                            status_code=404,
+                            detail=f"Image file not found on disk. Tried: {possible_paths + [uploads_path]}",
+                        )
+
+                logger.info(f"Running OCR for equipment import on image file: {actual_path}")
+                decoded = _ocr_image_to_text(actual_path)
         else:
             # Р ВР Р…Р В°РЎвЂЎР Вµ РЎРѓРЎвЂЎР С‘РЎвЂљР В°Р ВµР С, РЎвЂЎРЎвЂљР С• РЎРЊРЎвЂљР С• РЎвЂљР ВµР С”РЎРѓРЎвЂљ/CSV
-            try:
-                with open(file_obj.file_path, "rb") as f:
-                    raw_content = f.read()
-            except FileNotFoundError:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"File not found on disk: {file_obj.file_path}",
-                )
-            except Exception as e:
-                logger.error(f"Error reading file {file_obj.file_path}: {e}", exc_info=True)
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Error reading file: {str(e)}",
-                )
+            if file_obj.data:
+                raw_content = file_obj.data
+            else:
+                try:
+                    with open(file_obj.file_path, "rb") as f:
+                        raw_content = f.read()
+                except FileNotFoundError:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"File not found on disk: {file_obj.file_path}",
+                    )
+                except Exception as e:
+                    logger.error(f"Error reading file {file_obj.file_path}: {e}", exc_info=True)
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Error reading file: {str(e)}",
+                    )
 
             try:
                 decoded = raw_content.decode("utf-8-sig")

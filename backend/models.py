@@ -461,6 +461,9 @@ class File(Base):
     file_size = Column(Integer)
     file_path = Column(String)
     thumbnail_path = Column(String, nullable=True)
+    storage_backend = Column(String, default="database", index=True)  # database, filesystem
+    data = Column(LargeBinary, nullable=True)
+    thumbnail_data = Column(LargeBinary, nullable=True)
     equipment_id = Column(Integer, ForeignKey("equipment.id", ondelete="CASCADE"), nullable=True)
     inspection_id = Column(Integer, ForeignKey("inspections.id", ondelete="CASCADE"), nullable=True)
     violation_id = Column(Integer, ForeignKey("violations.id", ondelete="CASCADE"), nullable=True)
