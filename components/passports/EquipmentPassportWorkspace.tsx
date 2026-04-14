@@ -330,6 +330,15 @@ const formatBytes = (value?: number | null) => {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} КБ`
   return `${(value / (1024 * 1024)).toFixed(1)} МБ`
 }
+const getPreviewMode = (file?: LinkedFile | null) => {
+  if (!file) return 'unsupported'
+  const mime = (file.mime_type || '').toLowerCase()
+  const name = (file.original_filename || '').toLowerCase()
+  if (mime.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(name)) return 'image'
+  if (mime === 'application/pdf' || name.endsWith('.pdf')) return 'pdf'
+  if (mime.startsWith('text/') || /\.(txt|csv|json|xml|log|md)$/i.test(name)) return 'text'
+  return 'unsupported'
+}
 const riskTone = (value?: string) => ({ critical: 'bg-rose-100 text-rose-800 border-rose-200', high: 'bg-orange-100 text-orange-800 border-orange-200', medium: 'bg-amber-100 text-amber-800 border-amber-200', low: 'bg-blue-100 text-blue-800 border-blue-200', stable: 'bg-emerald-100 text-emerald-800 border-emerald-200' }[value || 'stable'] || 'bg-slate-100 text-slate-700 border-slate-200')
 const statusTone = (value?: string) => ({ approved: 'bg-emerald-100 text-emerald-800 border-emerald-200', draft: 'bg-slate-100 text-slate-700 border-slate-200', review: 'bg-amber-100 text-amber-800 border-amber-200', archived: 'bg-slate-200 text-slate-700 border-slate-300', open: 'bg-rose-100 text-rose-800 border-rose-200', in_progress: 'bg-blue-100 text-blue-800 border-blue-200', resolved: 'bg-emerald-100 text-emerald-800 border-emerald-200' }[value || 'draft'] || 'bg-slate-100 text-slate-700 border-slate-200')
 const severityTone = (value?: string | null) => ({ critical: 'bg-rose-100 text-rose-800 border-rose-200', high: 'bg-orange-100 text-orange-800 border-orange-200', medium: 'bg-amber-100 text-amber-800 border-amber-200', low: 'bg-sky-100 text-sky-800 border-sky-200' }[value || 'medium'] || 'bg-slate-100 text-slate-700 border-slate-200')
@@ -355,6 +364,10 @@ export default function EquipmentPassportWorkspace() {
   const [documentSubmitting, setDocumentSubmitting] = useState(false)
   const [eventForm, setEventForm] = useState(defaultEventForm)
   const [eventSubmitting, setEventSubmitting] = useState(false)
+  const [previewFile, setPreviewFile] = useState<LinkedFile | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
 
   const roleNames = getRoleNames(user)
   const canEdit = canMutateData(user)
@@ -419,6 +432,12 @@ export default function EquipmentPassportWorkspace() {
     fetchPassport(selectedEquipmentId)
   }, [selectedEquipmentId, token])
 
+  useEffect(() => {
+    return () => {
+      if (previewUrl) window.URL.revokeObjectURL(previewUrl)
+    }
+  }, [previewUrl])
+
   const handleSelectEquipment = (equipmentId: number) => {
     setSelectedEquipmentId(equipmentId)
     const params = new URLSearchParams(searchParams.toString())
@@ -476,6 +495,40 @@ export default function EquipmentPassportWorkspace() {
     }
   }
 
+  const openFilePreview = async (file: LinkedFile | null | undefined) => {
+    if (!token || !file) return
+    const mode = getPreviewMode(file)
+    setPreviewFile(file)
+    setPreviewError(null)
+    setPreviewUrl(null)
+
+    if (mode === 'unsupported') {
+      setPreviewError('Этот формат нельзя надежно показать в браузере. Файл можно скачать.')
+      return
+    }
+
+    setPreviewLoading(true)
+    try {
+      const response = await axios.get(`${API_URL}/api/files/${file.id}`, {
+        responseType: 'blob',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const blob = new Blob([response.data], { type: file.mime_type || response.data?.type || 'application/octet-stream' })
+      setPreviewUrl(window.URL.createObjectURL(blob))
+    } catch (error) {
+      setPreviewError(parseError(error, 'Не удалось открыть файл для просмотра'))
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  const closeFilePreview = () => {
+    setPreviewFile(null)
+    setPreviewUrl(null)
+    setPreviewLoading(false)
+    setPreviewError(null)
+  }
+
   const downloadFile = async (file: LinkedFile | null | undefined) => {
     if (!token || !file) return
     try {
@@ -495,6 +548,23 @@ export default function EquipmentPassportWorkspace() {
       addNotification(parseError(error, 'Не удалось скачать файл'), 'error')
     }
   }
+
+  const renderFileActions = (file: LinkedFile) => (
+    <div className="flex flex-wrap gap-2">
+      <button
+        onClick={() => openFilePreview(file)}
+        className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100"
+      >
+        Просмотр
+      </button>
+      <button
+        onClick={() => downloadFile(file)}
+        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+      >
+        Скачать
+      </button>
+    </div>
+  )
 
   const submitDocument = async () => {
     if (!token || !selectedEquipmentId) return
@@ -649,6 +719,8 @@ export default function EquipmentPassportWorkspace() {
       </label>
     )
   }
+
+  const previewMode = getPreviewMode(previewFile)
 
   return (
     <div className="space-y-6">
@@ -866,14 +938,14 @@ export default function EquipmentPassportWorkspace() {
                             <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-sm font-semibold text-slate-900">{document.title}</div><div className="mt-1 text-xs text-slate-500">{document.document_type} • {document.document_number || 'без номера'}</div></div><span className={`rounded-full border px-2 py-1 text-xs font-semibold ${statusTone(document.status)}`}>{document.status_label}</span></div>
                             <div className="text-sm text-slate-600">Выдан: {document.issuer || '—'} • Дата: {formatDate(document.issue_date)}</div>
                             {document.notes && <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{document.notes}</div>}
-                            <div className="flex flex-wrap gap-2">{document.file && <button onClick={() => downloadFile(document.file)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Скачать файл</button>}{canEdit && <button onClick={() => deleteDocument(document.id)} className="rounded-lg border border-rose-200 px-3 py-1.5 text-sm font-medium text-rose-700 hover:bg-rose-50">Удалить</button>}</div>
+                            <div className="flex flex-wrap gap-2">{document.file && renderFileActions(document.file)}{canEdit && <button onClick={() => deleteDocument(document.id)} className="rounded-lg border border-rose-200 px-3 py-1.5 text-sm font-medium text-rose-700 hover:bg-rose-50">Удалить</button>}</div>
                           </div>
                         ))}
                       </div>
                       <div className="space-y-3">
                         <h3 className="text-lg font-semibold text-slate-900">Вложения по крану</h3>
                         {passport.related.files.length === 0 ? <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">Нет прикрепленных общих файлов</div> : passport.related.files.map((file) => (
-                          <div key={file.id} className="rounded-2xl border border-slate-200 p-4 flex items-start justify-between gap-4"><div><div className="text-sm font-semibold text-slate-900">{file.original_filename}</div><div className="mt-1 text-xs text-slate-500">{file.description || file.file_type} • {formatBytes(file.file_size)}</div></div><button onClick={() => downloadFile(file)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Скачать</button></div>
+                          <div key={file.id} className="rounded-2xl border border-slate-200 p-4 flex items-start justify-between gap-4"><div><div className="text-sm font-semibold text-slate-900">{file.original_filename}</div><div className="mt-1 text-xs text-slate-500">{file.description || file.file_type} • {formatBytes(file.file_size)}</div></div>{renderFileActions(file)}</div>
                         ))}
                       </div>
                     </div>
@@ -901,8 +973,8 @@ export default function EquipmentPassportWorkspace() {
                       <div className="space-y-3"><h3 className="text-lg font-semibold text-slate-900">Осмотры</h3>{passport.related.inspections.length === 0 ? <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">Осмотры не найдены</div> : passport.related.inspections.map((inspection) => <div key={inspection.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-sm font-semibold text-slate-900">Осмотр #{inspection.id}</div><div className="mt-1 text-xs text-slate-500">Нарушений: {inspection.violations_count}</div></div><span className={`rounded-full border px-2 py-1 text-xs font-semibold ${statusTone(inspection.status)}`}>{inspection.status_label}</span></div><div className="mt-3 text-sm text-slate-600">Создан: {formatDate(inspection.created_at)} • Завершен: {formatDate(inspection.completed_at)}</div>{inspection.notes && <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{inspection.notes}</div>}</div>)}</div>
                     </div>
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                      <div className="space-y-3"><h3 className="text-lg font-semibold text-slate-900">Акты</h3>{passport.related.acts.length === 0 ? <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">Акты не найдены</div> : passport.related.acts.map((act) => <div key={act.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-sm font-semibold text-slate-900">{act.act_number || `Акт #${act.id}`}</div><div className="mt-1 text-xs text-slate-500">Дата акта: {formatDate(act.act_date)}</div></div><span className={`rounded-full border px-2 py-1 text-xs font-semibold ${statusTone(act.status)}`}>{act.status_label}</span></div><div className="mt-3 flex flex-wrap gap-2">{act.attachments.map((file) => <button key={file.id} onClick={() => downloadFile(file)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">{file.original_filename}</button>)}</div></div>)}</div>
-                      <div className="space-y-3"><h3 className="text-lg font-semibold text-slate-900">Задачи и работы</h3>{passport.related.tasks.length === 0 ? <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">Задачи не найдены</div> : passport.related.tasks.map((task) => <div key={task.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-sm font-semibold text-slate-900">{task.title}</div><div className="mt-1 text-xs text-slate-500">Приоритет: {task.priority || '—'} • Срок: {formatDate(task.due_date)}</div></div><span className={`rounded-full border px-2 py-1 text-xs font-semibold ${statusTone(task.status)}`}>{task.status_label}</span></div>{task.description && <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{task.description}</div>}{task.attachments.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{task.attachments.map((file) => <button key={file.id} onClick={() => downloadFile(file)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">{file.original_filename}</button>)}</div>}</div>)}</div>
+                      <div className="space-y-3"><h3 className="text-lg font-semibold text-slate-900">Акты</h3>{passport.related.acts.length === 0 ? <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">Акты не найдены</div> : passport.related.acts.map((act) => <div key={act.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-sm font-semibold text-slate-900">{act.act_number || `Акт #${act.id}`}</div><div className="mt-1 text-xs text-slate-500">Дата акта: {formatDate(act.act_date)}</div></div><span className={`rounded-full border px-2 py-1 text-xs font-semibold ${statusTone(act.status)}`}>{act.status_label}</span></div><div className="mt-3 flex flex-wrap gap-2">{act.attachments.map((file) => <div key={file.id}>{renderFileActions(file)}</div>)}</div></div>)}</div>
+                      <div className="space-y-3"><h3 className="text-lg font-semibold text-slate-900">Задачи и работы</h3>{passport.related.tasks.length === 0 ? <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">Задачи не найдены</div> : passport.related.tasks.map((task) => <div key={task.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-sm font-semibold text-slate-900">{task.title}</div><div className="mt-1 text-xs text-slate-500">Приоритет: {task.priority || '—'} • Срок: {formatDate(task.due_date)}</div></div><span className={`rounded-full border px-2 py-1 text-xs font-semibold ${statusTone(task.status)}`}>{task.status_label}</span></div>{task.description && <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{task.description}</div>}{task.attachments.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{task.attachments.map((file) => <div key={file.id}>{renderFileActions(file)}</div>)}</div>}</div>)}</div>
                     </div>
                   </div>
                 )}
@@ -913,7 +985,7 @@ export default function EquipmentPassportWorkspace() {
                       <div key={violation.id} className="rounded-2xl border border-slate-200 p-5 space-y-4">
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="space-y-2"><div className="flex flex-wrap gap-2"><span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusTone(violation.status)}`}>{violation.status_label}</span><span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${severityTone(violation.severity)}`}>{violation.severity_label}</span>{violation.is_overdue && <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700">Просрочено</span>}</div><div className="text-base font-semibold text-slate-900">{violation.description}</div><div className="text-sm text-slate-500">Нарушение #{violation.id} • Дедлайн: {formatDate(violation.deadline)}</div></div>{violation.defect_node && <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">Узел: <span className="font-semibold">{violation.defect_node.title}</span></div>}</div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">{violation.violation_type && <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-slate-500">Тип нарушения</div><div className="mt-1 font-medium text-slate-900">{violation.violation_type}</div></div>}{violation.fnp_clause && <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-slate-500">ФНП</div><div className="mt-1 font-medium text-slate-900">{violation.fnp_clause}</div></div>}{violation.gost_clause && <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-slate-500">ГОСТ</div><div className="mt-1 font-medium text-slate-900">{violation.gost_clause}</div></div>}</div>
-                        {violation.attachments.length > 0 && <div><div className="mb-2 text-sm font-medium text-slate-700">Вложения дефекта</div><div className="flex flex-wrap gap-2">{violation.attachments.map((file) => <button key={file.id} onClick={() => downloadFile(file)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">{file.original_filename}</button>)}</div></div>}
+                        {violation.attachments.length > 0 && <div><div className="mb-2 text-sm font-medium text-slate-700">Вложения дефекта</div><div className="flex flex-wrap gap-2">{violation.attachments.map((file) => <div key={file.id}>{renderFileActions(file)}</div>)}</div></div>}
                       </div>
                     ))}
                   </div>
@@ -932,7 +1004,63 @@ export default function EquipmentPassportWorkspace() {
           )}
         </section>
       </div>
+
+      {previewFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
+          <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <div className="text-base font-semibold text-slate-900">{previewFile.original_filename}</div>
+                <div className="mt-1 text-sm text-slate-500">
+                  {previewFile.mime_type || previewFile.file_type} • {formatBytes(previewFile.file_size)}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {previewUrl && (
+                  <button
+                    onClick={() => window.open(previewUrl, '_blank')}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    В новой вкладке
+                  </button>
+                )}
+                <button
+                  onClick={() => downloadFile(previewFile)}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Скачать
+                </button>
+                <button
+                  onClick={closeFilePreview}
+                  className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  Закрыть
+                </button>
+              </div>
+            </div>
+
+            <div className="min-h-[420px] flex-1 overflow-auto bg-slate-100 p-4">
+              {previewLoading ? (
+                <div className="flex h-[60vh] items-center justify-center text-sm text-slate-500">Открываем документ...</div>
+              ) : previewError ? (
+                <div className="mx-auto mt-10 max-w-xl rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+                  {previewError}
+                </div>
+              ) : previewUrl && previewMode === 'image' ? (
+                <div className="flex min-h-[60vh] items-center justify-center">
+                  <img src={previewUrl} alt={previewFile.original_filename} className="max-h-[76vh] max-w-full rounded-xl bg-white object-contain shadow" />
+                </div>
+              ) : previewUrl && (previewMode === 'pdf' || previewMode === 'text') ? (
+                <iframe src={previewUrl} title={previewFile.original_filename} className="h-[76vh] w-full rounded-xl border border-slate-200 bg-white" />
+              ) : (
+                <div className="flex h-[60vh] items-center justify-center text-sm text-slate-500">Нет данных для просмотра</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+
 
