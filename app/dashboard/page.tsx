@@ -4,16 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/authStore'
 import Layout from '@/components/Layout'
-import DashboardKPIs from '@/components/dashboard/DashboardKPIs'
-import HealthMap from '@/components/dashboard/HealthMap'
-import EventFeed from '@/components/dashboard/EventFeed'
-import DashboardCharts from '@/components/dashboard/DashboardCharts'
-import PTOCalendar from '@/components/dashboard/PTOCalendar'
-import DefectsKanban from '@/components/dashboard/DefectsKanban'
-import QuickActions from '@/components/dashboard/QuickActions'
-import AIPanel from '@/components/dashboard/AIPanel'
-import TopRiskEquipment from '@/components/dashboard/TopRiskEquipment'
-import SLAAlertsCard from '@/components/dashboard/SLAAlertsCard'
+import OperationsDashboard from '@/components/dashboard/OperationsDashboard'
 import { isManagerOnly } from '@/utils/roles'
 import { useAuthHydrated } from '@/store/useAuthHydrated'
 
@@ -53,7 +44,6 @@ export default function DashboardPage() {
     <Layout>
       <div className={`min-h-screen ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'}`}>
         <div className="p-6">
-          {/* Р—Р°РіРѕР»РѕРІРѕРє СЃ РїРµСЂРµРєР»СЋС‡Р°С‚РµР»РµРј С‚РµРјС‹ */}
           <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className={`text-3xl font-bold tracking-tight ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
@@ -85,46 +75,7 @@ export default function DashboardPage() {
             </button>
           </div>
 
-          {/* KPI Р±Р»РѕРєРё */}
-          <DashboardKPIs theme={theme} allowDetails={!isManager} />
-
-          {/* РћСЃРЅРѕРІРЅР°СЏ СЃРµС‚РєР° РІРёРґР¶РµС‚РѕРІ */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-            {/* Р›РµРІР°СЏ РєРѕР»РѕРЅРєР° */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* РљР°СЂС‚Р° СЂРёСЃРєРѕРІ РџРЎ */}
-              <HealthMap theme={theme} allowDetails={!isManager} />
-
-              {/* Р“СЂР°С„РёРєРё */}
-              <DashboardCharts theme={theme} />
-
-              {/* РљР°Р»РµРЅРґР°СЂСЊ РџРўРћ/Р§РўРћ */}
-              {!isManager && <PTOCalendar theme={theme} />}
-            </div>
-
-            {/* РџСЂР°РІР°СЏ РєРѕР»РѕРЅРєР° */}
-            <div className="space-y-6">
-              {/* Р‘С‹СЃС‚СЂС‹Рµ РґРµР№СЃС‚РІРёСЏ */}
-              {!isManager && <QuickActions theme={theme} />}
-
-              {/* Р›РµРЅС‚Р° СЃРѕР±С‹С‚РёР№ */}
-              <EventFeed theme={theme} />
-
-              {/* SLA-уведомления */}
-              <SLAAlertsCard theme={theme} />
-
-              {/* Топ рискованных ПС */}
-              <TopRiskEquipment theme={theme} />
-
-              {/* AI-РїР°РЅРµР»СЊ */}
-              <AIPanel theme={theme} />
-            </div>
-          </div>
-
-          {/* РџР°РЅРµР»СЊ Р·Р°РґР°С‡/РґРµС„РµРєС‚РѕРІ (Kanban) */}
-          <div className="mt-6">
-            {!isManager && <DefectsKanban theme={theme} />}
-          </div>
+          <OperationsDashboard theme={theme} isManager={isManager} />
         </div>
       </div>
     </Layout>
