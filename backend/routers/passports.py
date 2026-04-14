@@ -560,8 +560,13 @@ async def _get_equipment_or_404(db: AsyncSession, equipment_id: int) -> Equipmen
 
 
 async def _get_or_create_passport(db: AsyncSession, equipment: Equipment, user_id: Optional[int] = None) -> EquipmentPassport:
-    if equipment.passport:
-        return equipment.passport
+    passport_result = await db.execute(
+        select(EquipmentPassport).where(EquipmentPassport.equipment_id == equipment.id)
+    )
+    passport = passport_result.scalar_one_or_none()
+    if passport:
+        return passport
+
     profile = _default_profile_data(equipment)
     passport = EquipmentPassport(
         equipment_id=equipment.id,
@@ -572,8 +577,41 @@ async def _get_or_create_passport(db: AsyncSession, equipment: Equipment, user_i
     )
     db.add(passport)
     await db.flush()
-    equipment.passport = passport
     return passport
+
+
+async def _load_passport_related(
+    db: AsyncSession,
+    passport_id: int,
+) -> tuple[List[EquipmentPassportDocument], List[EquipmentPassportVersion], List[EquipmentPassportEvent]]:
+    documents_result = await db.execute(
+        select(EquipmentPassportDocument)
+        .options(selectinload(EquipmentPassportDocument.file))
+        .where(EquipmentPassportDocument.passport_id == passport_id)
+    )
+    versions_result = await db.execute(
+        select(EquipmentPassportVersion).where(EquipmentPassportVersion.passport_id == passport_id)
+    )
+    events_result = await db.execute(
+        select(EquipmentPassportEvent).where(EquipmentPassportEvent.passport_id == passport_id)
+    )
+
+    documents = sorted(
+        documents_result.scalars().all(),
+        key=lambda item: item.created_at or datetime.min,
+        reverse=True,
+    )
+    versions = sorted(
+        versions_result.scalars().all(),
+        key=lambda item: item.version_number,
+        reverse=True,
+    )
+    events = sorted(
+        events_result.scalars().all(),
+        key=lambda item: item.event_date or datetime.min,
+        reverse=True,
+    )
+    return documents, versions, events
 
 
 async def _collect_related_data(db: AsyncSession, equipment: Equipment) -> Dict[str, Any]:
@@ -769,7 +807,16 @@ def _build_timeline(documents: List[EquipmentPassportDocument], events: List[Equ
     return timeline[:25]
 
 
-async def _build_snapshot(equipment: Equipment, passport: EquipmentPassport, profile: Dict[str, Any], documents: List[EquipmentPassportDocument], events: List[EquipmentPassportEvent], related: Dict[str, Any], completeness_percent: float) -> Dict[str, Any]:
+async def _build_snapshot(
+    equipment: Equipment,
+    passport: EquipmentPassport,
+    profile: Dict[str, Any],
+    documents: List[EquipmentPassportDocument],
+    versions: List[EquipmentPassportVersion],
+    events: List[EquipmentPassportEvent],
+    related: Dict[str, Any],
+    completeness_percent: float,
+) -> Dict[str, Any]:
     return {
         "captured_at": datetime.utcnow().isoformat(),
         "equipment": _equipment_payload(equipment),
@@ -781,16 +828,14 @@ async def _build_snapshot(equipment: Equipment, passport: EquipmentPassport, pro
         },
         "documents": [_document_payload(item) for item in documents],
         "events": [_event_payload(item) for item in events],
-        "dashboard": _build_dashboard(equipment, profile, documents, passport.versions or [], related),
+        "dashboard": _build_dashboard(equipment, profile, documents, versions, related),
     }
 
 
 async def _build_passport_response(db: AsyncSession, equipment: Equipment) -> Dict[str, Any]:
     passport = await _get_or_create_passport(db, equipment)
     profile = _normalize_profile_data(equipment, passport.draft_data or {})
-    documents = sorted(passport.documents or [], key=lambda item: item.created_at or datetime.min, reverse=True)
-    versions = sorted(passport.versions or [], key=lambda item: item.version_number, reverse=True)
-    events = sorted(passport.events or [], key=lambda item: item.event_date or datetime.min, reverse=True)
+    documents, versions, events = await _load_passport_related(db, passport.id)
     completeness_percent = _calculate_completeness(profile, len(documents), len(versions))
     passport.draft_data = profile
     passport.completeness_percent = completeness_percent
@@ -1019,7 +1064,8 @@ async def _save_passport_profile(
     passport.passport_status = _normalize_passport_status(request_body.passport_status, "draft")
     passport.updated_by = current_user.id
     passport.updated_at = datetime.utcnow()
-    passport.completeness_percent = _calculate_completeness(normalized, len(passport.documents or []), len(passport.versions or []))
+    documents, versions, _ = await _load_passport_related(db, passport.id)
+    passport.completeness_percent = _calculate_completeness(normalized, len(documents), len(versions))
 
     db.add(_activity(current_user.id, "update", f"Обновлен профиль паспорта оборудования #{equipment.id}", passport.id))
     await log_audit_event(
@@ -1077,15 +1123,13 @@ async def publish_equipment_passport(
     equipment = await _get_equipment_or_404(db, equipment_id)
     passport = await _get_or_create_passport(db, equipment, current_user.id)
 
-    documents = sorted(passport.documents or [], key=lambda item: item.created_at or datetime.min, reverse=True)
-    versions = sorted(passport.versions or [], key=lambda item: item.version_number, reverse=True)
-    events = sorted(passport.events or [], key=lambda item: item.event_date or datetime.min, reverse=True)
+    documents, versions, events = await _load_passport_related(db, passport.id)
     profile = _normalize_profile_data(equipment, passport.draft_data or {})
     completeness_percent = _calculate_completeness(profile, len(documents), len(versions))
     related = await _collect_related_data(db, equipment)
 
     next_version_number = (versions[0].version_number + 1) if versions else 1
-    snapshot = await _build_snapshot(equipment, passport, profile, documents, events, related, completeness_percent)
+    snapshot = await _build_snapshot(equipment, passport, profile, documents, versions, events, related, completeness_percent)
 
     version = EquipmentPassportVersion(
         passport_id=passport.id,
@@ -1164,7 +1208,8 @@ async def create_passport_document(
     await db.flush()
 
     profile = _normalize_profile_data(equipment, passport.draft_data or {})
-    passport.completeness_percent = _calculate_completeness(profile, len(passport.documents or []) + 1, len(passport.versions or []))
+    documents, versions, _ = await _load_passport_related(db, passport.id)
+    passport.completeness_percent = _calculate_completeness(profile, len(documents), len(versions))
     passport.updated_by = current_user.id
     passport.updated_at = datetime.utcnow()
 
@@ -1202,6 +1247,7 @@ async def update_passport_document(
     document = result.scalar_one_or_none()
     if not document or not document.passport:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Документ паспорта не найден")
+    equipment_id = document.passport.equipment_id
 
     before = _document_payload(document)
     data = request_body.dict(exclude_unset=True)
@@ -1226,7 +1272,7 @@ async def update_passport_document(
     )
 
     await db.commit()
-    refreshed_equipment = await _get_equipment_or_404(db, document.passport.equipment_id)
+    refreshed_equipment = await _get_equipment_or_404(db, equipment_id)
     return await _build_passport_response(db, refreshed_equipment)
 
 
@@ -1324,6 +1370,7 @@ async def update_passport_event(
     event = result.scalar_one_or_none()
     if not event or not event.passport:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Событие паспорта не найдено")
+    equipment_id = event.equipment_id
 
     before = _event_payload(event)
     data = request_body.dict(exclude_unset=True)
@@ -1347,7 +1394,7 @@ async def update_passport_event(
     )
 
     await db.commit()
-    refreshed_equipment = await _get_equipment_or_404(db, event.equipment_id)
+    refreshed_equipment = await _get_equipment_or_404(db, equipment_id)
     return await _build_passport_response(db, refreshed_equipment)
 
 
