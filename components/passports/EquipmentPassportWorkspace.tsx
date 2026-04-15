@@ -480,6 +480,23 @@ export default function EquipmentPassportWorkspace() {
     violet: 'bg-violet-50 border-violet-200 text-violet-800',
   }
 
+  const draftCompletionBySection = useMemo(() => {
+    return fieldSections.map((section) => {
+      const filled = section.fields.reduce((acc, field) => {
+        const value = draftData?.[field.section]?.[field.key]
+        if (field.type === 'checkbox') return acc + (Boolean(value) ? 1 : 0)
+        return acc + (String(value ?? '').trim() ? 1 : 0)
+      }, 0)
+      return {
+        section: section.section,
+        title: section.title,
+        filled,
+        total: section.fields.length,
+        percent: Math.round((filled / Math.max(section.fields.length, 1)) * 100),
+      }
+    })
+  }, [draftData])
+
   if (!isAuthenticated) {
     return null
   }
@@ -618,10 +635,45 @@ export default function EquipmentPassportWorkspace() {
                 <div className="p-6">
                   {activeTab === 'draft' && (
                     <div className="space-y-8">
-                      {fieldSections.map((section) => (
-                        <div key={section.section} className="space-y-4">
+                      <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 via-indigo-50 to-white p-4 md:p-5">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                           <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Удобное заполнение</p>
+                            <h3 className="text-lg font-bold text-slate-900">Навигация по разделам паспорта</h3>
+                          </div>
+                          <div className="text-sm text-slate-600">
+                            Заполнено: <span className="font-semibold text-slate-900">{passport.completeness_percent}%</span>
+                          </div>
+                        </div>
+                        <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-blue-100">
+                          <div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${passport.completeness_percent}%` }} />
+                        </div>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {draftCompletionBySection.map((section) => (
+                            <button
+                              key={section.section}
+                              onClick={() => {
+                                const element = document.getElementById(`passport-section-${section.section}`)
+                                element?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                              }}
+                              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-blue-300 hover:text-blue-700"
+                            >
+                              <span>{section.title}</span>
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                                {section.filled}/{section.total}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {fieldSections.map((section) => (
+                        <div key={section.section} id={`passport-section-${section.section}`} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 md:p-5 space-y-4">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                             <h3 className="text-lg font-semibold text-slate-900">{section.title}</h3>
+                            <span className="inline-flex w-fit items-center rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 border border-slate-200">
+                              {draftCompletionBySection.find((item) => item.section === section.section)?.percent ?? 0}% заполнено
+                            </span>
                           </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {section.fields.map((field) => {
@@ -629,21 +681,21 @@ export default function EquipmentPassportWorkspace() {
                               if (field.type === 'textarea') {
                                 return (
                                   <label key={`${field.section}.${field.key}`} className="md:col-span-2 block">
-                                    <span className="block text-sm font-medium text-slate-700 mb-1">{field.label}</span>
+                                    <span className="block text-sm font-semibold text-slate-700 mb-1.5">{field.label}</span>
                                     <textarea
                                       value={value || ''}
                                       disabled={!canEdit}
                                       onChange={(e) => updateField(field.section, field.key, e.target.value)}
                                       rows={3}
                                       placeholder={field.placeholder}
-                                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100"
+                                      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/70 disabled:bg-slate-100"
                                     />
                                   </label>
                                 )
                               }
                               if (field.type === 'checkbox') {
                                 return (
-                                  <label key={`${field.section}.${field.key}`} className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2 bg-slate-50">
+                                  <label key={`${field.section}.${field.key}`} className="flex items-center gap-3 rounded-xl border border-slate-200 px-3.5 py-2.5 bg-white shadow-sm">
                                     <input
                                       type="checkbox"
                                       checked={Boolean(value)}
@@ -657,14 +709,14 @@ export default function EquipmentPassportWorkspace() {
                               }
                               return (
                                 <label key={`${field.section}.${field.key}`} className="block">
-                                  <span className="block text-sm font-medium text-slate-700 mb-1">{field.label}</span>
+                                  <span className="block text-sm font-semibold text-slate-700 mb-1.5">{field.label}</span>
                                   <input
                                     type={field.type || 'text'}
                                     value={value || ''}
                                     disabled={!canEdit}
                                     onChange={(e) => updateField(field.section, field.key, e.target.value)}
                                     placeholder={field.placeholder}
-                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100"
+                                    className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/70 disabled:bg-slate-100"
                                   />
                                 </label>
                               )

@@ -20,13 +20,15 @@ logger = logging.getLogger(__name__)
 
 # Р СџР С•Р Т‘Р Т‘Р ВµРЎР‚Р В¶Р С”Р В° Р В·Р В°Р С—РЎС“РЎРѓР С”Р В° Р С”Р В°Р С” РЎРѓР С”РЎР‚Р С‘Р С—РЎвЂљР В° Р С‘ Р С”Р В°Р С” Р СР С•Р Т‘РЎС“Р В»РЎРЏ
 try:
-    from backend.models import Equipment, EquipmentHistory, UserActivity, User, UserRole, File, Violation
+    from backend.models import Equipment, EquipmentHistory, EquipmentPassport, UserActivity, User, UserRole, File, Violation
     from backend.database import get_db
     from backend.auth import get_current_user, require_permission
+    from backend.passport_sync import merge_equipment_into_passport_draft
 except ImportError:
-    from ..models import Equipment, EquipmentHistory, UserActivity, User, UserRole, File, Violation
+    from ..models import Equipment, EquipmentHistory, EquipmentPassport, UserActivity, User, UserRole, File, Violation
     from ..database import get_db
     from ..auth import get_current_user, require_permission
+    from ..passport_sync import merge_equipment_into_passport_draft
 
 router = APIRouter(prefix="/api/equipment", tags=["equipment"])
 
@@ -1093,6 +1095,15 @@ async def create_equipment(
         logger.debug("Flushing to database")
         await db.flush()
         logger.info(f"Equipment created with ID: {new_equipment.id}")
+
+        passport_result = await db.execute(
+            select(EquipmentPassport).where(EquipmentPassport.equipment_id == new_equipment.id)
+        )
+        passport = passport_result.scalar_one_or_none()
+        if passport:
+            passport.draft_data = merge_equipment_into_passport_draft(new_equipment, passport.draft_data)
+            passport.updated_at = datetime.utcnow()
+            passport.updated_by = current_user.id
         
         # Р вЂєР С•Р С–Р С‘РЎР‚Р С•Р Р†Р В°Р Р…Р С‘Р Вµ
         logger.debug("Creating activity log")
@@ -1151,6 +1162,15 @@ async def update_equipment(
                 )
                 db.add(history)
                 setattr(equipment, field, new_value)
+
+    passport_result = await db.execute(
+        select(EquipmentPassport).where(EquipmentPassport.equipment_id == equipment.id)
+    )
+    passport = passport_result.scalar_one_or_none()
+    if passport:
+        passport.draft_data = merge_equipment_into_passport_draft(equipment, passport.draft_data)
+        passport.updated_at = datetime.utcnow()
+        passport.updated_by = current_user.id
     
     # Р вЂєР С•Р С–Р С‘РЎР‚Р С•Р Р†Р В°Р Р…Р С‘Р Вµ
     activity = UserActivity(
@@ -1886,6 +1906,5 @@ async def get_equipment_violations(
             "workshop": equipment.workshop
         }
     }
-
 
 
