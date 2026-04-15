@@ -199,6 +199,19 @@ def _apply_custom_migrations(sync_conn):
             alter_statements.append(
                 "ALTER TABLE files ADD COLUMN description TEXT"
             )
+        if "storage_backend" not in file_columns:
+            alter_statements.append(
+                "ALTER TABLE files ADD COLUMN storage_backend VARCHAR(32) DEFAULT 'filesystem'"
+            )
+        binary_type = "BYTEA" if sync_conn.dialect.name == "postgresql" else "BLOB"
+        if "data" not in file_columns:
+            alter_statements.append(
+                f"ALTER TABLE files ADD COLUMN data {binary_type}"
+            )
+        if "thumbnail_data" not in file_columns:
+            alter_statements.append(
+                f"ALTER TABLE files ADD COLUMN thumbnail_data {binary_type}"
+            )
 
     if "users" in table_names:
         user_columns = {col["name"] for col in inspector.get_columns("users")}

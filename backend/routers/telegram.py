@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import os
 import secrets
+import io
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-import aiofiles
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, Response, UploadFile, status
 from PIL import Image
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -178,6 +178,17 @@ async def _create_thumbnail(file_path: str, output_path: str, size: tuple[int, i
         return True
     except Exception:
         return False
+
+
+def _create_thumbnail_bytes(content: bytes, size: tuple[int, int] = (200, 200)) -> Optional[bytes]:
+    try:
+        img = Image.open(io.BytesIO(content))
+        img.thumbnail(size, Image.Resampling.LANCZOS)
+        output = io.BytesIO()
+        img.convert("RGB").save(output, "JPEG", quality=85)
+        return output.getvalue()
+    except Exception:
+        return None
 
 
 def _equipment_label(equipment: Equipment) -> str:
@@ -514,20 +525,13 @@ async def upload_file_from_telegram(
     safe_original_name = os.path.basename(file.filename or "telegram_file")
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
     filename = f"tg_{timestamp}_{safe_original_name}"
-    file_path = os.path.join(UPLOAD_DIR, filename)
-
-    async with aiofiles.open(file_path, "wb") as output_file:
-        content = await file.read()
-        await output_file.write(content)
-
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="File is empty")
     file_size = len(content)
-    thumbnail_path = None
-    if file_type == "photo":
-        original_stem = os.path.splitext(safe_original_name)[0] or "image"
-        thumbnail_filename = f"thumb_tg_{timestamp}_{original_stem}.jpg"
-        thumbnail_full_path = os.path.join(THUMBNAIL_DIR, thumbnail_filename)
-        if await _create_thumbnail(file_path, thumbnail_full_path):
-            thumbnail_path = thumbnail_full_path
+    thumbnail_data = _create_thumbnail_bytes(content) if file_type == "photo" else None
+    file_path = f"db://files/{filename}"
+    thumbnail_path = f"db://files/{filename}/thumbnail" if thumbnail_data else None
 
     trace_id = getattr(request.state, "trace_id", None)
 
@@ -540,6 +544,9 @@ async def upload_file_from_telegram(
         file_size=file_size,
         file_path=file_path,
         thumbnail_path=thumbnail_path,
+        storage_backend="database",
+        data=content,
+        thumbnail_data=thumbnail_data,
         equipment_id=equipment_id,
         uploaded_by=None,
     )
