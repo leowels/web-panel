@@ -73,8 +73,49 @@ load_env_file_if_exists() {
     fi
 
     value="$(strip_wrapping_quotes "$value")"
-    eval "export $key=\$value"
+    export "$key=$value"
   done < "$env_file"
+}
+
+wait_for_postgres_if_configured() {
+  if [ -n "${DATABASE_URL:-}" ]; then
+    case "$DATABASE_URL" in
+      postgresql://*|postgresql+asyncpg://*)
+        log "DATABASE_URL is set; skipping POSTGRESQL_HOST preflight"
+        return
+        ;;
+      *)
+        return
+        ;;
+    esac
+  fi
+
+  if [ -z "${POSTGRESQL_HOST:-}" ]; then
+    return
+  fi
+
+  db_port="${POSTGRESQL_PORT:-5432}"
+  db_wait_attempts="${DB_WAIT_ATTEMPTS:-60}"
+
+  log "Checking PostgreSQL TCP connection at ${POSTGRESQL_HOST}:${db_port}..."
+  i=1
+  while [ "$i" -le "$db_wait_attempts" ]; do
+    if "$PYTHON_CMD" -c "import os, socket; s=socket.socket(); s.settimeout(3); s.connect((os.environ['POSTGRESQL_HOST'], int(os.environ.get('POSTGRESQL_PORT', '5432')))); s.close()" >/dev/null 2>&1; then
+      log "PostgreSQL TCP connection is available"
+      return
+    fi
+
+    if [ $((i % 10)) -eq 0 ]; then
+      log "Waiting for PostgreSQL... attempt $i/$db_wait_attempts"
+    fi
+
+    sleep 2
+    i=$((i + 1))
+  done
+
+  log "ERROR: PostgreSQL is not reachable at ${POSTGRESQL_HOST}:${db_port}"
+  log "ERROR: Check Timeweb private network, DB host/port, firewall, and POSTGRESQL_SSL value"
+  exit 1
 }
 
 log "Starting InspectorHub container..."
@@ -102,6 +143,8 @@ export PYTHONPATH="/home/appuser/.local/lib/python3.11/site-packages:${PYTHONPAT
 
 log "Python: $PYTHON_CMD"
 "$PYTHON_CMD" --version || true
+
+wait_for_postgres_if_configured
 
 log "Starting backend on port $BACKEND_PORT..."
 cd /app/backend

@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import inspect, text
+from sqlalchemy.engine import make_url
 import logging
 import os
 
@@ -97,6 +98,26 @@ if DATABASE_URL.startswith("postgresql+asyncpg://") or DATABASE_URL.startswith("
 engine = create_async_engine(DATABASE_URL, **engine_kwargs)
 async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
+
+def _log_database_target():
+    logger = logging.getLogger(__name__)
+    try:
+        url = make_url(DATABASE_URL)
+    except Exception:
+        logger.info("Database URL is configured")
+        return
+
+    if url.drivername.startswith("postgresql"):
+        logger.info(
+            "Database target: postgresql host=%s port=%s database=%s ssl=%s",
+            url.host,
+            url.port or 5432,
+            url.database,
+            os.getenv("POSTGRESQL_SSL", "true").lower(),
+        )
+    elif url.drivername.startswith("sqlite"):
+        logger.warning("Database target: sqlite database=%s", url.database)
+
 async def get_db():
     async with async_session() as session:
         try:
@@ -107,6 +128,7 @@ async def get_db():
 async def init_db():
     """Инициализация базы данных"""
     try:
+        _log_database_target()
         async with engine.begin() as conn:
             # Создаем все таблицы (только если их нет)
             # SQLAlchemy автоматически проверяет существование таблиц
