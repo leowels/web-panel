@@ -32,7 +32,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt ./
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN python -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 # ============================================
 # Stage 3: Runtime Image
@@ -46,7 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=backend-builder /root/.local /home/appuser/.local
+COPY --from=backend-builder /opt/venv /opt/venv
 COPY backend/ ./backend/
 COPY ENV_DOCKER.txt /app/backend/ENV_BACKEND.txt
 COPY ENV_FRONTEND.txt /app/ENV_FRONTEND.txt
@@ -64,7 +67,8 @@ ENV PYTHONUNBUFFERED=1
 ENV NODE_ENV=production
 ENV BACKEND_URL=http://127.0.0.1:8000
 ENV NEXT_PUBLIC_API_URL=
-ENV PATH=/home/appuser/.local/bin:$PATH
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH=/opt/venv/bin:/home/appuser/.local/bin:$PATH
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 

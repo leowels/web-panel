@@ -139,7 +139,9 @@ fi
 
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-${PORT:-3000}}"
-export PYTHONPATH="/home/appuser/.local/lib/python3.11/site-packages:${PYTHONPATH:-}"
+export VIRTUAL_ENV="${VIRTUAL_ENV:-/opt/venv}"
+export PATH="${VIRTUAL_ENV}/bin:/home/appuser/.local/bin:${PATH}"
+export PYTHONPATH="${VIRTUAL_ENV}/lib/python3.11/site-packages:/home/appuser/.local/lib/python3.11/site-packages:${PYTHONPATH:-}"
 
 log "Python: $PYTHON_CMD"
 "$PYTHON_CMD" --version || true
