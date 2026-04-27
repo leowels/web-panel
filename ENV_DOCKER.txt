@@ -24,6 +24,7 @@ POSTGRESQL_SSL=false
 # Р СџР С•РЎР‚РЎвЂљРЎвЂ№
 BACKEND_PORT=8000
 FRONTEND_PORT=3000
+PORT=3000
 
 # Р С›Р С”РЎР‚РЎС“Р В¶Р ВµР Р…Р С‘Р Вµ
 ENVIRONMENT=production

@@ -68,9 +68,9 @@ ENV PATH=/home/appuser/.local/bin:$PATH
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
-EXPOSE 3000 8000
+EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=5 \
+    CMD curl -f http://localhost:${FRONTEND_PORT:-${PORT:-3000}}/api/health || exit 1
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

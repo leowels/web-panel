@@ -110,8 +110,9 @@ export PORT="$BACKEND_PORT"
 BACKEND_PID=$!
 
 backend_ready=0
+backend_wait_attempts="${BACKEND_WAIT_ATTEMPTS:-90}"
 i=1
-while [ "$i" -le 60 ]; do
+while [ "$i" -le "$backend_wait_attempts" ]; do
   sleep 2
   if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
     log "ERROR: backend process exited"
@@ -120,6 +121,9 @@ while [ "$i" -le 60 ]; do
   if curl -fsS "http://localhost:${BACKEND_PORT}/api/health" >/dev/null 2>&1; then
     backend_ready=1
     break
+  fi
+  if [ $((i % 10)) -eq 0 ]; then
+    log "Waiting for backend health check... attempt $i/$backend_wait_attempts"
   fi
   i=$((i + 1))
 done
