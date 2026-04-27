@@ -4,7 +4,7 @@ from sqlalchemy import select, and_, or_, func, desc, asc, nullslast, case
 from sqlalchemy.orm import selectinload
 from collections import defaultdict
 from typing import Any, List, Optional, Union, Dict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from pydantic import BaseModel, ValidationError
 import logging
 import csv
@@ -35,6 +35,74 @@ EXPORT_STATUS_LABELS = {
     "active": "Активно",
     "inactive": "Неактивно",
     "archived": "Архив",
+}
+
+IMPORT_STATUS_LABELS = {
+    "активно": "active",
+    "активный": "active",
+    "active": "active",
+    "неактивно": "inactive",
+    "неактивный": "inactive",
+    "inactive": "inactive",
+    "архив": "archived",
+    "архивный": "archived",
+    "archived": "archived",
+}
+
+EQUIPMENT_IMPORT_HEADER_ALIASES = {
+    "id": "id",
+    "тип оборудования": "equipment_type",
+    "equipment_type": "equipment_type",
+    "тип пс": "equipment_type",
+    "паспорт": "passport_number",
+    "номер паспорта": "passport_number",
+    "passport_number": "passport_number",
+    "регистрационный no": "registration_number",
+    "регистрационный номер": "registration_number",
+    "регистрационный": "registration_number",
+    "registration_number": "registration_number",
+    "заводской no": "factory_number",
+    "заводской номер": "factory_number",
+    "factory_number": "factory_number",
+    "инвентарный no": "inventory_number",
+    "инвентарный номер": "inventory_number",
+    "inventory_number": "inventory_number",
+    "цех": "workshop",
+    "workshop": "workshop",
+    "позиция": "position",
+    "position": "position",
+    "статус": "status",
+    "status": "status",
+    "грузоподъемность т": "load_capacity",
+    "грузоподъемность": "load_capacity",
+    "load_capacity": "load_capacity",
+    "производитель": "manufacturer",
+    "завод изготовитель": "manufacturer",
+    "manufacturer": "manufacturer",
+    "место установки": "installation_location",
+    "installation_location": "installation_location",
+    "дата ввода": "installation_date",
+    "дата ввода в эксплуатацию": "installation_date",
+    "installation_date": "installation_date",
+    "дата пто": "pto_date",
+    "pto_date": "pto_date",
+    "дата что": "cto_date",
+    "cto_date": "cto_date",
+    "регистрация в ростехнадзоре": "rostekhnadzor_registered",
+    "registered_in_rostekhnadzor": "rostekhnadzor_registered",
+    "rostekhnadzor_registered": "rostekhnadzor_registered",
+    "дата экспертизы": "expertise_date",
+    "expertise_date": "expertise_date",
+    "разрешено до": "operation_permit_until",
+    "operation_permit_until": "operation_permit_until",
+    "запрет эксплуатации": "operation_banned",
+    "operation_banned": "operation_banned",
+    "ban_on_operation": "operation_banned",
+    "реквизиты положительной эпб": "epb_positive_details",
+    "epb_positive_details": "epb_positive_details",
+    "нарушений в работе": "_ignore",
+    "нарушений всего": "_ignore",
+    "обновлено": "_ignore",
 }
 
 
@@ -514,10 +582,32 @@ async def _bulk_create_equipment_items(
     )
 
 
-def _normalize_csv_date(value: Optional[str]) -> Optional[str]:
+def _normalize_import_header(value: Any) -> str:
+    normalized = str(value or "").strip().lower().replace("\ufeff", "")
+    normalized = normalized.replace("№", "no").replace("#", "no")
+    normalized = re.sub(r"[,.;:()]+", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def _canonicalize_equipment_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = {}
+    for raw_key, value in row.items():
+        key = EQUIPMENT_IMPORT_HEADER_ALIASES.get(_normalize_import_header(raw_key))
+        if not key or key == "_ignore":
+            continue
+        normalized[key] = value
+    return normalized
+
+
+def _normalize_csv_date(value: Any) -> Optional[str]:
     if not value:
         return None
-    value = value.strip()
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%dT00:00:00")
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time()).strftime("%Y-%m-%dT00:00:00")
+    value = str(value).strip()
     if not value:
         return None
     # Р СџР С•Р Т‘Р Т‘Р ВµРЎР‚Р В¶Р С‘Р Р†Р В°Р ВµР С РЎвЂћР С•РЎР‚Р СР В°РЎвЂљРЎвЂ№ YYYY-MM-DD Р С‘ DD.MM.YYYY
@@ -530,10 +620,12 @@ def _normalize_csv_date(value: Optional[str]) -> Optional[str]:
     return value
 
 
-def _normalize_float(value: Optional[str]) -> Optional[float]:
+def _normalize_float(value: Any) -> Optional[float]:
     if not value:
         return None
-    value = value.strip().replace(",", ".")
+    if isinstance(value, (int, float)):
+        return float(value)
+    value = str(value).strip().replace(",", ".")
     if not value:
         return None
     try:
@@ -542,9 +634,11 @@ def _normalize_float(value: Optional[str]) -> Optional[float]:
         return None
 
 
-def _normalize_bool(value: Optional[str]) -> Optional[bool]:
+def _normalize_bool(value: Any) -> Optional[bool]:
     if value is None:
         return None
+    if isinstance(value, bool):
+        return value
     normalized = str(value).strip().lower()
     if not normalized:
         return None
@@ -553,6 +647,13 @@ def _normalize_bool(value: Optional[str]) -> Optional[bool]:
     if normalized in {"0", "false", "no", "нет", "n"}:
         return False
     return None
+
+
+def _normalize_status(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return "active"
+    return IMPORT_STATUS_LABELS.get(normalized, normalized)
 
 
 def _ocr_image_to_text(image_path: str) -> str:
@@ -1186,87 +1287,68 @@ async def bulk_create_equipment(
     )
 
 
-def _parse_equipment_csv_text(decoded: str) -> (List[EquipmentBulkItem], List[dict]):
-    """
-    Р С›Р В±РЎвЂ°Р С‘Р в„– CSV-Р С—Р В°РЎР‚РЎРѓР ВµРЎР‚ Р Т‘Р В»РЎРЏ Р СР В°РЎРѓРЎРѓР С•Р Р†Р С•Р С–Р С• Р С‘Р СР С—Р С•РЎР‚РЎвЂљР В° Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ.
-    Р ВРЎРѓР С—Р С•Р В»РЎРЉР В·РЎС“Р ВµРЎвЂљРЎРѓРЎРЏ Р С”Р В°Р С” Р Т‘Р В»РЎРЏ Р В·Р В°Р С–РЎР‚РЎС“Р В·Р С”Р С‘ РЎвЂћР В°Р в„–Р В»Р С•Р Р†, РЎвЂљР В°Р С” Р С‘ Р Т‘Р В»РЎРЏ OCR-Р С‘Р СР С—Р С•РЎР‚РЎвЂљР В°.
-    """
-    # Р С›Р С—РЎР‚Р ВµР Т‘Р ВµР В»РЎРЏР ВµР С РЎР‚Р В°Р В·Р Т‘Р ВµР В»Р С‘РЎвЂљР ВµР В»РЎРЉ (Р С—Р С•Р Т‘Р Т‘Р ВµРЎР‚Р В¶Р С”Р В° Р С”Р В°Р С” Р В·Р В°Р С—РЎРЏРЎвЂљР С•Р в„–, РЎвЂљР В°Р С” Р С‘ РЎвЂљР С•РЎвЂЎР С”Р С‘ РЎРѓ Р В·Р В°Р С—РЎРЏРЎвЂљР С•Р в„–)
-    first_line = decoded.splitlines()[0] if decoded.splitlines() else ""
-    delimiter = ";" if first_line.count(";") > first_line.count(",") else ","
-    reader = csv.DictReader(io.StringIO(decoded), delimiter=delimiter)
-    if not reader.fieldnames:
-        raise HTTPException(status_code=400, detail="CSV file is missing headers")
+def _clean_import_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    value = str(value).strip()
+    return value or None
+
+
+def _parse_equipment_rows(
+    headers: List[Any],
+    rows: List[List[Any]],
+    start_row: int = 2,
+) -> (List[EquipmentBulkItem], List[dict]):
+    canonical_headers = [
+        EQUIPMENT_IMPORT_HEADER_ALIASES.get(_normalize_import_header(header))
+        for header in headers
+    ]
+    known_headers = {header for header in canonical_headers if header and header != "_ignore"}
+    required_fields = {"equipment_type", "passport_number"}
+
+    if not required_fields.issubset(known_headers):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Файл должен содержать колонки экспорта: "
+                "'Тип оборудования' и 'Паспорт' "
+                "или технические колонки 'equipment_type' и 'passport_number'"
+            ),
+        )
 
     parsed_items: List[EquipmentBulkItem] = []
     parse_errors: List[dict] = []
-    required_fields = {"equipment_type", "passport_number"}
-    headers = {h.strip().lower() for h in reader.fieldnames if h}
-    if not required_fields.issubset(headers):
-        raise HTTPException(
-            status_code=400,
-            detail="CSV file must contain at least 'equipment_type' and 'passport_number' columns",
-        )
 
-    # Р РЋР С—Р С‘РЎРѓР С•Р С” Р С”Р В»РЎР‹РЎвЂЎР ВµР Р†РЎвЂ№РЎвЂ¦ РЎРѓР В»Р С•Р Р†, Р С”Р С•РЎвЂљР С•РЎР‚РЎвЂ№Р Вµ РЎС“Р С”Р В°Р В·РЎвЂ№Р Р†Р В°РЎР‹РЎвЂљ Р Р…Р В° РЎРѓРЎвЂљРЎР‚Р С•Р С”РЎС“ РЎРѓ Р С—Р С•Р Т‘РЎРѓР С”Р В°Р В·Р С”Р В°Р СР С‘
-    hint_keywords = [
-        "Р С•Р В±РЎРЏР В·Р В°РЎвЂљР ВµР В»РЎРЉР Р…Р С•",
-        "Р Р…Р ВµР С•Р В±РЎРЏР В·Р В°РЎвЂљР ВµР В»РЎРЉР Р…Р С•",
-        "Р Р…Р В°Р С—РЎР‚Р С‘Р СР ВµРЎР‚",
-        "РЎвЂљР С‘Р С— Р С—РЎРѓ",
-        "Р Р…Р С•Р СР ВµРЎР‚ Р С—Р В°РЎРѓР С—Р С•РЎР‚РЎвЂљР В°",
-        "Р С‘Р Р…Р Р†Р ВµР Р…РЎвЂљР В°РЎР‚Р Р…РЎвЂ№Р в„– Р Р…Р С•Р СР ВµРЎР‚",
-        "Р С—Р С•Р В·Р С‘РЎвЂ Р С‘РЎРЏ",
-        "РЎвЂ Р ВµРЎвЂ¦",
-        "Р С–РЎР‚РЎС“Р В·Р С•Р С—Р С•Р Т‘РЎР‰Р ВµР СР Р…Р С•РЎРѓРЎвЂљРЎРЉ",
-        "Р В·Р В°Р Р†Р С•Р Т‘",
-        "Р СР ВµРЎРѓРЎвЂљР С• РЎС“РЎРѓРЎвЂљР В°Р Р…Р С•Р Р†Р С”Р С‘",
-        "Р Т‘Р В°РЎвЂљР В° Р Р†Р Р†Р С•Р Т‘Р В°",
-        "Р Т‘Р В°РЎвЂљР В° Р С—РЎвЂљР С•",
-        "Р Т‘Р В°РЎвЂљР В° РЎвЂЎРЎвЂљР С•",
-        "РЎРѓРЎвЂљР В°РЎвЂљРЎС“РЎРѓ",
-    ]
+    for row_offset, values in enumerate(rows, start=start_row):
+        raw_row = {
+            headers[idx]: values[idx] if idx < len(values) else None
+            for idx in range(len(headers))
+        }
+        row = _canonicalize_equipment_row(raw_row)
 
-    for row_index, row in enumerate(reader, start=2):  # Р Р€РЎвЂЎР С‘РЎвЂљРЎвЂ№Р Р†Р В°Р ВµР С РЎРѓРЎвЂљРЎР‚Р С•Р С”РЎС“ Р В·Р В°Р С–Р С•Р В»Р С•Р Р†Р С”Р В°
-        if not row:
+        if not any(_clean_import_text(value) for value in row.values()):
             continue
-        # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С, Р ВµРЎРѓРЎвЂљРЎРЉ Р В»Р С‘ Р Т‘Р В°Р Р…Р Р…РЎвЂ№Р Вµ Р Р† РЎРѓРЎвЂљРЎР‚Р С•Р С”Р Вµ
-        if not any((value or "").strip() for value in row.values()):
-            continue
-
-        # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С, РЎРЏР Р†Р В»РЎРЏР ВµРЎвЂљРЎРѓРЎРЏ Р В»Р С‘ РЎРѓРЎвЂљРЎР‚Р С•Р С”Р В° Р С—Р С•Р Т‘РЎРѓР С”Р В°Р В·Р С”Р В°Р СР С‘ (РЎРѓР С•Р Т‘Р ВµРЎР‚Р В¶Р С‘РЎвЂљ Р С”Р В»РЎР‹РЎвЂЎР ВµР Р†РЎвЂ№Р Вµ РЎРѓР В»Р С•Р Р†Р В°)
-        row_text = " ".join((value or "").lower() for value in row.values())
-        if any(keyword in row_text for keyword in hint_keywords):
-            continue  # Р СџРЎР‚Р С•Р С—РЎС“РЎРѓР С”Р В°Р ВµР С РЎРѓРЎвЂљРЎР‚Р С•Р С”РЎС“ РЎРѓ Р С—Р С•Р Т‘РЎРѓР С”Р В°Р В·Р С”Р В°Р СР С‘
 
         normalized = {
-            "equipment_type": (row.get("equipment_type") or "").strip(),
-            "passport_number": (row.get("passport_number") or "").strip(),
-            "registration_number": (row.get("registration_number") or "").strip() or None,
-            "factory_number": (row.get("factory_number") or "").strip() or None,
-            "inventory_number": (row.get("inventory_number") or "").strip() or None,
-            "position": (row.get("position") or "").strip() or None,
-            "workshop": (row.get("workshop") or "").strip() or None,
+            "equipment_type": _clean_import_text(row.get("equipment_type")) or "",
+            "passport_number": _clean_import_text(row.get("passport_number")) or "",
+            "registration_number": _clean_import_text(row.get("registration_number")),
+            "factory_number": _clean_import_text(row.get("factory_number")),
+            "inventory_number": _clean_import_text(row.get("inventory_number")),
+            "position": _clean_import_text(row.get("position")),
+            "workshop": _clean_import_text(row.get("workshop")),
             "load_capacity": _normalize_float(row.get("load_capacity")),
-            "manufacturer": (row.get("manufacturer") or "").strip() or None,
-            "installation_location": (row.get("installation_location") or "").strip() or None,
+            "manufacturer": _clean_import_text(row.get("manufacturer")),
+            "installation_location": _clean_import_text(row.get("installation_location")),
             "installation_date": _normalize_csv_date(row.get("installation_date")),
             "pto_date": _normalize_csv_date(row.get("pto_date")),
             "cto_date": _normalize_csv_date(row.get("cto_date")),
             "expertise_date": _normalize_csv_date(row.get("expertise_date")),
             "operation_permit_until": _normalize_csv_date(row.get("operation_permit_until")),
-            "operation_banned": (
-                _normalize_bool(row.get("operation_banned"))
-                if row.get("operation_banned") is not None
-                else _normalize_bool(row.get("ban_on_operation"))
-            ),
-            "epb_positive_details": (row.get("epb_positive_details") or "").strip() or None,
-            "rostekhnadzor_registered": (
-                _normalize_bool(row.get("rostekhnadzor_registered"))
-                if row.get("rostekhnadzor_registered") is not None
-                else _normalize_bool(row.get("registered_in_rostekhnadzor"))
-            ),
-            "status": (row.get("status") or "active").strip() or "active",
+            "operation_banned": _normalize_bool(row.get("operation_banned")),
+            "epb_positive_details": _clean_import_text(row.get("epb_positive_details")),
+            "rostekhnadzor_registered": _normalize_bool(row.get("rostekhnadzor_registered")),
+            "status": _normalize_status(row.get("status")),
         }
 
         try:
@@ -1274,12 +1356,45 @@ def _parse_equipment_csv_text(decoded: str) -> (List[EquipmentBulkItem], List[di
         except ValidationError as exc:
             parse_errors.append(
                 {
-                    "row": row_index,
+                    "row": row_offset,
                     "detail": exc.errors(),
                 }
             )
 
     return parsed_items, parse_errors
+
+
+def _parse_equipment_csv_text(decoded: str) -> (List[EquipmentBulkItem], List[dict]):
+    first_line = decoded.splitlines()[0] if decoded.splitlines() else ""
+    delimiter = ";" if first_line.count(";") > first_line.count(",") else ","
+    reader = csv.reader(io.StringIO(decoded), delimiter=delimiter)
+    try:
+        headers = next(reader)
+    except StopIteration as exc:
+        raise HTTPException(status_code=400, detail="CSV file is missing headers") from exc
+
+    return _parse_equipment_rows(headers, list(reader), start_row=2)
+
+
+def _parse_equipment_xlsx_bytes(raw_content: bytes) -> (List[EquipmentBulkItem], List[dict]):
+    try:
+        from openpyxl import load_workbook
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Для XLSX-импорта требуется пакет openpyxl",
+        ) from exc
+
+    workbook = load_workbook(io.BytesIO(raw_content), read_only=True, data_only=True)
+    sheet = workbook.active
+    rows_iter = sheet.iter_rows(values_only=True)
+    try:
+        headers = list(next(rows_iter))
+    except StopIteration as exc:
+        raise HTTPException(status_code=400, detail="XLSX file is missing headers") from exc
+
+    rows = [list(row) for row in rows_iter]
+    return _parse_equipment_rows(headers, rows, start_row=2)
 
 
 @router.post("/bulk/upload", response_model=EquipmentBulkResponse)
@@ -1289,26 +1404,29 @@ async def bulk_upload_equipment(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Р СљР В°РЎРѓРЎРѓР С•Р Р†Р С•Р Вµ Р Т‘Р С•Р В±Р В°Р Р†Р В»Р ВµР Р…Р С‘Р Вµ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ РЎвЂЎР ВµРЎР‚Р ВµР В· CSV"""
+    """Массовый импорт оборудования из CSV/XLSX в формате экспорта."""
     await require_permission(current_user, "equipment:create", db)
 
     filename = file.filename or ""
-    if not filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Please upload a CSV file")
+    lower_filename = filename.lower()
+    if not lower_filename.endswith((".csv", ".xlsx")):
+        raise HTTPException(status_code=400, detail="Загрузите CSV или XLSX файл")
 
     raw_content = await file.read()
     if not raw_content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
-    try:
-        decoded = raw_content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        decoded = raw_content.decode("utf-8")
-
-    parsed_items, parse_errors = _parse_equipment_csv_text(decoded)
+    if lower_filename.endswith(".xlsx"):
+        parsed_items, parse_errors = _parse_equipment_xlsx_bytes(raw_content)
+    else:
+        try:
+            decoded = raw_content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            decoded = raw_content.decode("utf-8")
+        parsed_items, parse_errors = _parse_equipment_csv_text(decoded)
 
     if not parsed_items:
-        raise HTTPException(status_code=400, detail="CSV file does not contain valid rows")
+        raise HTTPException(status_code=400, detail="Файл не содержит корректных строк оборудования")
 
     response = await _bulk_create_equipment_items(
         items=parsed_items,

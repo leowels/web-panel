@@ -13,6 +13,10 @@ export default function SystemSettings() {
   const [loading, setLoading] = useState(false)
   const [savingKey, setSavingKey] = useState<string | null>(null)
   const [testingAI, setTestingAI] = useState(false)
+  const [exportingBackup, setExportingBackup] = useState(false)
+  const [importingBackup, setImportingBackup] = useState(false)
+  const [backupFile, setBackupFile] = useState<File | null>(null)
+  const [backupConfirm, setBackupConfirm] = useState('')
   const [testResult, setTestResult] = useState<{
     status: string
     message: string
@@ -101,6 +105,64 @@ export default function SystemSettings() {
     }
   }
 
+  const handleExportBackup = async () => {
+    if (!token) return
+    setExportingBackup(true)
+    try {
+      const response = await axios.get(`${API_URL}/api/settings/backup/export`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob',
+        timeout: 120000
+      })
+
+      const disposition = response.headers['content-disposition'] || ''
+      const filenameMatch = disposition.match(/filename="?([^"]+)"?/i)
+      const filename = filenameMatch?.[1] || `inspectorhub_full_backup_${new Date().toISOString().slice(0, 10)}.json`
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/json;charset=utf-8' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+      addNotification('Полный экспорт данных проекта готов', 'success')
+    } catch (error: any) {
+      addNotification(error.response?.data?.detail || 'Не удалось экспортировать данные проекта', 'error')
+    } finally {
+      setExportingBackup(false)
+    }
+  }
+
+  const handleImportBackup = async () => {
+    if (!token || !backupFile) {
+      addNotification('Выберите backup-файл JSON', 'error')
+      return
+    }
+    if (backupConfirm !== 'ЗАМЕНИТЬ ВСЕ ДАННЫЕ') {
+      addNotification('Введите точное подтверждение: ЗАМЕНИТЬ ВСЕ ДАННЫЕ', 'error')
+      return
+    }
+
+    const formData = new FormData()
+    formData.append('file', backupFile)
+    formData.append('confirm', backupConfirm)
+
+    setImportingBackup(true)
+    try {
+      const response = await axios.post(`${API_URL}/api/settings/backup/import`, formData, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 120000
+      })
+      addNotification(`Импорт завершен: ${response.data.rows} записей`, 'success')
+      setTimeout(() => window.location.reload(), 1200)
+    } catch (error: any) {
+      addNotification(error.response?.data?.detail || 'Не удалось импортировать backup', 'error')
+    } finally {
+      setImportingBackup(false)
+    }
+  }
+
   const systemSettings = [
     { 
       key: 'ai_provider', 
@@ -152,6 +214,50 @@ export default function SystemSettings() {
 
   return (
     <div className="space-y-8">
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">Полный экспорт / импорт проекта</h2>
+            <p className="mt-2 text-sm font-medium text-amber-900">
+              Backup включает все таблицы: пользователей, роли, оборудование, нарушения, паспорта, документы, файлы в БД, карту цеха, базу знаний, настройки, аудит и служебные данные.
+            </p>
+            <p className="mt-2 text-xs text-amber-800">
+              Импорт полностью заменяет текущую базу данных. Перед импортом обязательно сделайте экспорт текущего состояния.
+            </p>
+          </div>
+          <button
+            onClick={handleExportBackup}
+            disabled={exportingBackup}
+            className="rounded-lg bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white shadow-soft transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {exportingBackup ? 'Экспорт...' : 'Скачать полный backup'}
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_260px_auto]">
+          <input
+            type="file"
+            accept=".json,application/json"
+            onChange={(event) => setBackupFile(event.target.files?.[0] || null)}
+            className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm text-gray-900"
+          />
+          <input
+            type="text"
+            value={backupConfirm}
+            onChange={(event) => setBackupConfirm(event.target.value)}
+            placeholder="ЗАМЕНИТЬ ВСЕ ДАННЫЕ"
+            className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm text-gray-900"
+          />
+          <button
+            onClick={handleImportBackup}
+            disabled={importingBackup || !backupFile}
+            className="rounded-lg bg-red-600 px-5 py-2.5 text-sm font-semibold text-white shadow-soft transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {importingBackup ? 'Импорт...' : 'Импортировать backup'}
+          </button>
+        </div>
+      </div>
+
       {/* AI Конфигурация */}
       <div>
         <div className="flex items-center justify-between mb-2">

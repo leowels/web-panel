@@ -2,7 +2,7 @@
 
 _Generated: 2026-03-04 21:48:58_
 
-Total router endpoints: **159**
+Total router endpoints: **161**
 
 ## acts
 
@@ -162,6 +162,8 @@ Total router endpoints: **159**
 
 ## settings
 
+- `GET /api/settings/backup/export`
+- `POST /api/settings/backup/import`
 - `GET /api/settings/system`
 - `GET /api/settings/system/{key}`
 - `PUT /api/settings/system/{key}`

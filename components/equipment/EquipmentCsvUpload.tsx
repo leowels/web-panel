@@ -35,7 +35,7 @@ export default function EquipmentCsvUpload({ onClose, onSuccess }: EquipmentCsvU
       return
     }
     if (!file) {
-      addNotification('Выберите CSV файл', 'error')
+      addNotification('Выберите Excel или CSV файл', 'error')
       return
     }
 
@@ -70,7 +70,7 @@ export default function EquipmentCsvUpload({ onClose, onSuccess }: EquipmentCsvU
       <div className="bg-white rounded-xl shadow-strong max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
         <div className="p-6 border-b border-gray-300 bg-gradient-to-r from-gray-50 to-white flex justify-between items-center">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Импорт оборудования из CSV</h2>
+            <h2 className="text-2xl font-bold text-gray-900">Импорт оборудования из Excel/CSV</h2>
             <p className="text-sm text-gray-500 mt-1">
               Используйте шаблон, заполните данные в Excel и загрузите готовый файл
             </p>
@@ -104,18 +104,18 @@ export default function EquipmentCsvUpload({ onClose, onSuccess }: EquipmentCsvU
               • Файл использует разделитель «точка с запятой» ( ; ) — Excel откроет его как таблицу автоматически. <br />
               • Вторая строка содержит подсказки — её можно не трогать, система пропустит её при импорте.
             </p>
-            <p className="text-sm text-gray-600 mt-2">3. Загрузите готовый CSV ниже</p>
+            <p className="text-sm text-gray-600 mt-2">3. Можно загрузить экспортированный Excel-файл оборудования без переименования колонок.</p>
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-900 mb-2">CSV файл</label>
+            <label className="block text-sm font-semibold text-gray-900 mb-2">Excel/CSV файл</label>
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               onChange={handleFileChange}
               className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
             />
-            <p className="text-xs text-gray-500 mt-1">Поддерживаются только CSV файлы с разделителем запятая или точка с запятой.</p>
+            <p className="text-xs text-gray-500 mt-1">Поддерживаются XLSX из экспорта оборудования и CSV с русскими или техническими колонками.</p>
             {file && (
               <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
                 <span>{file.name} • {(file.size / 1024).toFixed(1)} KB</span>
