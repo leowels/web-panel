@@ -97,7 +97,7 @@ if [ -z "$PYTHON_CMD" ]; then
 fi
 
 BACKEND_PORT="${BACKEND_PORT:-8000}"
-FRONTEND_PORT="${FRONTEND_PORT:-3000}"
+FRONTEND_PORT="${FRONTEND_PORT:-${PORT:-3000}}"
 export PYTHONPATH="/home/appuser/.local/lib/python3.11/site-packages:${PYTHONPATH:-}"
 
 log "Python: $PYTHON_CMD"
@@ -135,7 +135,8 @@ log "Starting frontend on port $FRONTEND_PORT..."
 cd /app
 export PORT="$FRONTEND_PORT"
 export HOSTNAME="0.0.0.0"
-export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-http://localhost:${BACKEND_PORT}}"
+export BACKEND_URL="${BACKEND_URL:-http://127.0.0.1:${BACKEND_PORT}}"
+export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-}"
 
 if [ ! -f "/app/server.js" ]; then
   log "ERROR: /app/server.js not found"

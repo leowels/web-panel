@@ -11,7 +11,6 @@ import EquipmentIcon from './icons/EquipmentIcon'
 import ChecklistIcon from './icons/ChecklistIcon'
 import InspectionIcon from './icons/InspectionIcon'
 import ViolationIcon from './icons/ViolationIcon'
-import ActIcon from './icons/ActIcon'
 import KnowledgeIcon from './icons/KnowledgeIcon'
 import AuditIcon from './icons/AuditIcon'
 import SettingsIcon from './icons/SettingsIcon'
@@ -28,12 +27,6 @@ export default function MobileMenu() {
 
   const menuItems = [
     { name: 'Дашборд', href: '/dashboard', icon: DashboardIcon },
-    {
-      name: 'Отчеты',
-      href: '/dashboard/reports',
-      icon: AuditIcon,
-      roles: ['admin', 'manager', 'auditor', 'inspector'],
-    },
     { name: 'Пользователи', href: '/users', icon: UsersIcon, roles: ['admin'] },
     {
       name: 'Оборудование',
@@ -84,22 +77,10 @@ export default function MobileMenu() {
       roles: ['admin', 'inspector', 'operator', 'auditor', 'viewer', 'manager'],
     },
     {
-      name: 'SLA-уведомления',
-      href: '/alerts',
-      icon: ViolationIcon,
-      roles: ['admin', 'inspector', 'operator', 'auditor', 'manager'],
-    },
-    {
       name: 'Задачи',
       href: '/tasks',
       icon: InspectionIcon,
       roles: ['admin', 'inspector', 'operator', 'auditor', 'manager'],
-    },
-    {
-      name: 'Акты',
-      href: '/acts',
-      icon: ActIcon,
-      roles: ['admin', 'inspector', 'auditor', 'manager'],
     },
     {
       name: 'База знаний',

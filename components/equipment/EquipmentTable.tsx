@@ -884,17 +884,6 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation()
-                                      pushCreateWithEquipment('/acts', eq.id)
-                                      setActionsOpenId(null)
-                                    }}
-                                    className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
-                                  >
-                                    Создать акт
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
                                       pushCreateWithEquipment('/violations', eq.id)
                                       setActionsOpenId(null)
                                     }}
@@ -926,17 +915,6 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
                                     className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
                                   >
                                     Осмотры
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      pushWithEquipment('/acts', eq.id)
-                                      setActionsOpenId(null)
-                                    }}
-                                    className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
-                                  >
-                                    Акты
                                   </button>
                                   <button
                                     type="button"
@@ -1162,12 +1140,6 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
                         Осмотр
                       </button>
                       <button
-                        onClick={() => pushCreateWithEquipment('/acts', eq.id)}
-                        className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                      >
-                        Акт
-                      </button>
-                      <button
                         onClick={() => pushCreateWithEquipment('/violations', eq.id)}
                         className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                       >
@@ -1187,12 +1159,6 @@ export default function EquipmentTable({ onEdit, onView, onViewHistory, refreshK
                         className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                       >
                         Осмотры
-                      </button>
-                      <button
-                        onClick={() => pushWithEquipment('/acts', eq.id)}
-                        className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                      >
-                        Акты
                       </button>
                       <button
                         onClick={() => pushWithEquipment('/violations', eq.id)}

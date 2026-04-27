@@ -129,13 +129,11 @@ export default function WorkflowPage() {
     const withoutInspections = rows.filter((item) => item.inspections_total === 0).length
     const withOpenViolations = rows.filter((item) => item.violations_open > 0).length
     const withoutTasks = rows.filter((item) => item.violations_open > 0 && (item.tasks_open + item.tasks_in_work) === 0).length
-    const withoutActs = rows.filter((item) => item.violations_open > 0 && (item.acts_draft + item.acts_signed + item.acts_completed) === 0).length
     return {
       total,
       withoutInspections,
       withOpenViolations,
       withoutTasks,
-      withoutActs,
     }
   }, [rows])
 
@@ -150,21 +148,11 @@ export default function WorkflowPage() {
           : row.tasks_open > 0
             ? 'warning'
             : 'danger'
-    const actsTone =
-      row.violations_open === 0
-        ? 'neutral'
-        : row.acts_signed + row.acts_completed > 0
-          ? 'success'
-          : row.acts_draft > 0
-            ? 'info'
-            : 'danger'
-
     return (
       <div className="flex flex-wrap gap-1">
         <StatusBadge label="Осмотр" tone={inspectionsTone} />
         <StatusBadge label="Нарушения" tone={violationsTone} />
         <StatusBadge label="Задачи" tone={tasksTone} />
-        <StatusBadge label="Акты" tone={actsTone} />
       </div>
     )
   }
@@ -180,7 +168,7 @@ export default function WorkflowPage() {
         <div className="max-w-[1600px] mx-auto space-y-6">
           <PageHeader
             title="Сквозной workflow"
-            subtitle="Осмотр → Нарушение → Задача → Акт → Закрытие"
+            subtitle="Осмотр → Нарушение → Задача → Закрытие"
             actions={(
               <button
                 type="button"
@@ -192,7 +180,7 @@ export default function WorkflowPage() {
             )}
           />
 
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="bg-white border border-slate-200 rounded-xl p-4">
               <div className="text-xs uppercase text-slate-400">Всего объектов</div>
               <div className="mt-1 text-2xl font-semibold text-slate-900">{summary.total}</div>
@@ -208,10 +196,6 @@ export default function WorkflowPage() {
             <div className="bg-white border border-slate-200 rounded-xl p-4">
               <div className="text-xs uppercase text-slate-400">Нет задач</div>
               <div className="mt-1 text-2xl font-semibold text-amber-600">{summary.withoutTasks}</div>
-            </div>
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <div className="text-xs uppercase text-slate-400">Нет актов</div>
-              <div className="mt-1 text-2xl font-semibold text-amber-600">{summary.withoutActs}</div>
             </div>
           </div>
 
@@ -254,7 +238,6 @@ export default function WorkflowPage() {
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Осмотры</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Нарушения</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Задачи</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Акты</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Цепочка</th>
                         <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Действия</th>
                       </tr>
@@ -277,9 +260,6 @@ export default function WorkflowPage() {
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-700">
                             открыто: {row.tasks_open}, в работе: {row.tasks_in_work}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-700">
-                            черновик: {row.acts_draft}, подписано: {row.acts_signed + row.acts_completed}
                           </td>
                           <td className="px-4 py-3">
                             {renderChainBadges(row)}
@@ -326,9 +306,6 @@ export default function WorkflowPage() {
                     <div className={`border rounded-lg px-3 py-2 text-sm ${stageBadge(selected.tasks_open === 0 && selected.tasks_in_work === 0)}`}>
                       Задачи: открыто {selected.tasks_open}, в работе {selected.tasks_in_work}, закрыто {selected.tasks_completed}
                     </div>
-                    <div className={`border rounded-lg px-3 py-2 text-sm ${stageBadge(selected.acts_signed + selected.acts_completed > 0)}`}>
-                      Акты: черновик {selected.acts_draft}, подписано {selected.acts_signed + selected.acts_completed}
-                    </div>
                   </div>
 
                   <div className="pt-2">
@@ -340,7 +317,6 @@ export default function WorkflowPage() {
                             <th className="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">ID</th>
                             <th className="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Статус</th>
                             <th className="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Задачи</th>
-                            <th className="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Акты</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
@@ -349,7 +325,6 @@ export default function WorkflowPage() {
                               <td className="px-2 py-2 text-xs font-semibold text-gray-800">#{item.violation_id}</td>
                               <td className="px-2 py-2 text-xs">{item.violation_status}</td>
                               <td className="px-2 py-2 text-xs">{item.open_task_ids.length}/{item.task_ids.length}</td>
-                              <td className="px-2 py-2 text-xs">{item.draft_act_ids.length}/{item.act_ids.length}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -365,10 +340,10 @@ export default function WorkflowPage() {
                       К нарушениям
                     </button>
                     <button
-                      onClick={() => router.push(`/acts?equipment_id=${selected.equipment_id}`)}
+                      onClick={() => router.push(`/tasks?equipment_id=${selected.equipment_id}`)}
                       className="inline-flex items-center justify-center px-3 py-2 text-sm font-semibold rounded-lg border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
                     >
-                      К актам
+                      К задачам
                     </button>
                   </div>
                 </div>

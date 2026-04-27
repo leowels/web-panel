@@ -159,7 +159,6 @@ export default function OperationsDashboard({ theme, isManager }: { theme: Theme
   const [violations, setViolations] = useState<Row[]>([])
   const [riskTop, setRiskTop] = useState<Row[]>([])
   const [passports, setPassports] = useState<Row[]>([])
-  const [alerts, setAlerts] = useState<Row>({})
   const [audit, setAudit] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
   const [warning, setWarning] = useState<string | null>(null)
@@ -179,7 +178,6 @@ export default function OperationsDashboard({ theme, isManager }: { theme: Theme
         axios.get(`${API_URL}/api/violations?limit=1000`, config),
         axios.get(`${API_URL}/api/equipment/risk/top?limit=8`, config),
         axios.get(`${API_URL}/api/passports/index`, config),
-        axios.get(`${API_URL}/api/alerts/summary`, config),
         axios.get(`${API_URL}/api/audit?limit=10`, config),
       ])
       if (!mounted) return
@@ -189,8 +187,7 @@ export default function OperationsDashboard({ theme, isManager }: { theme: Theme
       setViolations(toList(data[1]))
       setRiskTop(toList(data[2]))
       setPassports(toList(data[3]))
-      setAlerts((data[4] || {}) as Row)
-      setAudit(toList(data[5]))
+      setAudit(toList(data[4]))
       setUpdatedAt(new Date())
       setWarning(failed ? `Часть данных не загрузилась: ${failed} источник(а).` : null)
       setLoading(false)
@@ -299,7 +296,6 @@ export default function OperationsDashboard({ theme, isManager }: { theme: Theme
   const muted = theme === 'dark' ? 'text-slate-400' : 'text-slate-500'
   const page = theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
   const field = theme === 'dark' ? 'border-slate-700 bg-slate-900 text-slate-100' : 'border-slate-200 bg-white text-slate-900'
-  const activeAlerts = alerts.unacknowledged ?? alerts.total ?? 0
   const safeState = model.overdue.length === 0 && model.criticalOpen.length === 0 && model.banned.length === 0
 
   if (loading) {
@@ -341,7 +337,7 @@ export default function OperationsDashboard({ theme, isManager }: { theme: Theme
                 <p className="mt-1 text-2xl font-black">{model.open.length}</p>
               </div>
               <div className="rounded-2xl bg-white/10 p-3 ring-1 ring-white/10">
-                <p className="text-xs text-white/60">SLA</p>
+                <p className="text-xs text-white/60">Просрочки</p>
                 <p className="mt-1 text-2xl font-black">{model.overdue.length}</p>
               </div>
             </div>
@@ -377,7 +373,6 @@ export default function OperationsDashboard({ theme, isManager }: { theme: Theme
             <div className={`mt-4 rounded-2xl border p-4 ${theme === 'dark' ? 'border-slate-800 bg-slate-950' : 'border-slate-200 bg-slate-50'}`}>
               <div className="flex flex-wrap gap-2 text-xs font-bold">
                 <span className={`rounded-full px-3 py-1 ${toneBadge('neutral', theme)}`}>Обновлено: {updatedAt ? updatedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : 'только что'}</span>
-                <span className={`rounded-full px-3 py-1 ${toneBadge(activeAlerts ? 'warning' : 'success', theme)}`}>Алерты: {activeAlerts}</span>
                 <span className={`rounded-full px-3 py-1 ${toneBadge(model.passportReadiness >= 80 ? 'success' : 'warning', theme)}`}>Паспорта: {model.passportReadiness}%</span>
                 <span className={`rounded-full px-3 py-1 ${toneBadge(model.soon.length ? 'warning' : 'success', theme)}`}>Сроки: {model.soon.length}</span>
               </div>
@@ -389,7 +384,7 @@ export default function OperationsDashboard({ theme, isManager }: { theme: Theme
       <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Kpi title="Оборудование" value={model.equipmentFiltered.length} caption={`Запрет эксплуатации: ${model.banned.length}`} tone={model.banned.length ? 'danger' : 'info'} href="/equipment" theme={theme} />
         <Kpi title="Нарушения" value={model.open.length} caption={`Критичных: ${model.criticalOpen.length}`} tone={model.criticalOpen.length ? 'danger' : model.open.length ? 'warning' : 'success'} href="/violations" theme={theme} />
-        <Kpi title="Просрочки" value={model.overdue.length} caption={`Активные алерты: ${activeAlerts}`} tone={model.overdue.length ? 'danger' : activeAlerts ? 'warning' : 'success'} href="/alerts" theme={theme} />
+        <Kpi title="Просрочки" value={model.overdue.length} caption={`Ближайшие сроки: ${model.soon.length}`} tone={model.overdue.length ? 'danger' : model.soon.length ? 'warning' : 'success'} href="/violations" theme={theme} />
         <Kpi title="Паспорта" value={`${model.passportReadiness}%`} caption={`Нужно заполнить: ${model.weakPassports.length}`} tone={model.passportReadiness >= 80 ? 'success' : model.passportReadiness >= 55 ? 'warning' : 'danger'} href="/passports" theme={theme} />
       </div>
 

@@ -566,15 +566,6 @@ export default function ViolationsTable({
                             {workflowBusy.action === 'task' && workflowBusy.id === violation.id ? '...' : 'Задача'}
                           </button>
                         )}
-                        {canMutate && (
-                          <button
-                            onClick={() => handleCreateActFromViolation(violation)}
-                            disabled={workflowBusy.action === 'act' && workflowBusy.id === violation.id}
-                            className="px-2.5 py-1 text-xs font-semibold rounded border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-60"
-                          >
-                            {workflowBusy.action === 'act' && workflowBusy.id === violation.id ? '...' : 'Акт'}
-                          </button>
-                        )}
                         {violation.inspection_id && (
                           <button
                             onClick={() => router.push(`/inspections?inspection_id=${violation.inspection_id}`)}
@@ -685,15 +676,6 @@ export default function ViolationsTable({
                       {workflowBusy.action === 'task' && workflowBusy.id === violation.id ? 'Создание...' : 'Создать задачу'}
                     </button>
                   )}
-                  {canMutate && (
-                    <button
-                      onClick={() => handleCreateActFromViolation(violation)}
-                      disabled={workflowBusy.action === 'act' && workflowBusy.id === violation.id}
-                      className="inline-flex items-center justify-center px-3 py-2 text-sm font-semibold rounded-lg border border-emerald-200 text-emerald-700 bg-emerald-50 disabled:opacity-60"
-                    >
-                      {workflowBusy.action === 'act' && workflowBusy.id === violation.id ? 'Создание...' : 'Создать акт'}
-                    </button>
-                  )}
                   {violation.inspection_id && (
                     <button
                       onClick={() => router.push(`/inspections?inspection_id=${violation.inspection_id}`)}
@@ -745,7 +727,6 @@ export default function ViolationsTable({
     </div>
   )
 }
-
 
 
 

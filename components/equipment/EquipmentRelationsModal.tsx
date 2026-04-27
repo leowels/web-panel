@@ -7,11 +7,9 @@ import ViolationsTable from '@/components/violations/ViolationsTable'
 import ViolationForm from '@/components/violations/ViolationForm'
 import InspectionsTable from '@/components/inspections/InspectionsTable'
 import InspectionWizard from '@/components/inspections/InspectionWizard'
-import ActsTable from '@/components/acts/ActsTable'
-import ActForm from '@/components/acts/ActForm'
 import TasksTable from '@/components/tasks/TasksTable'
 
-export type EquipmentRelationTab = 'violations' | 'inspections' | 'acts' | 'tasks'
+export type EquipmentRelationTab = 'violations' | 'inspections' | 'tasks'
 
 interface EquipmentRelationsModalProps {
   equipmentId: number
@@ -22,7 +20,6 @@ interface EquipmentRelationsModalProps {
 const tabs: Array<{ key: EquipmentRelationTab; label: string }> = [
   { key: 'violations', label: 'Нарушения' },
   { key: 'inspections', label: 'Осмотры' },
-  { key: 'acts', label: 'Акты' },
   { key: 'tasks', label: 'Задачи' },
 ]
 
@@ -37,9 +34,6 @@ export default function EquipmentRelationsModal({ equipmentId, initialTab, onClo
 
   const [showInspectionWizard, setShowInspectionWizard] = useState(false)
   const [selectedInspectionId, setSelectedInspectionId] = useState<number | null>(null)
-
-  const [showActForm, setShowActForm] = useState(false)
-  const [selectedActId, setSelectedActId] = useState<number | null>(null)
 
   useEffect(() => {
     setActiveTab(initialTab)
@@ -58,10 +52,6 @@ export default function EquipmentRelationsModal({ equipmentId, initialTab, onClo
       setSelectedInspectionId(null)
       setShowInspectionWizard(true)
       return
-    }
-    if (activeTab === 'acts') {
-      setSelectedActId(null)
-      setShowActForm(true)
     }
   }
 
@@ -97,14 +87,13 @@ export default function EquipmentRelationsModal({ equipmentId, initialTab, onClo
               </button>
             ))}
 
-            {canMutate && (activeTab === 'violations' || activeTab === 'inspections' || activeTab === 'acts') && (
+            {canMutate && (activeTab === 'violations' || activeTab === 'inspections') && (
               <button
                 onClick={openCreateForm}
                 className="ml-auto inline-flex items-center rounded-lg px-3 py-2 text-sm font-semibold border border-primary-200 text-primary-700 bg-primary-50 hover:bg-primary-100"
               >
                 {activeTab === 'violations' && 'Создать нарушение'}
                 {activeTab === 'inspections' && 'Начать осмотр'}
-                {activeTab === 'acts' && 'Создать акт'}
               </button>
             )}
           </div>
@@ -135,23 +124,6 @@ export default function EquipmentRelationsModal({ equipmentId, initialTab, onClo
                   setShowInspectionWizard(true)
                 }}
                 equipmentFilterId={equipmentId}
-              />
-            )}
-
-            {activeTab === 'acts' && (
-              <ActsTable
-                key={`acts-${equipmentId}-${refreshKey}`}
-                onEdit={(id) => {
-                  if (!canMutate) return
-                  setSelectedActId(id)
-                  setShowActForm(true)
-                }}
-                onView={(id) => {
-                  setSelectedActId(id)
-                  setShowActForm(true)
-                }}
-                equipmentFilterId={equipmentId}
-                refreshKey={refreshKey}
               />
             )}
 
@@ -198,22 +170,7 @@ export default function EquipmentRelationsModal({ equipmentId, initialTab, onClo
         />
       )}
 
-      {showActForm && (
-        <ActForm
-          actId={selectedActId}
-          prefillEquipmentId={equipmentId}
-          onClose={() => {
-            setShowActForm(false)
-            setSelectedActId(null)
-          }}
-          onSuccess={() => {
-            setShowActForm(false)
-            setSelectedActId(null)
-            triggerRefresh()
-          }}
-        />
-      )}
-
     </>
   )
 }
+

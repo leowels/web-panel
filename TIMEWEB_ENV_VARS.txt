@@ -1,26 +1,29 @@
-# Скопируйте эти переменные в настройки Docker контейнера в Timeweb Cloud
-# Раздел: Переменные окружения (Environment Variables)
+# Timeweb Cloud environment variables for one Docker container.
+# Frontend and backend run inside the same container.
 
-SECRET_KEY=8E7ExQa6dqn-yERIMMHbA_IzLdvTJ6Vw1mLSslMoBp0
+SECRET_KEY=replace_with_long_random_secret
 
-POSTGRESQL_HOST=be96b16b290a1cfbdf0595d0.twc1.net
+POSTGRESQL_HOST=192.168.0.4
 POSTGRESQL_PORT=5432
 POSTGRESQL_USER=gen_user
-POSTGRESQL_PASSWORD=ваш_пароль_от_бд
+POSTGRESQL_PASSWORD=replace_with_database_password
 POSTGRESQL_DBNAME=default_db
+POSTGRESQL_SSL=false
 
-# Backend порт
 BACKEND_PORT=8000
-PORT=8000
-
-# Frontend порт
 FRONTEND_PORT=3000
+BACKEND_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_API_URL=
 
 ENVIRONMENT=production
-ADMIN_PASSWORD=ваш_пароль_администратора
-CORS_ORIGINS=https://leowels-web-panel-b874.twc1.net,http://localhost:3000
-
-NEXT_PUBLIC_API_URL=http://localhost:8000
-BACKEND_URL=http://localhost:8000
 NODE_ENV=production
+NEXT_TELEMETRY_DISABLED=1
 
+CORS_ORIGINS=https://leowels-panel.ru,http://localhost:3000
+
+ADMIN_PASSWORD=admin123
+ADMIN_FORCE_RESET_PASSWORD=false
+
+AI_HTTP_TIMEOUT_SECONDS=45
+ENABLE_TELEGRAM_INGEST=true
+TELEGRAM_INGEST_TOKEN=replace_with_random_token

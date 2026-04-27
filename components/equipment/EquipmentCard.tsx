@@ -41,7 +41,7 @@ interface EquipmentCardProps {
   equipmentId: number
   onClose: () => void
   onEdit: () => void
-  onOpenRelations?: (tab: 'violations' | 'inspections' | 'acts' | 'tasks', equipmentId: number) => void
+  onOpenRelations?: (tab: 'violations' | 'inspections' | 'tasks', equipmentId: number) => void
 }
 
 interface RelatedFile {
@@ -78,7 +78,6 @@ export default function EquipmentCard({ equipmentId, onClose, onEdit, onOpenRela
   const [related, setRelated] = useState({
     violations: [] as any[],
     inspections: [] as any[],
-    acts: [] as any[],
     tasks: [] as any[],
     files: [] as RelatedFile[],
   })
@@ -108,10 +107,9 @@ export default function EquipmentCard({ equipmentId, onClose, onEdit, onOpenRela
     try {
       const params = { equipment_id: equipmentId, limit: 5 }
       const fileParams = { equipment_id: equipmentId }
-      const [violations, inspections, acts, tasks, files] = await Promise.allSettled([
+      const [violations, inspections, tasks, files] = await Promise.allSettled([
         axios.get(`${API_URL}/api/violations`, { params, headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`${API_URL}/api/inspections`, { params, headers: { Authorization: `Bearer ${token}` } }),
-        axios.get(`${API_URL}/api/acts`, { params, headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`${API_URL}/api/tasks`, { params, headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`${API_URL}/api/files`, { params: fileParams, headers: { Authorization: `Bearer ${token}` } }),
       ])
@@ -133,7 +131,6 @@ export default function EquipmentCard({ equipmentId, onClose, onEdit, onOpenRela
       setRelated({
         violations: getPayload(violations, [] as any[]),
         inspections: getPayload(inspections, [] as any[]),
-        acts: getPayload(acts, [] as any[]),
         tasks: getPayload(tasks, [] as any[]),
         files: getPayload(files, [] as RelatedFile[]),
       })
@@ -307,12 +304,11 @@ export default function EquipmentCard({ equipmentId, onClose, onEdit, onOpenRela
   const quickStats: Array<{
     title: string
     value: number
-    tab: 'violations' | 'inspections' | 'acts' | 'tasks'
+    tab: 'violations' | 'inspections' | 'tasks'
     href: string
   }> = [
     { title: 'Нарушения', value: related.violations.length, tab: 'violations', href: `/violations?equipment_id=${equipment.id}` },
     { title: 'Осмотры', value: related.inspections.length, tab: 'inspections', href: `/inspections?equipment_id=${equipment.id}` },
-    { title: 'Акты', value: related.acts.length, tab: 'acts', href: `/acts?equipment_id=${equipment.id}` },
     { title: 'Задачи', value: related.tasks.length, tab: 'tasks', href: `/tasks?equipment_id=${equipment.id}` },
   ]
 
@@ -413,7 +409,7 @@ export default function EquipmentCard({ equipmentId, onClose, onEdit, onOpenRela
           {relatedLoading ? (
             <div className="text-sm text-slate-500">Загрузка...</div>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {quickStats.map((item) => (
                 <button
                   key={item.title}
@@ -434,7 +430,7 @@ export default function EquipmentCard({ equipmentId, onClose, onEdit, onOpenRela
           )}
 
           {!relatedLoading && (
-            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               <div className="border border-slate-200 rounded-lg p-3">
                 <p className="text-sm font-semibold text-slate-800 mb-2">Последние нарушения</p>
                 {related.violations.length > 0 ? (
@@ -443,22 +439,6 @@ export default function EquipmentCard({ equipmentId, onClose, onEdit, onOpenRela
                       <li key={v.id} className="text-xs text-slate-700">
                         <div className="font-medium">{v.violation_type || 'Нарушение'}</div>
                         <div className="text-[11px] text-slate-500">{(v.status || 'open')} • {v.created_at ? format(new Date(v.created_at), 'dd.MM.yyyy') : '—'}</div>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="text-xs text-slate-500">Нет данных</div>
-                )}
-              </div>
-
-              <div className="border border-slate-200 rounded-lg p-3">
-                <p className="text-sm font-semibold text-slate-800 mb-2">Последние акты</p>
-                {related.acts.length > 0 ? (
-                  <ul className="space-y-2">
-                    {related.acts.slice(0, 3).map((a) => (
-                      <li key={a.id} className="text-xs text-slate-700">
-                        <div className="font-medium">{a.act_number || `Акт #${a.id}`}</div>
-                        <div className="text-[11px] text-slate-500">{(a.status || 'draft')} • {a.act_date ? format(new Date(a.act_date), 'dd.MM.yyyy') : '—'}</div>
                       </li>
                     ))}
                   </ul>

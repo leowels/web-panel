@@ -15,7 +15,7 @@ POSTGRESQL_USER=gen_user
 POSTGRESQL_PASSWORD=n+qIlo?#l<v5Zh
 POSTGRESQL_DBNAME=default_db
 # Р вЂќР В»РЎРЏ Р С—РЎР‚Р С‘Р Р†Р В°РЎвЂљР Р…Р С•Р в„– РЎРѓР ВµРЎвЂљР С‘ SSL Р С•Р В±РЎвЂ№РЎвЂЎР Р…Р С• Р Р…Р Вµ Р Р…РЎС“Р В¶Р ВµР Р…
-POSTGRESQL_SSL=true
+POSTGRESQL_SSL=false
 
 # ============================================
 # Р С›Р СџР В¦Р ВР С›Р СњР С’Р вЂєР В¬Р СњР В«Р вЂў Р СџР вЂўР В Р вЂўР СљР вЂўР СњР СњР В«Р вЂў
@@ -30,10 +30,12 @@ ENVIRONMENT=production
 
 # CORS (РЎС“Р С”Р В°Р В¶Р С‘РЎвЂљР Вµ Р Т‘Р С•Р СР ВµР Р… Frontend Р С—Р С•РЎРѓР В»Р Вµ Р Т‘Р ВµР С—Р В»Р С•РЎРЏ!)
 CORS_ORIGINS=http://localhost:3000,https://leowels-panel.ru
+BACKEND_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_API_URL=
 
 # Р С’Р Т‘Р СР С‘Р Р… Р С—Р В°РЎР‚Р С•Р В»РЎРЉ
 ADMIN_PASSWORD=admin123
-ADMIN_FORCE_RESET_PASSWORD=true
+ADMIN_FORCE_RESET_PASSWORD=false
 # AI (Р ВµРЎРѓР В»Р С‘ Р С‘РЎРѓР С—Р С•Р В»РЎРЉР В·РЎС“Р ВµРЎвЂљРЎРѓРЎРЏ)
 AI_API_URL=Р Р†Р В°РЎв‚¬_ai_api_url
 AI_API_KEY=Р Р†Р В°РЎв‚¬_ai_api_key

@@ -8,7 +8,7 @@ const nextConfig = {
   // Прокси для API запросов
   // В одном контейнере проксируем все /api/* на Backend
   async rewrites() {
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+    const backendUrl = process.env.BACKEND_URL || 'http://127.0.0.1:8000';
     return [
       {
         source: '/api/:path*',
