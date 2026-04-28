@@ -19,7 +19,7 @@ import pytesseract
 
 logger = logging.getLogger(__name__)
 
-# Р СџР С•Р Т‘Р Т‘Р ВµРЎР‚Р В¶Р С”Р В° Р В·Р В°Р С—РЎС“РЎРѓР С”Р В° Р С”Р В°Р С” РЎРѓР С”РЎР‚Р С‘Р С—РЎвЂљР В° Р С‘ Р С”Р В°Р С” Р СР С•Р Т‘РЎС“Р В»РЎРЏ
+# Поддержка запуска как из backend-пакета, так и как модуля.
 try:
     from backend.models import Equipment, EquipmentHistory, UserActivity, User, UserRole, File, Violation
     from backend.database import get_db
@@ -148,8 +148,8 @@ class EquipmentCreate(BaseModel):
     operation_permit_until: Optional[datetime] = None
     operation_banned: Optional[bool] = False
     epb_positive_details: Optional[str] = None
-    map_x: Optional[float] = None  # Р С™Р С•Р С•РЎР‚Р Т‘Р С‘Р Р…Р В°РЎвЂљР В° X Р Р…Р В° Р С”Р В°РЎР‚РЎвЂљР Вµ (0-100%)
-    map_y: Optional[float] = None  # Р С™Р С•Р С•РЎР‚Р Т‘Р С‘Р Р…Р В°РЎвЂљР В° Y Р Р…Р В° Р С”Р В°РЎР‚РЎвЂљР Вµ (0-100%)
+    map_x: Optional[float] = None  # Координата X на карте (0-100%)
+    map_y: Optional[float] = None  # Координата Y на карте (0-100%)
     status: Optional[str] = "active"
 
 class EquipmentUpdate(BaseModel):
@@ -171,8 +171,8 @@ class EquipmentUpdate(BaseModel):
     operation_permit_until: Optional[datetime] = None
     operation_banned: Optional[bool] = None
     epb_positive_details: Optional[str] = None
-    map_x: Optional[float] = None  # Р С™Р С•Р С•РЎР‚Р Т‘Р С‘Р Р…Р В°РЎвЂљР В° X Р Р…Р В° Р С”Р В°РЎР‚РЎвЂљР Вµ (0-100%)
-    map_y: Optional[float] = None  # Р С™Р С•Р С•РЎР‚Р Т‘Р С‘Р Р…Р В°РЎвЂљР В° Y Р Р…Р В° Р С”Р В°РЎР‚РЎвЂљР Вµ (0-100%)
+    map_x: Optional[float] = None  # Координата X на карте (0-100%)
+    map_y: Optional[float] = None  # Координата Y на карте (0-100%)
     status: Optional[str] = None
 
 class EquipmentResponse(BaseModel):
@@ -189,8 +189,8 @@ class EquipmentResponse(BaseModel):
     operation_permit_until: Optional[datetime]
     operation_banned: Optional[bool]
     epb_positive_details: Optional[str]
-    map_x: Optional[float]  # Р С™Р С•Р С•РЎР‚Р Т‘Р С‘Р Р…Р В°РЎвЂљР В° X Р Р…Р В° Р С”Р В°РЎР‚РЎвЂљР Вµ (0-100%)
-    map_y: Optional[float]  # Р С™Р С•Р С•РЎР‚Р Т‘Р С‘Р Р…Р В°РЎвЂљР В° Y Р Р…Р В° Р С”Р В°РЎР‚РЎвЂљР Вµ (0-100%)
+    map_x: Optional[float]  # Координата X на карте (0-100%)
+    map_y: Optional[float]  # Координата Y на карте (0-100%)
     load_capacity: Optional[float]
     manufacturer: Optional[str]
     installation_date: Optional[datetime]
@@ -278,15 +278,15 @@ class EquipmentOCRUpsertRequest(BaseModel):
 
 class EquipmentOCRUpsertResponse(BaseModel):
     id: int
-    created: bool  # True Р ВµРЎРѓР В»Р С‘ РЎРѓР С•Р В·Р Т‘Р В°Р Р… Р Р…Р С•Р Р†РЎвЂ№Р в„–, False Р ВµРЎРѓР В»Р С‘ Р С•Р В±Р Р…Р С•Р Р†Р В»Р ВµР Р… РЎРѓРЎС“РЎвЂ°Р ВµРЎРѓРЎвЂљР Р†РЎС“РЎР‹РЎвЂ°Р С‘Р в„–
+    created: bool  # True если создана новая запись, False если обновлена существующая
 
 
 class EquipmentOCRImportRequest(BaseModel):
     """
-    Р вЂ”Р В°Р С—РЎР‚Р С•РЎРѓ Р Р…Р В° Р С‘Р СР С—Р С•РЎР‚РЎвЂљ Р С•Р В±Р С•РЎР‚РЎС“Р Т‘Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ РЎвЂЎР ВµРЎР‚Р ВµР В· OCR/РЎвЂљР В°Р В±Р В»Р С‘РЎвЂЎР Р…РЎвЂ№Р в„– РЎвЂљР ВµР С”РЎРѓРЎвЂљ.
-    Р вЂ™Р В°РЎР‚Р С‘Р В°Р Р…РЎвЂљРЎвЂ№:
-    - ocr_text: РЎС“Р В¶Р Вµ РЎР‚Р В°РЎРѓР С—Р С•Р В·Р Р…Р В°Р Р…Р Р…РЎвЂ№Р в„– РЎвЂљР ВµР С”РЎРѓРЎвЂљ РЎвЂљР В°Р В±Р В»Р С‘РЎвЂ РЎвЂ№ (CSV-Р С—Р С•Р Т‘Р С•Р В±Р Р…РЎвЂ№Р в„–)
-    - file_id: ID РЎвЂћР В°Р в„–Р В»Р В° Р Р† РЎвЂљР В°Р В±Р В»Р С‘РЎвЂ Р Вµ files (РЎвЂћР С•РЎвЂљР С• Р С‘Р В»Р С‘ CSV/РЎвЂљР ВµР С”РЎРѓРЎвЂљ)
+    Запрос на импорт оборудования через OCR/табличный текст.
+    Варианты:
+    - ocr_text: уже распознанный текст таблицы (CSV-подобный)
+    - file_id: ID файла в files (фото или CSV/текст)
     """
     ocr_text: Optional[str] = None
     file_id: Optional[int] = None
@@ -494,11 +494,11 @@ async def _bulk_create_equipment_items(
 
     for index, item in enumerate(items):
         try:
-            # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С Р С•Р В±РЎРЏР В·Р В°РЎвЂљР ВµР В»РЎРЉР Р…РЎвЂ№Р Вµ Р С—Р С•Р В»РЎРЏ
+            # Проверяем обязательные поля
             if not item.passport_number or not item.equipment_type:
                 raise HTTPException(status_code=400, detail="Passport number and equipment type are required")
 
-            # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С Р Т‘РЎС“Р В±Р В»Р С‘Р С”Р В°РЎвЂљРЎвЂ№ Р С—Р В°РЎРѓР С—Р С•РЎР‚РЎвЂљР В°
+            # Проверяем дубликаты паспорта
             existing_passport = await db.execute(
                 select(Equipment.id).where(Equipment.passport_number == item.passport_number)
             )
@@ -516,7 +516,7 @@ async def _bulk_create_equipment_items(
                     continue
                 raise HTTPException(status_code=400, detail="Passport number already exists")
 
-            # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С Р Т‘РЎС“Р В±Р В»Р С‘Р С”Р В°РЎвЂљРЎвЂ№ Р С‘Р Р…Р Р†Р ВµР Р…РЎвЂљР В°РЎР‚Р Р…Р С•Р С–Р С• Р Р…Р С•Р СР ВµРЎР‚Р В°
+            # Проверяем дубликаты инвентарного номера
             if item.inventory_number:
                 existing_inventory = await db.execute(
                     select(Equipment.id).where(Equipment.inventory_number == item.inventory_number)
@@ -537,8 +537,7 @@ async def _bulk_create_equipment_items(
 
             new_equipment = Equipment(
                 **item.dict(),
-                created_by=current_user.id,
-                status=item.status or "active"
+                created_by=current_user.id
             )
             db.add(new_equipment)
             await db.flush()
@@ -610,13 +609,13 @@ def _normalize_csv_date(value: Any) -> Optional[str]:
     value = str(value).strip()
     if not value:
         return None
-    # Р СџР С•Р Т‘Р Т‘Р ВµРЎР‚Р В¶Р С‘Р Р†Р В°Р ВµР С РЎвЂћР С•РЎР‚Р СР В°РЎвЂљРЎвЂ№ YYYY-MM-DD Р С‘ DD.MM.YYYY
+    # Поддерживаем форматы YYYY-MM-DD и DD.MM.YYYY
     if re.match(r"^\d{4}-\d{2}-\d{2}$", value):
         return f"{value}T00:00:00"
     if re.match(r"^\d{2}\.\d{2}\.\d{4}$", value):
         dt = datetime.strptime(value, "%d.%m.%Y")
         return dt.strftime("%Y-%m-%dT00:00:00")
-    # Р С›РЎРѓРЎвЂљР В°Р Р†Р В»РЎРЏР ВµР С Р С”Р В°Р С” Р ВµРЎРѓРЎвЂљРЎРЉ - Pydantic Р С—Р С•Р С—РЎР‚Р С•Р В±РЎС“Р ВµРЎвЂљ РЎР‚Р В°РЎРѓР С—Р В°РЎР‚РЎРѓР С‘РЎвЂљРЎРЉ
+    # Оставляем как есть — Pydantic попробует распарсить
     return value
 
 
@@ -2013,6 +2012,4 @@ async def get_equipment_violations(
             "workshop": equipment.workshop
         }
     }
-
-
 
